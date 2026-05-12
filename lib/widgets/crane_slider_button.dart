@@ -204,7 +204,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

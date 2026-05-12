@@ -232,67 +232,65 @@ class _ControlScreenState extends State<ControlScreen>
                   // if (controller.conflictActive) _conflictBanner(),
                   //               if (controller.conflictActive) const SizedBox(height: 6),
                   // ── Hoist controls
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: CraneSliderButton(
-                            label: 'UP',
-                            icon: Icons.arrow_upward_rounded,
-                            isUp: true,
-                            // Disabled when e-stop is active, disconnected,
-                            // OR the DOWN button is currently active (mutual exclusion).
-                            isDisabled:
-                                controller.estopLatched ||
-                                !controller.isConnected ||
-                                _downActive,
-                            onCommandChanged: (state) {
-                              setState(() {
-                                _upActive = state != ControlState.idle;
-                              });
-                              controller.setHoistCommand(
-                                isUp: true,
-                                state: state,
-                              );
-                            },
-                            externalState: switch (controller.hoistState) {
-                              HoistState.upSlow => ControlState.slow,
-                              HoistState.upFast => ControlState.fast,
-                              _ => ControlState.idle,
-                            },
-                          ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CraneSliderButton(
+                          label: 'UP',
+                          icon: Icons.arrow_upward_rounded,
+                          isUp: true,
+                          // Disabled when e-stop is active, disconnected,
+                          // OR the DOWN button is currently active (mutual exclusion).
+                          isDisabled:
+                              controller.estopLatched ||
+                              !controller.isConnected ||
+                              _downActive,
+                          onCommandChanged: (state) {
+                            setState(() {
+                              _upActive = state != ControlState.idle;
+                            });
+                            controller.setHoistCommand(
+                              isUp: true,
+                              state: state,
+                            );
+                          },
+                          externalState: switch (controller.hoistState) {
+                            HoistState.upSlow => ControlState.slow,
+                            HoistState.upFast => ControlState.fast,
+                            _ => ControlState.idle,
+                          },
                         ),
-
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: CraneSliderButton(
-                            label: 'DOWN',
-                            icon: Icons.arrow_downward_rounded,
-                            isUp: false,
-                            // Disabled when e-stop is active, disconnected,
-                            // OR the UP button is currently active (mutual exclusion).
-                            isDisabled:
-                                controller.estopLatched ||
-                                !controller.isConnected ||
-                                _upActive,
-                            onCommandChanged: (state) {
-                              setState(() {
-                                _downActive = state != ControlState.idle;
-                              });
-                              controller.setHoistCommand(
-                                isUp: false,
-                                state: state,
-                              );
-                            },
-                            externalState: switch (controller.hoistState) {
-                              HoistState.downSlow => ControlState.slow,
-                              HoistState.downFast => ControlState.fast,
-                              _ => ControlState.idle,
-                            },
-                          ),
+                      ),
+                  
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: CraneSliderButton(
+                          label: 'DOWN',
+                          icon: Icons.arrow_downward_rounded,
+                          isUp: false,
+                          // Disabled when e-stop is active, disconnected,
+                          // OR the UP button is currently active (mutual exclusion).
+                          isDisabled:
+                              controller.estopLatched ||
+                              !controller.isConnected ||
+                              _upActive,
+                          onCommandChanged: (state) {
+                            setState(() {
+                              _downActive = state != ControlState.idle;
+                            });
+                            controller.setHoistCommand(
+                              isUp: false,
+                              state: state,
+                            );
+                          },
+                          externalState: switch (controller.hoistState) {
+                            HoistState.downSlow => ControlState.slow,
+                            HoistState.downFast => ControlState.fast,
+                            _ => ControlState.idle,
+                          },
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 8),
@@ -312,7 +310,7 @@ class _ControlScreenState extends State<ControlScreen>
 
   Widget _liveLEDs(CraneController controller) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(12),
@@ -363,8 +361,8 @@ class _ControlScreenState extends State<ControlScreen>
           duration: const Duration(milliseconds: 300),
           builder: (context, value, child) {
             return Container(
-              width: 12,
-              height: 12,
+              width: 9,
+              height: 9,
               decoration: BoxDecoration(
                 color: active ? color : Colors.grey.shade300,
                 shape: BoxShape.circle,
@@ -386,7 +384,7 @@ class _ControlScreenState extends State<ControlScreen>
         Text(
           pinName,
           style: const TextStyle(
-            fontSize: 8,
+            fontSize: 6,
             fontWeight: FontWeight.bold,
             color: AppColors.textSecondary,
           ),
@@ -394,7 +392,7 @@ class _ControlScreenState extends State<ControlScreen>
         Text(
           label,
           style: TextStyle(
-            fontSize: 9,
+            fontSize: 8,
             color: active ? color : AppColors.textMuted,
             fontWeight: FontWeight.w600,
           ),
@@ -467,13 +465,13 @@ class _ControlScreenState extends State<ControlScreen>
                     label.toUpperCase(),
                     style: const TextStyle(
                       color: AppColors.textSecondary,
-                      fontSize: 9,
+                      fontSize: 8,
                     ),
                   ),
                   Text(
                     '$value',
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textPrimary,
                     ),
