@@ -233,18 +233,12 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
             Row(
               children: [
                 Padding(
-              padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
-              child: Column(
-                children: [
-                  _sliderIndicator(),
-                  // const SizedBox(height: 5),
-                  // _plcOutputDisplay(),
-                ],
-              ),
-            ),
+                  padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
+                  child: _sliderIndicator(),
+                ),
                 Center(
                   child: RotatedBox(
-                    quarterTurns: widget.isUp ? -1 : 1,
+                    quarterTurns: widget.isUp ? -1 : 1, //
                     child: SliderTheme(
                       data: SliderThemeData(
                         trackHeight: 16,
@@ -254,7 +248,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                           borderRadius: 5,
                         ),
                         overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 10
+                          overlayRadius: 10,
                         ),
                         activeTrackColor: _sliderValue >= _fastThreshold
                             ? AppColors.fastColor
@@ -280,9 +274,6 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                 ),
               ],
             ),
-
-            // Bottom info section
-            
           ],
         );
       },
@@ -343,7 +334,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
   // }
 
   // Widget _statusBadge() {
-    
+
   //   String label;
   //   Color color;
   //   switch (_state) {
@@ -372,7 +363,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
   //   );
   // }
 
-Widget _sliderIndicator() {
+  Widget _sliderIndicator() {
     final pct = (_sliderValue * 100).toInt();
     final indicatorColor = _sliderValue >= _fastThreshold
         ? AppColors.fastColor
@@ -383,7 +374,6 @@ Widget _sliderIndicator() {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-      
         SizedBox(
           width: 28,
           child: Column(
@@ -391,15 +381,41 @@ Widget _sliderIndicator() {
             children: isUpDirection
                 ? [
                     // UP: IDLE (top) → FAST (bottom)
-                    _buildLabel('IDLE', active: _sliderValue <= 0.01, color: AppColors.idleColor),
-                    _buildLabel('SLOW', active: _sliderValue > 0.01 && _sliderValue < _fastThreshold, color: indicatorColor),
-                    _buildLabel('FAST', active: _sliderValue >= _fastThreshold, color: AppColors.fastColor),
+                    _buildLabel(
+                      'IDLE',
+                      active: _sliderValue <= 0.01,
+                      color: AppColors.textSecondary,
+                    ),
+                    _buildLabel(
+                      'SLOW',
+                      active:
+                          _sliderValue > 0.01 && _sliderValue < _fastThreshold,
+                      color: indicatorColor,
+                    ),
+                    _buildLabel(
+                      'FAST',
+                      active: _sliderValue >= _fastThreshold,
+                      color: AppColors.fastColor,
+                    ),
                   ]
                 : [
                     // DOWN: FAST (top) → IDLE (bottom)
-                    _buildLabel('FAST', active: _sliderValue >= _fastThreshold, color: AppColors.fastColor),
-                    _buildLabel('SLOW', active: _sliderValue > 0.01 && _sliderValue < _fastThreshold, color: indicatorColor),
-                    _buildLabel('IDLE', active: _sliderValue <= 0.01, color: AppColors.idleColor),
+                    _buildLabel(
+                      'FAST',
+                      active: _sliderValue >= _fastThreshold,
+                      color: AppColors.fastColor,
+                    ),
+                    _buildLabel(
+                      'SLOW',
+                      active:
+                          _sliderValue > 0.01 && _sliderValue < _fastThreshold,
+                      color: indicatorColor,
+                    ),
+                    _buildLabel(
+                      'IDLE',
+                      active: _sliderValue <= 0.01,
+                      color: AppColors.textSecondary,
+                    ),
                   ],
           ),
         ),
@@ -407,73 +423,93 @@ Widget _sliderIndicator() {
         const SizedBox(width: 6),
 
         // ── Vertical Progress Bar with Threshold Lines ──
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Direction icon
-            Icon(
-              isUpDirection ? Icons.arrow_upward : Icons.arrow_downward,
-              size: 10,
-              color: _sliderValue > 0.01 ? indicatorColor : AppColors.textMuted,
-            ),
-            const SizedBox(height: 2),
-            
-            // Progress bar
-            Container(
-              width: 6,
-              height: 70,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(3),
+        // Fixed-width SizedBox prevents the Column from resizing as the
+        // '$pct%' text changes character count (e.g. "0%" → "100%"), which
+        // was the root cause of the horizontal shift/jitter.
+        SizedBox(
+          width: 22,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Direction icon
+              Icon(
+                isUpDirection ? Icons.arrow_upward : Icons.arrow_downward,
+                size: 10,
+                color: _sliderValue > 0.01
+                    ? indicatorColor
+                    : AppColors.textMuted,
               ),
-              child: Stack(
-                children: [
-                  // Fast threshold line (at 70%)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: isUpDirection ? 70 * (1 - _fastThreshold) : 70 * _fastThreshold,
-                    child: Container(
-                      height: 1,
-                      color: AppColors.fastColor.withAlpha((0.3 * 255).toInt()),
-                    ),
-                  ),
-                  // Fill
-                  Align(
-                    alignment: isUpDirection
-                        ? Alignment.bottomCenter
-                        : Alignment.topCenter,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      curve: Curves.easeOutCubic,
-                      height: 70 * _sliderValue,
-                      decoration: BoxDecoration(
-                        color: indicatorColor,
-                        borderRadius: BorderRadius.circular(3),
+              const SizedBox(height: 2),
+
+              // Progress bar
+              Container(
+                width: 6,
+                height: 70,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Stack(
+                  children: [
+                    // Fast threshold line (at 55%)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: isUpDirection
+                          ? 70 * (1 - _fastThreshold)
+                          : 70 * _fastThreshold,
+                      child: Container(
+                        height: 1,
+                        color: AppColors.fastColor.withAlpha(
+                          (0.3 * 255).toInt(),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    // Fill
+                    Align(
+                      alignment: isUpDirection
+                          ? Alignment.bottomCenter
+                          : Alignment.topCenter,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        curve: Curves.easeOutCubic,
+                        width:
+                            6, // explicit width — prevents implicit resize inside Stack
+                        height: 70 * _sliderValue,
+                        decoration: BoxDecoration(
+                          color: indicatorColor,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            
-            const SizedBox(height: 2),
-            // Percentage
-            Text(
-              '$pct%',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-                color: _isTouching ? indicatorColor : AppColors.textMuted,
+
+              const SizedBox(height: 2),
+
+              Text(
+                '$pct%',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                  color: _isTouching ? indicatorColor : AppColors.textMuted,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildLabel(String text, {required bool active, required Color color}) {
+  Widget _buildLabel(
+    String text, {
+    required bool active,
+    required Color color,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Text(
@@ -482,7 +518,7 @@ Widget _sliderIndicator() {
         style: TextStyle(
           fontSize: 8,
           fontWeight: active ? FontWeight.bold : FontWeight.normal,
-          color: active ? color : AppColors.textMuted,
+          color: active ? color : AppColors.idleColor,
         ),
       ),
     );
