@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
-import 'package:vibration/vibration.dart';
-
-import 'package:rev6_crane_control_ops/utils/constants.dart';
-import 'package:rev6_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev6_crane_control_ops/controllers/hmi_layout_controller.dart';
+import 'package:rev6_crane_control_ops/models/hmi_layout_models.dart';
+import 'package:rev6_crane_control_ops/screens/hmi_configuration_screen.dart';
+import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev6_crane_control_ops/widgets/hmi/hmi_runtime_widget.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -14,187 +14,87 @@ class ControlScreen extends StatefulWidget {
   State<ControlScreen> createState() => _ControlScreenState();
 }
 
-class _ControlScreenState extends State<ControlScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  // late final Animation<double> _pulseAnim;
+class _ControlScreenState extends State<ControlScreen> {
   CraneController? _craneController;
-
-  // ── Mutual-exclusion: only one hoist direction active at a time ────────────
-  bool _upActive = false;
-  bool _downActive = false;
-  bool _isResetDialogVisible = false;
-  bool _isDismissingResetDialog = false;
-  BuildContext? _resetDialogContext;
+  String? _lastDisconnectMessage;
 
   @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..repeat(reverse: true);
-    // _pulseAnim = Tween<double>(begin: 0.3, end: 1.0).animate(
-    //   CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    // );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final controller = context.read<CraneController>();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = context.read<CraneController>();
+    if (_craneController != controller) {
+      _craneController?.removeListener(_onCraneControllerChanged);
       _craneController = controller;
-      controller.addListener(_onControllerChange);
-    });
+      _craneController?.addListener(_onCraneControllerChanged);
+    }
   }
 
   @override
   void dispose() {
-    FocusManager.instance.primaryFocus?.unfocus();
-    _pulseController.dispose();
-    _craneController?.removeListener(_onControllerChange);
+    _craneController?.removeListener(_onCraneControllerChanged);
     super.dispose();
   }
 
-  void _dismissResetDialogIfVisible() {
-    if (!mounted || !_isResetDialogVisible || _isDismissingResetDialog) return;
-    _isDismissingResetDialog = true;
-    FocusManager.instance.primaryFocus?.unfocus();
-    final dialogContext = _resetDialogContext;
-    if (dialogContext != null && dialogContext.mounted) {
-      Navigator.of(dialogContext).pop(false);
+  void _onCraneControllerChanged() {
+    if (!mounted || _craneController == null) {
       return;
     }
-
-    final rootNavigator = Navigator.of(context, rootNavigator: true);
-    if (rootNavigator.canPop()) {
-      rootNavigator.pop(false);
-      return;
-    }
-    _isDismissingResetDialog = false;
-  }
-
-  void _onControllerChange() {
-    final controller = _craneController;
-    if (!mounted || controller == null) return;
-    if (controller.currentScreen != AppScreen.control ||
-        controller.isDisconnected) {
-      _dismissResetDialogIfVisible();
-    }
+    final controller = _craneController!;
     if (controller.isDisconnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(controller.errorMessage ?? 'Disconnected from PLC14'),
-          backgroundColor: AppColors.eStopColor,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  // void resetLocalButtonStates() {
-  //   setState(() {
-  //     _upState = ControlState.idle;
-  //     _downState = ControlState.idle;
-  //   });
-  // }
-
-  // ── E-Stop ──────────────────────────────────────────────────────────────────
-
-  Future<void> _onEStopTap() async {
-    // resetLocalButtonStates();
-    final controller = context.read<CraneController>();
-    await controller.triggerEStop();
-    Vibration.vibrate(duration: 600, amplitude: 255);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.white),
-              SizedBox(width: 10),
-              Text(
-                'EMERGENCY STOP ACTIVATED',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
+      final message = controller.errorMessage ?? 'Disconnected from PLC';
+      if (_lastDisconnectMessage == message) {
+        return;
+      }
+      _lastDisconnectMessage = message;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 3),
+            backgroundColor: AppColors.eStopColor,
           ),
-          backgroundColor: AppColors.eStopColor,
-          duration: Duration(seconds: 3),
-        ),
-      );
+        );
     }
   }
-
-  Future<void> _onResetEStopTap() async {
-    final controller = context.read<CraneController>();
-    final confirmed = await _showResetDialog(controller);
-    if (confirmed && mounted) {
-      await controller.resetEStop();
-      Vibration.vibrate(duration: 100);
-    }
-  }
-
-  Future<bool> _showResetDialog(CraneController controller) async {
-    if (!mounted || _isResetDialogVisible) return false;
-    if (controller.currentScreen != AppScreen.control ||
-        !controller.isConnected) {
-      return false;
-    }
-
-    _isResetDialogVisible = true;
-    try {
-      final result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          _resetDialogContext = dialogContext;
-          return _ResetEStopDialog(controller: controller);
-        },
-      );
-      return result ?? false;
-    } finally {
-      _isResetDialogVisible = false;
-      _isDismissingResetDialog = false;
-      _resetDialogContext = null;
-    }
-  }
-
-  // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CraneController>(
-      builder: (ctx, controller, _) {
+    return Consumer2<CraneController, HmiLayoutController>(
+      builder: (context, craneController, hmiController, _) {
+        final profile = hmiController.activeProfile;
         return Scaffold(
           backgroundColor: AppColors.background,
-          resizeToAvoidBottomInset: false,
           appBar: AppBar(
             automaticallyImplyLeading: false,
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  controller.connectedDeviceName ?? BLEConstants.deviceName,
+                  craneController.connectedDeviceName ??
+                      BLEConstants.deviceName,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
                   ),
                 ),
                 Row(
                   children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(
-                        color: AppColors.upColorLight,
-                        shape: BoxShape.circle,
-                      ),
+                    const Icon(
+                      Icons.circle,
+                      size: 8,
+                      color: AppColors.upColorLight,
                     ),
-                    const Text(
-                      'Connected',
+                    const SizedBox(width: 5),
+                    Text(
+                      hmiController.editMode ? 'Edit Mode' : 'Run Mode',
                       style: TextStyle(
-                        color: AppColors.upColorLight,
+                        color: hmiController.editMode
+                            ? AppColors.fastColor
+                            : AppColors.upColorLight,
                         fontSize: 10,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -203,102 +103,69 @@ class _ControlScreenState extends State<ControlScreen>
             ),
             actions: [
               IconButton(
+                tooltip: hmiController.editMode
+                    ? 'Exit drag/resize mode'
+                    : 'Enable drag/resize mode',
+                icon: Icon(
+                  hmiController.editMode
+                      ? Icons.edit_location_alt_rounded
+                      : Icons.edit_location_alt_outlined,
+                  color: hmiController.editMode
+                      ? AppColors.fastColor
+                      : AppColors.textSecondary,
+                ),
+                onPressed: () =>
+                    hmiController.setEditMode(!hmiController.editMode),
+              ),
+              IconButton(
+                tooltip: 'Open configuration',
                 icon: const Icon(
-                  Icons.bluetooth_disabled,
-                  size: 20,
+                  Icons.tune_rounded,
                   color: AppColors.textSecondary,
                 ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const HmiConfigurationScreen(),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
                 tooltip: 'Disconnect',
-                onPressed: controller.disconnect,
+                icon: const Icon(
+                  Icons.bluetooth_disabled_rounded,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: craneController.disconnect,
               ),
             ],
           ),
           body: SafeArea(
             maintainBottomViewPadding: true,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
               child: Column(
                 children: [
-                  controller.estopLatched
-                      ? _buildResetSection()
-                      : _buildEStopButton(),
-                  const SizedBox(height: 6),
-                  _sensorRow(controller),
-                  const SizedBox(height: 6),
-
-                  _liveLEDs(controller),
-                  const SizedBox(height: 6),
-
-                  // if (controller.conflictActive) _conflictBanner(),
-                  //               if (controller.conflictActive) const SizedBox(height: 6),
-                  // ── Hoist controls
-                  Row(
-                    children: [
-                      Expanded(
-                        child: CraneSliderButton(
-                          label: 'UP',
-                          icon: Icons.arrow_upward_rounded,
-                          isUp: true,
-                          // Disabled when e-stop is active, disconnected,
-                          // OR the DOWN button is currently active (mutual exclusion).
-                          isDisabled:
-                              controller.estopLatched ||
-                              !controller.isConnected ||
-                              _downActive,
-                          onCommandChanged: (state) {
-                            setState(() {
-                              _upActive = state != ControlState.idle;
-                            });
-                            controller.setHoistCommand(
-                              isUp: true,
-                              state: state,
-                            );
-                          },
-                          externalState: switch (controller.hoistState) {
-                            HoistState.upSlow => ControlState.slow,
-                            HoistState.upFast => ControlState.fast,
-                            _ => ControlState.idle,
-                          },
-                        ),
-                      ),
-                  
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: CraneSliderButton(
-                          label: 'DOWN',
-                          icon: Icons.arrow_downward_rounded,
-                          isUp: false,
-                          // Disabled when e-stop is active, disconnected,
-                          // OR the UP button is currently active (mutual exclusion).
-                          isDisabled:
-                              controller.estopLatched ||
-                              !controller.isConnected ||
-                              _upActive,
-                          onCommandChanged: (state) {
-                            setState(() {
-                              _downActive = state != ControlState.idle;
-                            });
-                            controller.setHoistCommand(
-                              isUp: false,
-                              state: state,
-                            );
-                          },
-                          externalState: switch (controller.hoistState) {
-                            HoistState.downSlow => ControlState.slow,
-                            HoistState.downFast => ControlState.fast,
-                            _ => ControlState.idle,
-                          },
-                        ),
-                      ),
-                    ],
+                  _LayoutInfoBanner(
+                    profile: profile,
+                    issueCount: hmiController.layoutIssues.length,
                   ),
-
                   const SizedBox(height: 8),
-
-                  // ── Status bar
-                  _buildStatusBar(controller),
-
+                  Expanded(
+                    child: profile == null
+                        ? const _EmptyRuntimeState()
+                        : _RuntimeCanvas(
+                            profile: profile,
+                            craneController: craneController,
+                            hmiController: hmiController,
+                          ),
+                  ),
                   const SizedBox(height: 8),
+                  _LiveStatusStrip(
+                    craneController: craneController,
+                    hmiController: hmiController,
+                  ),
                 ],
               ),
             ),
@@ -307,190 +174,150 @@ class _ControlScreenState extends State<ControlScreen>
       },
     );
   }
+}
 
-  Widget _liveLEDs(CraneController controller) {
+class _LayoutInfoBanner extends StatelessWidget {
+  const _LayoutInfoBanner({required this.profile, required this.issueCount});
+
+  final HmiLayoutProfile? profile;
+  final int issueCount;
+
+  @override
+  Widget build(BuildContext context) {
+    if (profile == null) {
+      return const SizedBox.shrink();
+    }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _ledIndicator(
-            label: 'ESTOP',
-            active: controller.ledEstop,
-            color: AppColors.eStopColor,
-            pinName: 'R0_0',
+          Expanded(
+            child: Text(
+              'Profile: ${profile!.name}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-          _ledIndicator(
-            label: 'UP',
-            active: controller.ledUp,
-            color: AppColors.upColor,
-            pinName: 'Q0.1',
+          const SizedBox(width: 8),
+          Text(
+            '${profile!.widgets.length} widgets',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          _ledIndicator(
-            label: 'DOWN',
-            active: controller.ledDown,
-            color: AppColors.downColor,
-            pinName: 'Q0.2',
-          ),
-          _ledIndicator(
-            label: 'FAST',
-            active: controller.ledFast,
-            color: AppColors.fastColor,
-            pinName: 'Q0.3',
+          const SizedBox(width: 8),
+          Text(
+            issueCount == 0 ? 'Validated' : '$issueCount issue(s)',
+            style: TextStyle(
+              color: issueCount == 0
+                  ? AppColors.upColorLight
+                  : AppColors.fastColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _ledIndicator({
-    required String label,
-    required Color color,
-    required bool active,
-    required String pinName,
-  }) {
-    return Column(
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: active ? 1.0 : 0.0),
-          duration: const Duration(milliseconds: 300),
-          builder: (context, value, child) {
-            return Container(
-              width: 9,
-              height: 9,
-              decoration: BoxDecoration(
-                color: active ? color : Colors.grey.shade300,
-                shape: BoxShape.circle,
+class _RuntimeCanvas extends StatelessWidget {
+  const _RuntimeCanvas({
+    required this.profile,
+    required this.craneController,
+    required this.hmiController,
+  });
 
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: color.withAlpha(153),
-                          blurRadius: (4 * value),
-                          spreadRadius: 1,
-                        ),
-                      ]
-                    : [],
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 4),
-        Text(
-          pinName,
-          style: const TextStyle(
-            fontSize: 6,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 8,
-            color: active ? color : AppColors.textMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
+  final HmiLayoutProfile profile;
+  final CraneController craneController;
+  final HmiLayoutController hmiController;
 
-  Widget _sensorRow(CraneController controller) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _sensorCard(
-          label: 'Load 1',
-          tag: 'A1',
-          value: controller.a1,
-          color: AppColors.upColor,
-        ),
-        const SizedBox(width: 8),
-        _sensorCard(
-          label: 'Load 2',
-          tag: 'A2',
-          value: controller.a2,
-          color: AppColors.downColor,
-        ),
-      ],
-    );
-  }
+  @override
+  Widget build(BuildContext context) {
+    final widgets = profile.widgets.where((widget) => widget.visible).toList();
 
-  Widget _sensorCard({
-    required String label,
-    required String tag,
-    required int value,
-    required Color color,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: color.withAlpha(25),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Center(
-                child: Text(
-                  tag,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color,
-                    fontWeight: FontWeight.bold,
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.panelAlt,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+          if (widgets.isEmpty) {
+            return const _EmptyRuntimeState();
+          }
+          return Stack(
+            children: [
+              for (final widget in widgets)
+                Positioned(
+                  left: widget.layout.x * constraints.maxWidth,
+                  top: widget.layout.y * constraints.maxHeight,
+                  width: widget.layout.width * constraints.maxWidth,
+                  height: widget.layout.height * constraints.maxHeight,
+                  child: HmiRuntimeWidget(
+                    config: widget,
+                    craneController: craneController,
+                    hmiController: hmiController,
+                    editMode: hmiController.editMode,
+                    selected: widget.id == hmiController.selectedWidgetId,
+                    onTap: () => hmiController.selectWidget(widget.id),
+                    onDragUpdate: (details) {
+                      hmiController.moveWidgetByPixels(
+                        widgetId: widget.id,
+                        deltaPixels: details.delta,
+                        canvasSize: canvasSize,
+                      );
+                    },
+                    onDragEnd: hmiController.finalizeLayoutGesture,
+                    onResizeUpdate: (details) {
+                      hmiController.resizeWidgetByPixels(
+                        widgetId: widget.id,
+                        deltaPixels: details.delta,
+                        canvasSize: canvasSize,
+                      );
+                    },
+                    onResizeEnd: hmiController.finalizeLayoutGesture,
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label.toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 8,
-                    ),
-                  ),
-                  Text(
-                    '$value',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
   }
+}
 
-  // ── Status bar ──────────────────────────────────────────────────────────────
+class _LiveStatusStrip extends StatelessWidget {
+  const _LiveStatusStrip({
+    required this.craneController,
+    required this.hmiController,
+  });
 
-  Widget _buildStatusBar(CraneController controller) {
-    final Color c = controller.estopLatched
+  final CraneController craneController;
+  final HmiLayoutController hmiController;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = craneController.estopLatched
         ? AppColors.eStopColor
-        : switch (controller.hoistState) {
+        : switch (craneController.hoistState) {
             HoistState.idle => AppColors.idleColor,
             HoistState.upSlow => AppColors.upColor,
             HoistState.upFast => AppColors.fastColor,
@@ -498,267 +325,106 @@ class _ControlScreenState extends State<ControlScreen>
             HoistState.downFast => AppColors.fastColor,
           };
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
+    final analogKeys = craneController.analogValues.keys.toList()..sort();
+    return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: c.withAlpha(31),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: c.withAlpha(128)),
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: statusColor.withValues(alpha: 0.75)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            controller.statusLabel,
-            style: TextStyle(
-              color: c,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── E-Stop button ───────────────────────────────────────────────────────────
-
-  Widget _buildEStopButton() {
-    return EStopSwipeButton(onActivated: _onEStopTap);
-  }
-
-  // ── ESTOP active → Reset section ────────────────────────────────────────────
-
-  Widget _buildResetSection() {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppColors.eStopColor.withAlpha(31),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.eStopColor.withAlpha(153),
-              width: 2,
-            ),
-          ),
-          child: Row(
+          Row(
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(
-                  color: AppColors.eStopColor,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'EMERGENCY STOP ACTIVE',
-                      style: TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    Text(
-                      'All crane controls are locked',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+              Icon(Icons.circle, size: 9, color: statusColor),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  craneController.statusLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          height: 44,
-          child: OutlinedButton.icon(
-            onPressed: _onResetEStopTap,
-            icon: const Icon(Icons.lock_open_rounded, size: 16),
-            label: const Text(
-              'RESET E-STOP — Password Required',
-              style: TextStyle(fontSize: 12, letterSpacing: 0.5),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.eStopColorLight,
-              side: const BorderSide(color: AppColors.eStopColorLight),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final key in analogKeys)
+                _AnalogChip(
+                  label: key,
+                  value: hmiController.getAnalogValue(key).toStringAsFixed(0),
+                ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _ResetEStopDialog extends StatefulWidget {
-  final CraneController controller;
+class _AnalogChip extends StatelessWidget {
+  const _AnalogChip({required this.label, required this.value});
 
-  const _ResetEStopDialog({required this.controller});
-
-  @override
-  State<_ResetEStopDialog> createState() => _ResetEStopDialogState();
-}
-
-class _ResetEStopDialogState extends State<_ResetEStopDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscure = true;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
-  }
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      backgroundColor: AppColors.panel,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
-          SizedBox(width: 10),
-          Text(
-            'Reset Emergency Stop',
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 17),
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.panelAlt,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
       ),
-      content: Column(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Enter your password to unlock crane controls.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 10,
+              fontFamily: 'monospace',
+            ),
           ),
-          const SizedBox(height: 16),
-          if (_errorMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.eStopColor.withAlpha(31),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.eStopColor.withAlpha(102)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    color: AppColors.eStopColorLight,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.panelAlt,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: TextField(
-              controller: _passwordController,
-              obscureText: _obscure,
-              autofocus: true,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Password',
-                hintStyle: const TextStyle(color: AppColors.textSecondary),
-                prefixIcon: const Icon(
-                  Icons.lock_outlined,
-                  color: AppColors.textSecondary,
-                  size: 20,
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscure
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-              ),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text(
-            'Cancel',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (widget.controller.verifyLocalPassword(
-              _passwordController.text,
-            )) {
-              Navigator.pop(context, true);
-              return;
-            }
-            setState(() => _errorMessage = 'Incorrect password.');
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.upColor,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('UNLOCK'),
-        ),
-      ],
+    );
+  }
+}
+
+class _EmptyRuntimeState extends StatelessWidget {
+  const _EmptyRuntimeState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text(
+        'No widgets configured. Open configuration and add controls.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
     );
   }
 }

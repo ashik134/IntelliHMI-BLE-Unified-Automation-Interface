@@ -73,8 +73,12 @@ class BleService {
 
   Completer<BleAuthOutcome>?
   _pendingAuthCompleter; // For tracking ongoing authentication attempts.
+  bool _isDisposed = false;
 
   void _emit(BleConnectionStatus status, {String? message}) {
+    if (_isDisposed || _connectionController.isClosed) {
+      return;
+    }
     _snapshot = BleConnectionState(
       status: status,
       message: message,
@@ -86,6 +90,7 @@ class BleService {
   // ── Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> startScan() async {
+    if (_isDisposed) return;
     await stopScan();
     _scanController.add(const []);
     _emit(BleConnectionStatus.scanning);
@@ -119,6 +124,7 @@ class BleService {
   }
 
   Future<void> stopScan() async {
+    if (_isDisposed) return;
     await FlutterBluePlus.stopScan();
     _scanResultsSub?.cancel();
     _scanResultsSub = null;
@@ -130,6 +136,7 @@ class BleService {
   // ── Connection ─────────────────────────────────────────────────────────────
 
   Future<void> connect(BleScanDevice scanDevice) async {
+    if (_isDisposed) return;
     await stopScan();
     await disconnect(emitState: false);
     _emit(BleConnectionStatus.connecting);
@@ -184,6 +191,7 @@ class BleService {
 
   // Discover services and map characteristics.
   Future<void> _discoverServices() async {
+    if (_isDisposed) return;
     try {
       final services = await _device!.discoverServices();
       BluetoothCharacteristic? analog;
@@ -259,6 +267,7 @@ class BleService {
   }
 
   Future<void> disconnect({bool emitState = true}) async {
+    if (_isDisposed) return;
     _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
     _pendingAuthCompleter = null;
 
@@ -290,6 +299,9 @@ class BleService {
   }
 
   void _handleDisconnect() {
+    if (_isDisposed) {
+      return;
+    }
     _device = null;
     _connectedDevice = null;
     _connStateSub?.cancel();
@@ -304,8 +316,12 @@ class BleService {
     _analogSubscription = null;
     _authSubscription = null;
     _statusSubscription = null;
-    _analogController.add(const {'A1': 0, 'A2': 0});
-    _statusController.add(PlcOutputCommand.idle());
+    if (!_analogController.isClosed) {
+      _analogController.add(const {'A1': 0, 'A2': 0});
+    }
+    if (!_statusController.isClosed) {
+      _statusController.add(PlcOutputCommand.idle());
+    }
     _emit(BleConnectionStatus.disconnected);
   }
 
@@ -315,6 +331,9 @@ class BleService {
   final Map<String, int> _lastAnalog = {'A1': 0, 'A2': 0};
 
   void _handleAnalogNotification(List<int> bytes) {
+    if (_isDisposed || _analogController.isClosed) {
+      return;
+    }
     final payload = utf8.decode(bytes).trim();
     final parts = payload.split(',');
 
@@ -344,6 +363,9 @@ class BleService {
   }
 
   void _handleStatusNotification(List<int> bytes) {
+    if (_isDisposed || _statusController.isClosed) {
+      return;
+    }
     final command = PlcOutputCommand.fromStatusNotification(bytes);
     _logger.i(
       'PLC status: estop=${command.estop} dir=${command.direction} speed=${command.speed}',
@@ -352,6 +374,9 @@ class BleService {
   }
 
   void _handleAuthNotification(List<int> bytes) {
+    if (_isDisposed) {
+      return;
+    }
     final payload = utf8.decode(bytes).trim();
     _logger.i('Auth notification: $payload');
 
@@ -385,6 +410,9 @@ class BleService {
     required String email,
     required String password,
   }) async {
+    if (_isDisposed) {
+      throw StateError('BLE service is disposed.');
+    }
     if (_authChar == null) {
       throw StateError('Authentication characteristic is not ready.');
     }
@@ -427,11 +455,13 @@ class BleService {
   // ── Write helpers ──────────────────────────────────────────────────────────
 
   Future<void> writeDigital(List<int> bytes) async {
+    if (_isDisposed) return;
     if (_digitalChar == null) return;
     await _digitalChar!.write(bytes, withoutResponse: false);
   }
 
   Future<void> writeAuth(List<int> bytes) async {
+    if (_isDisposed) return;
     if (_authChar == null) return;
     await _authChar!.write(bytes);
   }
@@ -439,6 +469,7 @@ class BleService {
   // ── Bluetooth adapter ──────────────────────────────────────────────────────
 
   Future<void> ensureBluetoothReady() async {
+    if (_isDisposed) return;
     if (!kIsWeb && Platform.isAndroid) {
       final state = await FlutterBluePlus.adapterState.first;
       if (state != BluetoothAdapterState.on) {
@@ -448,8 +479,25 @@ class BleService {
   }
 
   void dispose() {
-    stopScan();
-    disconnect();
+    _isDisposed = true;
+    _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
+    _pendingAuthCompleter = null;
+    _scanResultsSub?.cancel();
+    _scanResultsSub = null;
+    _analogSubscription?.cancel();
+    _authSubscription?.cancel();
+    _statusSubscription?.cancel();
+    _connStateSub?.cancel();
+    _analogSubscription = null;
+    _authSubscription = null;
+    _statusSubscription = null;
+    _connStateSub = null;
+    _device = null;
+    _connectedDevice = null;
+    _analogChar = null;
+    _digitalChar = null;
+    _authChar = null;
+    _statusChar = null;
     _connectionController.close();
     _scanController.close();
     _analogController.close();

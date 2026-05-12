@@ -9,9 +9,10 @@ import 'package:rev6_crane_control_ops/screens/control_screen.dart';
 import 'package:rev6_crane_control_ops/screens/connection_screen.dart';
 import 'package:rev6_crane_control_ops/screens/splash_screen.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev6_crane_control_ops/controllers/hmi_layout_controller.dart';
 
 void main() {
-   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const CraneControlApp());
 }
 
@@ -20,8 +21,17 @@ class CraneControlApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => CraneController(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CraneController()),
+        ChangeNotifierProxyProvider<CraneController, HmiLayoutController>(
+          create: (context) => HmiLayoutController(
+            craneController: context.read<CraneController>(),
+          ),
+          update: (context, craneController, previous) =>
+              previous ?? HmiLayoutController(craneController: craneController),
+        ),
+      ],
       child: MaterialApp(
         title: AppConstants.appTitle,
         theme: AppTheme.theme,
