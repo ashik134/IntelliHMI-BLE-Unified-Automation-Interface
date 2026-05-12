@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev6_crane_control_ops/utils/constants.dart';
@@ -73,7 +74,8 @@ class _ControlScreenState extends State<ControlScreen>
   void _onControllerChange() {
     final controller = _craneController;
     if (!mounted || controller == null) return;
-    if (controller.currentScreen != AppScreen.control || controller.isDisconnected) {
+    if (controller.currentScreen != AppScreen.control ||
+        controller.isDisconnected) {
       _dismissResetDialogIfVisible();
     }
     if (controller.isDisconnected) {
@@ -132,7 +134,8 @@ class _ControlScreenState extends State<ControlScreen>
 
   Future<bool> _showResetDialog(CraneController controller) async {
     if (!mounted || _isResetDialogVisible) return false;
-    if (controller.currentScreen != AppScreen.control || !controller.isConnected) {
+    if (controller.currentScreen != AppScreen.control ||
+        !controller.isConnected) {
       return false;
     }
 
@@ -260,7 +263,7 @@ class _ControlScreenState extends State<ControlScreen>
                           ),
                         ),
 
-                  const SizedBox(width: 12),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: CraneSliderButton(
                             label: 'DOWN',
@@ -533,68 +536,7 @@ class _ControlScreenState extends State<ControlScreen>
   // ── E-Stop button ───────────────────────────────────────────────────────────
 
   Widget _buildEStopButton() {
-    return GestureDetector(
-      onTap: _onEStopTap,
-      child: Container(
-        width: double.infinity,
-        height: 62,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6B0000), AppColors.eStopColor],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.eStopColor.withAlpha(115),
-              blurRadius: 18,
-              spreadRadius: 2,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(31),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withAlpha(64), width: 2),
-              ),
-              child: const Icon(
-                Icons.power_settings_new,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 14),
-            const Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'EMERGENCY STOP',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-                Text(
-                  'Tap to stop all crane operations',
-                  style: TextStyle(color: Colors.white60, fontSize: 10),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+    return EStopSwipeButton(onActivated: _onEStopTap);
   }
 
   // ── ESTOP active → Reset section ────────────────────────────────────────────
@@ -804,7 +746,9 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
         ),
         ElevatedButton(
           onPressed: () {
-            if (widget.controller.verifyLocalPassword(_passwordController.text)) {
+            if (widget.controller.verifyLocalPassword(
+              _passwordController.text,
+            )) {
               Navigator.pop(context, true);
               return;
             }
