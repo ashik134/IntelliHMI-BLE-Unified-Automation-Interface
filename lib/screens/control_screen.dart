@@ -4,7 +4,7 @@ import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
-import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
+// import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev6_crane_control_ops/utils/constants.dart';
 import 'package:rev6_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
@@ -175,7 +175,7 @@ class _ControlScreenState extends State<ControlScreen>
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
 
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: AppColors.darkBg,
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
             automaticallyImplyLeading: false,
@@ -187,7 +187,7 @@ class _ControlScreenState extends State<ControlScreen>
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+                    color: AppColors.darkText,
                   ),
                 ),
                 Row(
@@ -217,7 +217,7 @@ class _ControlScreenState extends State<ControlScreen>
                 icon: const Icon(
                   Icons.bluetooth_disabled,
                   size: 20,
-                  color: AppColors.textSecondary,
+                  color: AppColors.darkTextSub,
                 ),
                 tooltip: 'Disconnect',
                 onPressed: controller.disconnect,
@@ -331,7 +331,7 @@ class _ControlScreenState extends State<ControlScreen>
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.darkBorder),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -403,14 +403,14 @@ class _ControlScreenState extends State<ControlScreen>
           style: const TextStyle(
             fontSize: 6,
             fontWeight: FontWeight.bold,
-            color: AppColors.textSecondary,
+            color: AppColors.darkTextSub,
           ),
         ),
         Text(
           label,
           style: TextStyle(
             fontSize: 8,
-            color: active ? color : AppColors.textMuted,
+            color: active ? color : AppColors.darkTextMuted,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -451,7 +451,7 @@ class _ControlScreenState extends State<ControlScreen>
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: AppColors.darkBorder),
         ),
         child: Row(
           children: [
@@ -481,7 +481,7 @@ class _ControlScreenState extends State<ControlScreen>
                   Text(
                     label.toUpperCase(),
                     style: const TextStyle(
-                      color: AppColors.textSecondary,
+                      color: AppColors.darkTextSub,
                       fontSize: 8,
                     ),
                   ),
@@ -490,7 +490,7 @@ class _ControlScreenState extends State<ControlScreen>
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+                      color: AppColors.darkText,
                     ),
                   ),
                 ],
@@ -609,7 +609,7 @@ class _ControlScreenState extends State<ControlScreen>
                     Text(
                       'All crane controls are locked',
                       style: TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.darkTextSub,
                         fontSize: 10,
                       ),
                     ),
@@ -676,7 +676,7 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
           SizedBox(width: 10),
           Text(
             'Reset Emergency Stop',
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 17),
+            style: TextStyle(color: AppColors.darkText, fontSize: 17),
           ),
         ],
       ),
@@ -686,7 +686,7 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
         children: [
           const Text(
             'Enter your password to unlock crane controls.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            style: TextStyle(color: AppColors.darkTextSub, fontSize: 13),
           ),
           const SizedBox(height: 16),
           if (_errorMessage != null) ...[
@@ -723,19 +723,19 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
             decoration: BoxDecoration(
               color: AppColors.panelAlt,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: AppColors.darkBorder),
             ),
             child: TextField(
               controller: _passwordController,
               obscureText: _obscure,
               autofocus: true,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: const TextStyle(color: AppColors.darkText),
               decoration: InputDecoration(
                 hintText: 'Password',
-                hintStyle: const TextStyle(color: AppColors.textSecondary),
+                hintStyle: const TextStyle(color: AppColors.darkTextSub),
                 prefixIcon: const Icon(
                   Icons.lock_outlined,
-                  color: AppColors.textSecondary,
+                  color: AppColors.darkTextSub,
                   size: 20,
                 ),
                 suffixIcon: IconButton(
@@ -743,7 +743,7 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
                     _obscure
                         ? Icons.visibility_off_outlined
                         : Icons.visibility_outlined,
-                    color: AppColors.textSecondary,
+                    color: AppColors.darkTextSub,
                     size: 20,
                   ),
                   onPressed: () => setState(() => _obscure = !_obscure),
@@ -763,7 +763,7 @@ class _ResetEStopDialogState extends State<_ResetEStopDialog> {
           onPressed: () => Navigator.pop(context, false),
           child: const Text(
             'Cancel',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: AppColors.darkTextSub),
           ),
         ),
         ElevatedButton(

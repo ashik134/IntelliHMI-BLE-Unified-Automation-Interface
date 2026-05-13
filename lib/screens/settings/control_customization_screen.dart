@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev6_crane_control_ops/services/layout_validation_service.dart';
+// import 'package:rev6_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev6_crane_control_ops/utils/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,10 +26,10 @@ class ControlCustomizationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ConnectionColors.background,
+      backgroundColor: AppColors.connBg,
       appBar: AppBar(
-        backgroundColor: ConnectionColors.surface,
-        foregroundColor: ConnectionColors.textPrimary,
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.connText,
         elevation: 0,
         titleSpacing: 0,
         title: const Text(
@@ -37,12 +37,12 @@ class ControlCustomizationScreen extends StatelessWidget {
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
-            color: ConnectionColors.textPrimary,
+            color: AppColors.connText,
           ),
         ),
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, color: ConnectionColors.divider),
+          child: Divider(height: 1, color: AppColors.divider),
         ),
       ),
       body: ListView(
@@ -106,7 +106,7 @@ class _ControlTypeSection extends StatelessWidget {
       title: 'CONTROL TYPE',
       icon: Icons.widgets_outlined,
       badge: 'Future Feature',
-      badgeColor: ConnectionColors.warning,
+      badgeColor: AppColors.connWarning,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -157,10 +157,10 @@ class _ControlTypeOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isSelected
-        ? ConnectionColors.primary
-        : ConnectionColors.neutral;
+        ? AppColors.connPrimary
+        : AppColors.neutral;
     final bgColor = isSelected
-        ? ConnectionColors.primary.withAlpha(18)
+        ? AppColors.connPrimary.withAlpha(18)
         : Colors.transparent;
 
     return Opacity(
@@ -177,7 +177,7 @@ class _ControlTypeOption extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: isSelected
-                    ? ConnectionColors.primary.withAlpha(80)
+                    ? AppColors.connPrimary.withAlpha(80)
                     : Colors.transparent,
               ),
             ),
@@ -195,8 +195,8 @@ class _ControlTypeOption extends StatelessWidget {
                             label,
                             style: TextStyle(
                               color: isSelected
-                                  ? ConnectionColors.primary
-                                  : ConnectionColors.textPrimary,
+                                  ? AppColors.connPrimary
+                                  : AppColors.connText,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -209,13 +209,13 @@ class _ControlTypeOption extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: ConnectionColors.warning.withAlpha(30),
+                                color: AppColors.connWarning.withAlpha(30),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(
                                 'Coming Soon',
                                 style: TextStyle(
-                                  color: ConnectionColors.warning,
+                                  color: AppColors.connWarning,
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -227,7 +227,7 @@ class _ControlTypeOption extends StatelessWidget {
                       Text(
                         description,
                         style: const TextStyle(
-                          color: ConnectionColors.textMuted,
+                          color: AppColors.connTextMuted,
                           fontSize: 11,
                         ),
                       ),
@@ -237,7 +237,7 @@ class _ControlTypeOption extends StatelessWidget {
                 if (isSelected)
                   const Icon(
                     Icons.check_circle_rounded,
-                    color: ConnectionColors.primary,
+                    color: AppColors.connPrimary,
                     size: 18,
                   ),
               ],
@@ -344,7 +344,7 @@ class _SizingSectionState extends State<_SizingSection> {
               icon: const Icon(Icons.save_rounded, size: 18),
               label: const Text('Apply Sizes'),
               style: FilledButton.styleFrom(
-                backgroundColor: ConnectionColors.primary,
+                backgroundColor: AppColors.connPrimary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -381,8 +381,8 @@ class _ScaleSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final indicatorColor = _belowMinTarget
-        ? ConnectionColors.error
-        : ConnectionColors.connected;
+        ? AppColors.error
+        : AppColors.connected;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,7 +398,7 @@ class _ScaleSlider extends StatelessWidget {
                       Text(
                         label,
                         style: const TextStyle(
-                          color: ConnectionColors.textPrimary,
+                          color: AppColors.connText,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -411,13 +411,13 @@ class _ScaleSlider extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: ConnectionColors.warning.withAlpha(30),
+                            color: AppColors.connWarning.withAlpha(30),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Text(
                             'Unsaved',
                             style: TextStyle(
-                              color: ConnectionColors.warning,
+                              color: AppColors.connWarning,
                               fontSize: 9,
                               fontWeight: FontWeight.w700,
                             ),
@@ -429,7 +429,7 @@ class _ScaleSlider extends StatelessWidget {
                   Text(
                     description,
                     style: const TextStyle(
-                      color: ConnectionColors.textMuted,
+                      color: AppColors.connTextMuted,
                       fontSize: 11,
                     ),
                   ),
@@ -452,7 +452,7 @@ class _ScaleSlider extends StatelessWidget {
                 Text(
                   'scale  ×${value.toStringAsFixed(2)}',
                   style: const TextStyle(
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                     fontSize: 10,
                   ),
                 ),
@@ -467,12 +467,12 @@ class _ScaleSlider extends StatelessWidget {
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
             activeTrackColor: _belowMinTarget
-                ? ConnectionColors.error
-                : ConnectionColors.primary,
+                ? AppColors.error
+                : AppColors.connPrimary,
             thumbColor: _belowMinTarget
-                ? ConnectionColors.error
-                : ConnectionColors.primary,
-            inactiveTrackColor: ConnectionColors.neutralBg,
+                ? AppColors.error
+                : AppColors.connPrimary,
+            inactiveTrackColor: AppColors.neutralBg,
           ),
           child: Slider(
             value: value,
@@ -488,14 +488,14 @@ class _ScaleSlider extends StatelessWidget {
             Text(
               '×${ControlWidgetSizeConfig.minHeightScale.toStringAsFixed(1)}  (min)',
               style: const TextStyle(
-                color: ConnectionColors.textMuted,
+                color: AppColors.connTextMuted,
                 fontSize: 9,
               ),
             ),
             Text(
               '×${ControlWidgetSizeConfig.maxHeightScale.toStringAsFixed(1)}  (max)',
               style: const TextStyle(
-                color: ConnectionColors.textMuted,
+                color: AppColors.connTextMuted,
                 fontSize: 9,
               ),
             ),
@@ -670,7 +670,7 @@ class _LabelSectionState extends State<_LabelSection> {
                 icon: const Icon(Icons.save_rounded, size: 18),
                 label: const Text('Apply Labels'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: ConnectionColors.primary,
+                  backgroundColor: AppColors.connPrimary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -705,7 +705,7 @@ class _LabelField extends StatelessWidget {
       autovalidateMode: AutovalidateMode.onUserInteraction,
       textCapitalization: TextCapitalization.characters,
       style: const TextStyle(
-        color: ConnectionColors.textPrimary,
+        color: AppColors.connText,
         fontSize: 13,
         fontWeight: FontWeight.w600,
       ),
@@ -713,11 +713,11 @@ class _LabelField extends StatelessWidget {
         labelText: label,
         hintText: hint,
         labelStyle: const TextStyle(
-          color: ConnectionColors.textMuted,
+          color: AppColors.connTextMuted,
           fontSize: 12,
         ),
         hintStyle: const TextStyle(
-          color: ConnectionColors.neutral,
+          color: AppColors.neutral,
           fontSize: 12,
         ),
         contentPadding: const EdgeInsets.symmetric(
@@ -725,25 +725,25 @@ class _LabelField extends StatelessWidget {
           vertical: 10,
         ),
         filled: true,
-        fillColor: ConnectionColors.surfaceAlt,
+        fillColor: AppColors.connSurfaceAlt,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: ConnectionColors.border),
+          borderSide: const BorderSide(color: AppColors.connBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: ConnectionColors.border),
+          borderSide: const BorderSide(color: AppColors.connBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(
-            color: ConnectionColors.primary,
+            color: AppColors.connPrimary,
             width: 1.5,
           ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: ConnectionColors.error),
+          borderSide: const BorderSide(color: AppColors.error),
         ),
       ),
     );
@@ -819,7 +819,7 @@ class _ToggleTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(icon, color: ConnectionColors.neutral, size: 20),
+          Icon(icon, color: AppColors.neutral, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -828,7 +828,7 @@ class _ToggleTile extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    color: ConnectionColors.textPrimary,
+                    color: AppColors.connText,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -836,7 +836,7 @@ class _ToggleTile extends StatelessWidget {
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                     fontSize: 11,
                   ),
                 ),
@@ -847,7 +847,7 @@ class _ToggleTile extends StatelessWidget {
             value: value,
             onChanged: onChanged,
 
-            activeThumbColor: ConnectionColors.primary,
+            activeThumbColor: AppColors.connPrimary,
           ),
         ],
       ),
@@ -879,9 +879,9 @@ class _SectionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       decoration: BoxDecoration(
-        color: ConnectionColors.surface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ConnectionColors.border),
+        border: Border.all(color: AppColors.connBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withAlpha(8),
@@ -897,23 +897,23 @@ class _SectionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: const BoxDecoration(
-              color: ConnectionColors.surfaceAlt,
+              color: AppColors.connSurfaceAlt,
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
               ),
               border: Border(
-                bottom: BorderSide(color: ConnectionColors.divider),
+                bottom: BorderSide(color: AppColors.divider),
               ),
             ),
             child: Row(
               children: [
-                Icon(icon, size: 16, color: ConnectionColors.textMuted),
+                Icon(icon, size: 16, color: AppColors.connTextMuted),
                 const SizedBox(width: 8),
                 Text(
                   title,
                   style: const TextStyle(
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.0,
@@ -927,14 +927,14 @@ class _SectionCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: (badgeColor ?? ConnectionColors.primary)
+                      color: (badgeColor ?? AppColors.connPrimary)
                           .withAlpha(25),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       badge!,
                       style: TextStyle(
-                        color: badgeColor ?? ConnectionColors.primary,
+                        color: badgeColor ?? AppColors.connPrimary,
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
                       ),
@@ -965,9 +965,9 @@ class _InfoBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: ConnectionColors.scanning.withAlpha(14),
+        color: AppColors.scanning.withAlpha(14),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ConnectionColors.scanningBorder),
+        border: Border.all(color: AppColors.scanningBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -975,14 +975,14 @@ class _InfoBanner extends StatelessWidget {
           const Icon(
             Icons.info_outline_rounded,
             size: 14,
-            color: ConnectionColors.scanning,
+            color: AppColors.scanning,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               style: const TextStyle(
-                color: ConnectionColors.textSecondary,
+                color: AppColors.connTextSub,
                 fontSize: 11,
                 height: 1.5,
               ),
@@ -1004,9 +1004,9 @@ class _ErrorBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: ConnectionColors.error.withAlpha(14),
+        color: AppColors.error.withAlpha(14),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ConnectionColors.errorBorder),
+        border: Border.all(color: AppColors.errorBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1014,14 +1014,14 @@ class _ErrorBanner extends StatelessWidget {
           const Icon(
             Icons.warning_amber_rounded,
             size: 14,
-            color: ConnectionColors.error,
+            color: AppColors.error,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               style: const TextStyle(
-                color: ConnectionColors.error,
+                color: AppColors.error,
                 fontSize: 11,
                 height: 1.5,
               ),

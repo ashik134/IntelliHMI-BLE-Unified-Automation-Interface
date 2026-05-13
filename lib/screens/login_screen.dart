@@ -79,13 +79,13 @@ class _LoginScreenState extends State<LoginScreen>
     final controller = context.watch<CraneController>();
 
     return Scaffold(
-      backgroundColor: ConnectionColors.background,
+      backgroundColor: AppColors.connBg,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFF8FBFF), ConnectionColors.background],
+            colors: [Color(0xFFF8FBFF), AppColors.connBg],
           ),
         ),
         child: Stack(
@@ -98,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen>
                 height: 280,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: ConnectionColors.scanning.withValues(alpha: 0.08),
+                  color: AppColors.scanning.withValues(alpha: 0.08),
                 ),
               ),
             ),
@@ -110,7 +110,7 @@ class _LoginScreenState extends State<LoginScreen>
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: ConnectionColors.primary.withValues(alpha: 0.06),
+                  color: AppColors.connPrimary.withValues(alpha: 0.06),
                 ),
               ),
             ),
@@ -144,11 +144,11 @@ class _LoginScreenState extends State<LoginScreen>
                                 ).withValues(alpha: 0.86),
                                 borderRadius: BorderRadius.circular(28),
                                 border: Border.all(
-                                  color: ConnectionColors.border,
+                                  color: AppColors.connBorder,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: ConnectionColors.primary.withValues(
+                                    color: AppColors.connPrimary.withValues(
                                       alpha: 0.08,
                                     ),
                                     blurRadius: 28,
@@ -217,7 +217,7 @@ class _LoginScreenState extends State<LoginScreen>
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [ConnectionColors.primary, Color(0xFF225A95)],
+          colors: [AppColors.connPrimary, Color(0xFF225A95)],
         ),
       ),
       child: Column(
@@ -322,8 +322,8 @@ class _LoginScreenState extends State<LoginScreen>
       padding: EdgeInsets.all(isWide ? 26 : 20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        color: ConnectionColors.surface,
-        border: Border.all(color: ConnectionColors.border),
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.connBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -331,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen>
           const Text(
             'Operator Login',
             style: TextStyle(
-              color: ConnectionColors.textPrimary,
+              color: AppColors.connText,
               fontSize: 28,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.4,
@@ -340,7 +340,7 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 6),
           const Text(
             'Sign in to start a secure crane control session.',
-            style: TextStyle(color: ConnectionColors.textMuted, fontSize: 13.5),
+            style: TextStyle(color: AppColors.connTextMuted, fontSize: 13.5),
           ),
           const SizedBox(height: 14),
           _buildLiveStatusBanner(controller),
@@ -387,7 +387,7 @@ class _LoginScreenState extends State<LoginScreen>
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   style: const TextStyle(
-                    color: ConnectionColors.textPrimary,
+                    color: AppColors.connText,
                     fontSize: 14,
                   ),
                   decoration: _inputDecoration(
@@ -417,7 +417,7 @@ class _LoginScreenState extends State<LoginScreen>
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _submit(),
                   style: const TextStyle(
-                    color: ConnectionColors.textPrimary,
+                    color: AppColors.connText,
                     fontSize: 14,
                   ),
                   decoration: _inputDecoration(
@@ -434,7 +434,7 @@ class _LoginScreenState extends State<LoginScreen>
                         _obscurePassword
                             ? Icons.visibility_off_rounded
                             : Icons.visibility_rounded,
-                        color: ConnectionColors.textMuted,
+                        color: AppColors.connTextMuted,
                         size: 20,
                       ),
                     ),
@@ -456,7 +456,7 @@ class _LoginScreenState extends State<LoginScreen>
                       child: Text(
                         'Remember credentials on this device',
                         style: TextStyle(
-                          color: ConnectionColors.textSecondary.withValues(
+                          color: AppColors.connTextSub.withValues(
                             alpha: 0.85,
                           ),
                           fontSize: 12.5,
@@ -466,8 +466,8 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     Switch.adaptive(
                       value: controller.rememberCredentials,
-                      activeThumbColor: ConnectionColors.scanning,
-                      activeTrackColor: ConnectionColors.scanning.withValues(
+                      activeThumbColor: AppColors.scanning,
+                      activeTrackColor: AppColors.scanning.withValues(
                         alpha: 0.35,
                       ),
                       onChanged: controller.isAuthenticating
@@ -505,9 +505,9 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
               style: FilledButton.styleFrom(
-                backgroundColor: ConnectionColors.scanning,
+                backgroundColor: AppColors.scanning,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: ConnectionColors.neutral,
+                disabledBackgroundColor: AppColors.neutral,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -525,8 +525,8 @@ class _LoginScreenState extends State<LoginScreen>
                   icon: const Icon(Icons.arrow_back_rounded, size: 16),
                   label: const Text('Back to Scan'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: ConnectionColors.textSecondary,
-                    side: const BorderSide(color: ConnectionColors.border),
+                    foregroundColor: AppColors.connTextSub,
+                    side: const BorderSide(color: AppColors.connBorder),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -543,11 +543,11 @@ class _LoginScreenState extends State<LoginScreen>
               //     icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
               //     label: const Text('Default Login'),
               //     style: TextButton.styleFrom(
-              //       foregroundColor: ConnectionColors.primary,
+              //       foregroundColor: AppColors.connPrimary,
               //       padding: const EdgeInsets.symmetric(vertical: 12),
               //       shape: RoundedRectangleBorder(
               //         borderRadius: BorderRadius.circular(12),
-              //         side: const BorderSide(color: ConnectionColors.primarySoft),
+              //         side: const BorderSide(color: AppColors.primarySoft),
               //       ),
               //     ),
               //   ),
@@ -564,9 +564,9 @@ class _LoginScreenState extends State<LoginScreen>
     final bool busy = controller.isAuthenticating;
     final Color tone = switch (status) {
       BleConnectionStatus.awaitingAuthentication ||
-      BleConnectionStatus.authenticating => ConnectionColors.scanning,
-      BleConnectionStatus.error => ConnectionColors.error,
-      _ => ConnectionColors.neutral,
+      BleConnectionStatus.authenticating => AppColors.scanning,
+      BleConnectionStatus.error => AppColors.error,
+      _ => AppColors.neutral,
     };
     final String message = switch (status) {
       BleConnectionStatus.awaitingAuthentication =>
@@ -600,7 +600,7 @@ class _LoginScreenState extends State<LoginScreen>
             child: Text(
               message,
               style: const TextStyle(
-                color: ConnectionColors.textSecondary,
+                color: AppColors.connTextSub,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
                 height: 1.3,
@@ -621,35 +621,35 @@ class _LoginScreenState extends State<LoginScreen>
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      hintStyle: const TextStyle(color: ConnectionColors.textMuted),
-      labelStyle: const TextStyle(color: ConnectionColors.textMuted),
-      prefixIcon: Icon(icon, color: ConnectionColors.textMuted, size: 20),
+      hintStyle: const TextStyle(color: AppColors.connTextMuted),
+      labelStyle: const TextStyle(color: AppColors.connTextMuted),
+      prefixIcon: Icon(icon, color: AppColors.connTextMuted, size: 20),
       suffixIcon: suffix,
       filled: true,
       fillColor: const Color(0xFFF8FAFD),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: ConnectionColors.border),
+        borderSide: const BorderSide(color: AppColors.connBorder),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: ConnectionColors.border),
+        borderSide: const BorderSide(color: AppColors.connBorder),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(
-          color: ConnectionColors.scanning,
+          color: AppColors.scanning,
           width: 1.6,
         ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: ConnectionColors.error),
+        borderSide: const BorderSide(color: AppColors.error),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: ConnectionColors.error, width: 1.6),
+        borderSide: const BorderSide(color: AppColors.error, width: 1.6),
       ),
     );
   }
@@ -766,7 +766,7 @@ class _LoginScreenState extends State<LoginScreen>
         SnackBar(
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
-          backgroundColor: ConnectionColors.error,
+          backgroundColor: AppColors.error,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -844,7 +844,7 @@ class _BeaconPulse extends StatelessWidget {
         ),
         child: const Icon(
           Icons.bluetooth_searching_rounded,
-          color: ConnectionColors.primary,
+          color: AppColors.connPrimary,
           size: 34,
         ),
       ),
@@ -995,8 +995,8 @@ class _BusyCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: ConnectionColors.scanningBg,
-        border: Border.all(color: ConnectionColors.scanningBorder),
+        color: AppColors.scanningBg,
+        border: Border.all(color: AppColors.scanningBorder),
       ),
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1004,7 +1004,7 @@ class _BusyCard extends StatelessWidget {
           Text(
             'Authenticating with PLC14...',
             style: TextStyle(
-              color: ConnectionColors.scanning,
+              color: AppColors.scanning,
               fontWeight: FontWeight.w800,
               fontSize: 13,
             ),
@@ -1014,14 +1014,14 @@ class _BusyCard extends StatelessWidget {
             minHeight: 4,
             backgroundColor: Color(0xFFC8DBF3),
             valueColor: AlwaysStoppedAnimation<Color>(
-              ConnectionColors.scanning,
+              AppColors.scanning,
             ),
           ),
           SizedBox(height: 6),
           Text(
             'Waiting for controller response. This usually takes a few seconds.',
             style: TextStyle(
-              color: ConnectionColors.textSecondary,
+              color: AppColors.connTextSub,
               fontSize: 12,
               height: 1.25,
             ),
@@ -1058,21 +1058,21 @@ class _AuthErrorCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: ConnectionColors.errorBg,
-        border: Border.all(color: ConnectionColors.errorBorder),
+        color: AppColors.errorBg,
+        border: Border.all(color: AppColors.errorBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(state.icon, color: ConnectionColors.error, size: 18),
+              Icon(state.icon, color: AppColors.error, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   state.title,
                   style: const TextStyle(
-                    color: ConnectionColors.error,
+                    color: AppColors.error,
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1084,7 +1084,7 @@ class _AuthErrorCard extends StatelessWidget {
           Text(
             state.message,
             style: const TextStyle(
-              color: ConnectionColors.textSecondary,
+              color: AppColors.connTextSub,
               fontSize: 12.5,
               height: 1.3,
             ),
@@ -1101,7 +1101,7 @@ class _AuthErrorCard extends StatelessWidget {
                     icon: const Icon(Icons.refresh_rounded, size: 14),
                     label: const Text('Retry'),
                     style: FilledButton.styleFrom(
-                      backgroundColor: ConnectionColors.error,
+                      backgroundColor: AppColors.error,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -1121,9 +1121,9 @@ class _AuthErrorCard extends StatelessWidget {
                 //     icon: const Icon(Icons.bluetooth_searching_rounded, size: 14),
                 //     label: const Text('Back to scan'),
                 //     style: OutlinedButton.styleFrom(
-                //       foregroundColor: ConnectionColors.error,
+                //       foregroundColor: AppColors.error,
                 //       side: BorderSide(
-                //         color: ConnectionColors.error.withValues(alpha: 0.35),
+                //         color: AppColors.error.withValues(alpha: 0.35),
                 //       ),
                 //       padding: const EdgeInsets.symmetric(
                 //         horizontal: 12,

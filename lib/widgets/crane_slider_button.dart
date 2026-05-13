@@ -384,7 +384,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                     _buildLabel(
                       'IDLE',
                       active: _sliderValue <= 0.01,
-                      color: AppColors.textSecondary,
+                      color: AppColors.darkTextSub,
                     ),
                     _buildLabel(
                       'SLOW',
@@ -414,7 +414,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                     _buildLabel(
                       'IDLE',
                       active: _sliderValue <= 0.01,
-                      color: AppColors.textSecondary,
+                      color: AppColors.darkTextSub,
                     ),
                   ],
           ),
@@ -438,7 +438,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                 size: 10,
                 color: _sliderValue > 0.01
                     ? indicatorColor
-                    : AppColors.textMuted,
+                    : AppColors.darkTextMuted,
               ),
               const SizedBox(height: 2),
 
@@ -495,7 +495,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.bold,
-                  color: _isTouching ? indicatorColor : AppColors.textMuted,
+                  color: _isTouching ? indicatorColor : AppColors.darkTextMuted,
                 ),
               ),
             ],

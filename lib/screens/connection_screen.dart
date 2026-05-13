@@ -46,7 +46,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           ..showSnackBar(
             SnackBar(
               behavior: SnackBarBehavior.floating,
-              backgroundColor: ConnectionColors.error,
+              backgroundColor: AppColors.error,
               margin: const EdgeInsets.all(16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -83,9 +83,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final controller = context.watch<CraneController>();
 
     return Scaffold(
-      backgroundColor: ConnectionColors.background,
+      backgroundColor: AppColors.connBg,
       appBar: AppBar(
-        backgroundColor: ConnectionColors.surface,
+        backgroundColor: AppColors.surface,
         elevation: 0,
         titleSpacing: 16,
         title: const Column(
@@ -97,12 +97,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 1.1,
-                color: ConnectionColors.textPrimary,
+                color: AppColors.connText,
               ),
             ),
             Text(
               'PLC14 BLE Remote',
-              style: TextStyle(fontSize: 11, color: ConnectionColors.textMuted),
+              style: TextStyle(fontSize: 11, color: AppColors.connTextMuted),
             ),
           ],
         ),
@@ -113,12 +113,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: ConnectionColors.primarySoft,
+                color: AppColors.primarySoft,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(
                 Icons.precision_manufacturing_rounded,
-                color: ConnectionColors.primary,
+                color: AppColors.connPrimary,
                 size: 22,
               ),
             ),
@@ -126,7 +126,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: ConnectionColors.divider),
+          child: Container(height: 1, color: AppColors.divider),
         ),
       ),
       body: controller.isInitializing
@@ -136,7 +136,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFFF7F9FC), ConnectionColors.background],
+                  colors: [Color(0xFFF7F9FC), AppColors.connBg],
                 ),
               ),
               child: SafeArea(
@@ -218,7 +218,7 @@ class _HeroStatusCard extends StatelessWidget {
                     Text(
                       status.subtitle,
                       style: const TextStyle(
-                        color: ConnectionColors.textSecondary,
+                        color: AppColors.connTextSub,
                         fontSize: 12.5,
                         height: 1.35,
                       ),
@@ -248,21 +248,21 @@ class _HeroStatusCard extends StatelessWidget {
   _StatusCardModel _resolveStatus(CraneController controller) {
     if (!controller.permissionsGranted) {
       return _StatusCardModel(
-        primary: ConnectionColors.warning,
-        background: ConnectionColors.warningBg,
-        border: ConnectionColors.warningBorder,
+        primary: AppColors.connWarning,
+        background: AppColors.warningBg,
+        border: AppColors.warningBorder,
         icon: Icons.key_rounded,
         title: 'Permissions Needed',
         subtitle: 'Bluetooth permissions are required to discover PLC devices.',
         actions: [
           _StatusActionButton(
             label: 'Open Settings',
-            color: ConnectionColors.warning,
+            color: AppColors.connWarning,
             onTap: controller.openSettings,
           ),
           _StatusActionButton(
             label: 'Retry Permissions',
-            color: ConnectionColors.warning,
+            color: AppColors.connWarning,
             outlined: true,
             onTap: controller.refreshPermissions,
           ),
@@ -272,16 +272,16 @@ class _HeroStatusCard extends StatelessWidget {
 
     if (!controller.bluetoothReady) {
       return _StatusCardModel(
-        primary: ConnectionColors.scanning,
-        background: ConnectionColors.scanningBg,
-        border: ConnectionColors.scanningBorder,
+        primary: AppColors.scanning,
+        background: AppColors.scanningBg,
+        border: AppColors.scanningBorder,
         icon: Icons.bluetooth_disabled_rounded,
         title: 'Bluetooth Off',
         subtitle: 'Turn on Bluetooth to scan for ${BLEConstants.deviceName}.',
         actions: [
           _StatusActionButton(
             label: 'Enable Bluetooth',
-            color: ConnectionColors.scanning,
+            color: AppColors.scanning,
             onTap: controller.enableBluetooth,
           ),
         ],
@@ -290,9 +290,9 @@ class _HeroStatusCard extends StatelessWidget {
 
     if (controller.connectionState.status == BleConnectionStatus.error) {
       return _StatusCardModel(
-        primary: ConnectionColors.error,
-        background: ConnectionColors.errorBg,
-        border: ConnectionColors.errorBorder,
+        primary: AppColors.error,
+        background: AppColors.errorBg,
+        border: AppColors.errorBorder,
         icon: Icons.error_outline_rounded,
         title: 'Connection Error',
         subtitle:
@@ -303,9 +303,9 @@ class _HeroStatusCard extends StatelessWidget {
 
     if (controller.isConnected) {
       return _StatusCardModel(
-        primary: ConnectionColors.connected,
-        background: ConnectionColors.connectedBg,
-        border: ConnectionColors.connectedBorder,
+        primary: AppColors.connected,
+        background: AppColors.connectedBg,
+        border: AppColors.connectedBorder,
         icon: Icons.bluetooth_connected_rounded,
         title: 'Session Active',
         subtitle:
@@ -313,7 +313,7 @@ class _HeroStatusCard extends StatelessWidget {
         actions: [
           _StatusActionButton(
             label: 'Disconnect',
-            color: ConnectionColors.error,
+            color: AppColors.error,
             outlined: true,
             onTap: controller.disconnect,
           ),
@@ -323,9 +323,9 @@ class _HeroStatusCard extends StatelessWidget {
 
     if (controller.isConnecting) {
       return _StatusCardModel(
-        primary: ConnectionColors.scanning,
-        background: ConnectionColors.scanningBg,
-        border: ConnectionColors.scanningBorder,
+        primary: AppColors.scanning,
+        background: AppColors.scanningBg,
+        border: AppColors.scanningBorder,
         icon: Icons.bluetooth_searching_rounded,
         title: 'Connecting',
         subtitle:
@@ -336,9 +336,9 @@ class _HeroStatusCard extends StatelessWidget {
 
     if (controller.isScanning) {
       return const _StatusCardModel(
-        primary: ConnectionColors.scanning,
-        background: ConnectionColors.scanningBg,
-        border: ConnectionColors.scanningBorder,
+        primary: AppColors.scanning,
+        background: AppColors.scanningBg,
+        border: AppColors.scanningBorder,
         icon: Icons.radar_rounded,
         title: 'Scanning',
         subtitle:
@@ -348,9 +348,9 @@ class _HeroStatusCard extends StatelessWidget {
     }
 
     return const _StatusCardModel(
-      primary: ConnectionColors.neutral,
-      background: ConnectionColors.neutralBg,
-      border: ConnectionColors.neutralBorder,
+      primary: AppColors.neutral,
+      background: AppColors.neutralBg,
+      border: AppColors.neutralBorder,
       icon: Icons.bluetooth_searching_rounded,
       title: 'Ready to Scan',
       subtitle: 'Tap scan to discover available crane controllers.',
@@ -458,8 +458,8 @@ class _QuickStatusRow extends StatelessWidget {
                 ? Icons.bluetooth_connected_rounded
                 : Icons.bluetooth_disabled_rounded,
             valueColor: controller.bluetoothReady
-                ? ConnectionColors.connected
-                : ConnectionColors.error,
+                ? AppColors.connected
+                : AppColors.error,
           ),
         ),
         const SizedBox(width: 8),
@@ -471,8 +471,8 @@ class _QuickStatusRow extends StatelessWidget {
                 ? Icons.verified_rounded
                 : Icons.key_off_rounded,
             valueColor: controller.permissionsGranted
-                ? ConnectionColors.connected
-                : ConnectionColors.warning,
+                ? AppColors.connected
+                : AppColors.connWarning,
           ),
         ),
       ],
@@ -485,7 +485,7 @@ class _MiniStatCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
-    this.valueColor = ConnectionColors.primary,
+    this.valueColor = AppColors.connPrimary,
   });
 
   final String label;
@@ -505,13 +505,13 @@ class _MiniStatCard extends StatelessWidget {
       height: cardHeight,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: ConnectionColors.surface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ConnectionColors.border),
+        border: Border.all(color: AppColors.connBorder),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: ConnectionColors.textMuted),
+          Icon(icon, size: 16, color: AppColors.connTextMuted),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
@@ -522,7 +522,7 @@ class _MiniStatCard extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     fontSize: 10,
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                     fontWeight: FontWeight.w600,
                   ),
                   maxLines: 1,
@@ -556,9 +556,9 @@ class _DevicesPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: ConnectionColors.surface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ConnectionColors.border),
+        border: Border.all(color: AppColors.connBorder),
       ),
       child: Column(
         children: [
@@ -572,7 +572,7 @@ class _DevicesPanel extends StatelessWidget {
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.2,
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                   ),
                 ),
                 const Spacer(),
@@ -581,13 +581,13 @@ class _DevicesPanel extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1, color: ConnectionColors.divider),
+          const Divider(height: 1, color: AppColors.divider),
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
@@ -664,9 +664,9 @@ class _AvailableDeviceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: ConnectionColors.surfaceAlt,
+        color: AppColors.connSurfaceAlt,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ConnectionColors.border),
+        border: Border.all(color: AppColors.connBorder),
       ),
       child: Row(
         children: [
@@ -674,12 +674,12 @@ class _AvailableDeviceCard extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: ConnectionColors.primarySoft,
+              color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(
               Icons.developer_board_rounded,
-              color: ConnectionColors.primary,
+              color: AppColors.connPrimary,
               size: 23,
             ),
           ),
@@ -693,7 +693,7 @@ class _AvailableDeviceCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: ConnectionColors.textPrimary,
+                    color: AppColors.connText,
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
                   ),
@@ -704,7 +704,7 @@ class _AvailableDeviceCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: ConnectionColors.textMuted,
+                    color: AppColors.connTextMuted,
                     fontSize: 11,
                     fontFamily: 'monospace',
                   ),
@@ -720,9 +720,9 @@ class _AvailableDeviceCard extends StatelessWidget {
             child: FilledButton(
               onPressed: connecting ? null : onConnect,
               style: FilledButton.styleFrom(
-                backgroundColor: ConnectionColors.primary,
+                backgroundColor: AppColors.connPrimary,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: ConnectionColors.neutral,
+                disabledBackgroundColor: AppColors.neutral,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -760,10 +760,10 @@ class _SignalPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = rssi >= -68
-        ? ConnectionColors.connected
+        ? AppColors.connected
         : rssi >= -80
-        ? ConnectionColors.warning
-        : ConnectionColors.error;
+        ? AppColors.connWarning
+        : AppColors.error;
     final barValue = (((rssi + 100) / 50).clamp(0.05, 1.0)).toDouble();
 
     return Container(
@@ -818,9 +818,9 @@ class _ConnectedDeviceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: ConnectionColors.connectedBg,
+        color: AppColors.connectedBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ConnectionColors.connectedBorder),
+        border: Border.all(color: AppColors.connectedBorder),
       ),
       child: Column(
         children: [
@@ -832,11 +832,11 @@ class _ConnectedDeviceCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: ConnectionColors.connectedBorder),
+                  border: Border.all(color: AppColors.connectedBorder),
                 ),
                 child: const Icon(
                   Icons.verified_rounded,
-                  color: ConnectionColors.connected,
+                  color: AppColors.connected,
                   size: 22,
                 ),
               ),
@@ -850,7 +850,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: ConnectionColors.textPrimary,
+                        color: AppColors.connText,
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                       ),
@@ -861,7 +861,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: ConnectionColors.textMuted,
+                        color: AppColors.connTextMuted,
                         fontSize: 11,
                         fontFamily: 'monospace',
                       ),
@@ -875,7 +875,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: ConnectionColors.scanning,
+                    color: AppColors.scanning,
                   ),
                 )
               else
@@ -887,7 +887,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: ConnectionColors.connectedBorder),
+                    border: Border.all(color: AppColors.connectedBorder),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -895,13 +895,13 @@ class _ConnectedDeviceCard extends StatelessWidget {
                       Icon(
                         Icons.circle,
                         size: 8,
-                        color: ConnectionColors.connected,
+                        color: AppColors.connected,
                       ),
                       SizedBox(width: 4),
                       Text(
                         'LIVE',
                         style: TextStyle(
-                          color: ConnectionColors.connected,
+                          color: AppColors.connected,
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.5,
@@ -921,9 +921,9 @@ class _ConnectedDeviceCard extends StatelessWidget {
                 icon: const Icon(Icons.bluetooth_disabled_rounded, size: 16),
                 label: const Text('DISCONNECT'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: ConnectionColors.error,
+                  foregroundColor: AppColors.error,
                   side: BorderSide(
-                    color: ConnectionColors.error.withValues(alpha: 0.5),
+                    color: AppColors.error.withValues(alpha: 0.5),
                   ),
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -961,15 +961,15 @@ class _EmptyDeviceState extends StatelessWidget {
               width: 74,
               height: 74,
               decoration: BoxDecoration(
-                color: ConnectionColors.primarySoft,
+                color: AppColors.primarySoft,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: ConnectionColors.border),
+                border: Border.all(color: AppColors.connBorder),
               ),
               child: Icon(
                 scanning ? Icons.radar_rounded : Icons.bluetooth_rounded,
                 color: scanning
-                    ? ConnectionColors.scanning
-                    : ConnectionColors.textMuted,
+                    ? AppColors.scanning
+                    : AppColors.connTextMuted,
                 size: 36,
               ),
             ),
@@ -978,7 +978,7 @@ class _EmptyDeviceState extends StatelessWidget {
               scanning ? 'Scanning for Devices...' : 'No Controllers Found',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: ConnectionColors.textPrimary,
+                color: AppColors.connText,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
               ),
@@ -990,7 +990,7 @@ class _EmptyDeviceState extends StatelessWidget {
                   : 'Power on the PLC14 controller and keep it in BLE range.',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: ConnectionColors.textMuted,
+                color: AppColors.connTextMuted,
                 fontSize: 12.5,
                 height: 1.4,
               ),
@@ -1023,9 +1023,9 @@ class _BottomActionBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: ConnectionColors.surface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ConnectionColors.border),
+        border: Border.all(color: AppColors.connBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -1042,18 +1042,18 @@ class _BottomActionBar extends StatelessWidget {
                 onPressed: controller.stopScan,
                 icon: const Icon(
                   Icons.stop_circle_outlined,
-                  color: ConnectionColors.error,
+                  color: AppColors.error,
                 ),
                 label: const Text(
                   'STOP SCANNING',
                   style: TextStyle(
-                    color: ConnectionColors.error,
+                    color: AppColors.error,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.8,
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: ConnectionColors.error),
+                  side: const BorderSide(color: AppColors.error),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1075,10 +1075,10 @@ class _BottomActionBar extends StatelessWidget {
                 ),
                 style: FilledButton.styleFrom(
                   backgroundColor: connected
-                      ? ConnectionColors.connected
-                      : ConnectionColors.primary,
+                      ? AppColors.connected
+                      : AppColors.connPrimary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: ConnectionColors.neutral,
+                  disabledBackgroundColor: AppColors.neutral,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1099,7 +1099,7 @@ class _InitializingView extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFF7F9FC), ConnectionColors.background],
+          colors: [Color(0xFFF7F9FC), AppColors.connBg],
         ),
       ),
       child: const Center(
@@ -1107,14 +1107,14 @@ class _InitializingView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              color: ConnectionColors.primary,
+              color: AppColors.connPrimary,
               strokeWidth: 2.5,
             ),
             SizedBox(height: 18),
             Text(
               'Preparing BLE Runtime',
               style: TextStyle(
-                color: ConnectionColors.textPrimary,
+                color: AppColors.connText,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
               ),
@@ -1123,7 +1123,7 @@ class _InitializingView extends StatelessWidget {
             Text(
               'Checking Bluetooth and permissions...',
               style: TextStyle(
-                color: ConnectionColors.textMuted,
+                color: AppColors.connTextMuted,
                 fontSize: 12.5,
               ),
             ),

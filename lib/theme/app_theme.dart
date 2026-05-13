@@ -6,16 +6,16 @@ class AppTheme {
 
   static ThemeData get theme => ThemeData(
     useMaterial3: true,
-    scaffoldBackgroundColor: AppColors.background,
+    scaffoldBackgroundColor: AppColors.darkBg,
     colorScheme: ColorScheme.fromSeed(
       seedColor: AppColors.accent,
-      primary: AppColors.textPrimary,
+      primary: AppColors.darkText,
       brightness: Brightness.dark,
       surface: AppColors.panel,
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.panel,
-      foregroundColor: AppColors.textPrimary,
+      foregroundColor: AppColors.darkText,
       elevation: 0,
       centerTitle: false,
     ),
