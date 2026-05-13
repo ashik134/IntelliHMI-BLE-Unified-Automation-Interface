@@ -261,7 +261,7 @@ class _ControlScreenState extends State<ControlScreen>
                           },
                         ),
                       ),
-                  
+
                       const SizedBox(width: 12),
                       Expanded(
                         child: CraneSliderButton(

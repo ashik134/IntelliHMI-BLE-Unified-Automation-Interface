@@ -547,6 +547,7 @@ class _MiniStatCard extends StatelessWidget {
     );
   }
 }
+
 class _DevicesPanel extends StatelessWidget {
   const _DevicesPanel({required this.controller});
 

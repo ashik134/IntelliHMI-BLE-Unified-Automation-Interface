@@ -21,30 +21,27 @@ class TriStateHoistButton extends StatelessWidget {
     final bool isActive = isUp
         ? (hoistState == HoistState.upSlow || hoistState == HoistState.upFast)
         : (hoistState == HoistState.downSlow ||
-            hoistState == HoistState.downFast);
+              hoistState == HoistState.downFast);
     final bool isFast = isUp
         ? hoistState == HoistState.upFast
         : hoistState == HoistState.downFast;
 
-    final Color baseColor =
-        isUp ? AppColors.upColor : AppColors.downColor;
+    final Color baseColor = isUp ? AppColors.upColor : AppColors.downColor;
     final Color activeColor = isFast ? AppColors.fastColor : baseColor;
     final Color displayColor = isActive ? activeColor : AppColors.textSecondary;
 
     final String stateLabel = !isActive
         ? 'TAP TO ACTIVATE'
         : isFast
-            ? 'FAST \u2014 TAP TO STOP'
-            : 'SLOW \u2014 TAP FOR FAST';
+        ? 'FAST \u2014 TAP TO STOP'
+        : 'SLOW \u2014 TAP FOR FAST';
 
     return GestureDetector(
       onTap: disabled ? null : onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: isActive
-              ? activeColor.withAlpha(31)
-              : AppColors.panel,
+          color: isActive ? activeColor.withAlpha(31) : AppColors.panel,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isActive ? activeColor : AppColors.border,

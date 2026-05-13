@@ -12,7 +12,6 @@ class EStopSwipeButton extends StatefulWidget {
 
 class _EStopSwipeButtonState extends State<EStopSwipeButton>
     with SingleTickerProviderStateMixin {
-  
   static const double _thumbSize = 66.0;
   static const double _buttonHeight = 74.0;
   static const double _activationThreshold = 1.0;
