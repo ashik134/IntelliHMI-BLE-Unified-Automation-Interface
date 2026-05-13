@@ -18,10 +18,10 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ConnectionColors.background,
+      backgroundColor: AppColors.connBg,
       appBar: AppBar(
-        backgroundColor: ConnectionColors.surface,
-        foregroundColor: ConnectionColors.textPrimary,
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.connText,
         elevation: 0,
         titleSpacing: 0,
         title: const Text(
@@ -29,12 +29,12 @@ class SettingsScreen extends StatelessWidget {
           style: TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w700,
-            color: ConnectionColors.textPrimary,
+            color: AppColors.connText,
           ),
         ),
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, color: ConnectionColors.divider),
+          child: Divider(height: 1, color: AppColors.divider),
         ),
       ),
       body: ListView(
@@ -43,7 +43,7 @@ class SettingsScreen extends StatelessWidget {
           const _SectionHeader(label: 'CONTROL SCREEN'),
           _SettingsTile(
             icon: Icons.tune_rounded,
-            iconColor: ConnectionColors.primary,
+            iconColor: AppColors.connPrimary,
             title: 'Control Screen Customisation',
             subtitle:
                 'Resize buttons, rename labels, configure layout sections',
@@ -58,7 +58,7 @@ class SettingsScreen extends StatelessWidget {
           const _SectionHeader(label: 'APPLICATION'),
           _SettingsTile(
             icon: Icons.info_outline_rounded,
-            iconColor: ConnectionColors.neutral,
+            iconColor: AppColors.neutral,
             title: 'About',
             subtitle:
                 '${AppConstants.appTitle}  ·  v${AppConstants.appVersion}',
@@ -66,7 +66,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           _SettingsTile(
             icon: Icons.restore_rounded,
-            iconColor: ConnectionColors.warning,
+            iconColor: AppColors.connWarning,
             title: 'Reset All Settings',
             subtitle: 'Restore all customisations to factory defaults',
             onTap: () => _confirmReset(context),
@@ -95,7 +95,7 @@ class SettingsScreen extends StatelessWidget {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: TextButton.styleFrom(
-              foregroundColor: ConnectionColors.error,
+              foregroundColor: AppColors.error,
             ),
             child: const Text('Reset'),
           ),
@@ -140,7 +140,7 @@ class _SectionHeader extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          color: ConnectionColors.textMuted,
+          color: AppColors.connTextMuted,
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.1,
@@ -168,14 +168,14 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: ConnectionColors.surface,
+      color: AppColors.surface,
       child: InkWell(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: const BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: ConnectionColors.divider),
+              bottom: BorderSide(color: AppColors.divider),
             ),
           ),
           child: Row(
@@ -197,7 +197,7 @@ class _SettingsTile extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        color: ConnectionColors.textPrimary,
+                        color: AppColors.connText,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -206,7 +206,7 @@ class _SettingsTile extends StatelessWidget {
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        color: ConnectionColors.textMuted,
+                        color: AppColors.connTextMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -215,7 +215,7 @@ class _SettingsTile extends StatelessWidget {
               ),
               const Icon(
                 Icons.chevron_right_rounded,
-                color: ConnectionColors.textMuted,
+                color: AppColors.connTextMuted,
                 size: 20,
               ),
             ],

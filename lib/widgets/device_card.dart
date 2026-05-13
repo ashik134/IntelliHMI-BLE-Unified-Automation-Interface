@@ -49,14 +49,14 @@ class DeviceCard extends StatelessWidget {
                     Text(
                       device.name,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.textPrimary,
+                        color: AppColors.darkText,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       device.id,
                       style: const TextStyle(
-                        color: AppColors.textMuted,
+                        color: AppColors.darkTextMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -115,13 +115,13 @@ class _SignalChip extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(
-              color: AppColors.textPrimary,
+              color: AppColors.darkText,
               fontWeight: FontWeight.w700,
             ),
           ),
           Text(
             caption,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+            style: const TextStyle(color: AppColors.darkTextMuted, fontSize: 11),
           ),
         ],
       ),

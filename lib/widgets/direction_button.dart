@@ -29,7 +29,7 @@ class TriStateHoistButton extends StatelessWidget {
     final Color baseColor =
         isUp ? AppColors.upColor : AppColors.downColor;
     final Color activeColor = isFast ? AppColors.fastColor : baseColor;
-    final Color displayColor = isActive ? activeColor : AppColors.textSecondary;
+    final Color displayColor = isActive ? activeColor : AppColors.darkTextSub;
 
     final String stateLabel = !isActive
         ? 'TAP TO ACTIVATE'
@@ -47,7 +47,7 @@ class TriStateHoistButton extends StatelessWidget {
               : AppColors.panel,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isActive ? activeColor : AppColors.border,
+            color: isActive ? activeColor : AppColors.darkBorder,
             width: isActive ? 2 : 1,
           ),
           boxShadow: isActive
@@ -76,7 +76,7 @@ class TriStateHoistButton extends StatelessWidget {
               Text(
                 isUp ? 'HOIST UP' : 'HOIST DOWN',
                 style: TextStyle(
-                  color: isActive ? activeColor : AppColors.textPrimary,
+                  color: isActive ? activeColor : AppColors.darkText,
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.2,
@@ -86,7 +86,7 @@ class TriStateHoistButton extends StatelessWidget {
               Text(
                 stateLabel,
                 style: const TextStyle(
-                  color: AppColors.textSecondary,
+                  color: AppColors.darkTextSub,
                   fontSize: 10,
                   letterSpacing: 0.5,
                 ),
