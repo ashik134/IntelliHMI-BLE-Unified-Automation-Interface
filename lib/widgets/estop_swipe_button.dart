@@ -4,7 +4,18 @@ import 'package:rev6_crane_control_ops/utils/constants.dart';
 class EStopSwipeButton extends StatefulWidget {
   final VoidCallback onActivated;
 
-  const EStopSwipeButton({super.key, required this.onActivated});
+  /// Override the swipe button height.  Defaults to [_EStopSwipeButtonState._defaultHeight].
+  final double? buttonHeight;
+
+  /// Override the instruction text shown inside the track.
+  final String instructionLabel;
+
+  const EStopSwipeButton({
+    super.key,
+    required this.onActivated,
+    this.buttonHeight,
+    this.instructionLabel = 'SWIPE TO EMERGENCY STOP',
+  });
 
   @override
   State<EStopSwipeButton> createState() => _EStopSwipeButtonState();
@@ -14,8 +25,10 @@ class _EStopSwipeButtonState extends State<EStopSwipeButton>
     with SingleTickerProviderStateMixin {
   
   static const double _thumbSize = 66.0;
-  static const double _buttonHeight = 74.0;
+  static const double _defaultHeight = 74.0;
   static const double _activationThreshold = 1.0;
+
+  double get _buttonHeight => widget.buttonHeight ?? _defaultHeight;
 
   // ── drag state ──────────────────────────────────────────────────────────────
   double _trackWidth = 0.0;
@@ -206,20 +219,20 @@ class _EStopSwipeButtonState extends State<EStopSwipeButton>
                                   size: 18,
                                 ),
                               const SizedBox(width: 4),
-                              const Column(
+                              Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'SWIPE TO EMERGENCY STOP',
-                                    style: TextStyle(
+                                    widget.instructionLabel,
+                                    style: const TextStyle(
                                       color: Colors.white70,
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 1.2,
                                     ),
                                   ),
-                                  Text(
+                                  const Text(
                                     'Slide right to stop all crane operations',
                                     style: TextStyle(
                                       color: Colors.white38,

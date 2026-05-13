@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev6_crane_control_ops/utils/constants.dart';
 import 'package:rev6_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
@@ -161,8 +163,17 @@ class _ControlScreenState extends State<ControlScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CraneController>(
-      builder: (ctx, controller, _) {
+    return Consumer2<CraneController, LayoutSettingsController>(
+      builder: (ctx, controller, layoutCtrl, _) {
+        final layoutCfg = layoutCtrl.config;
+        final labels = layoutCfg.labelConfig;
+        final sizing = layoutCfg.sizeConfig;
+        final arrangement = layoutCfg.arrangementConfig;
+
+        final screenTitle = labels.screenTitle.isNotEmpty
+            ? labels.screenTitle
+            : (controller.connectedDeviceName ?? BLEConstants.deviceName);
+
         return Scaffold(
           backgroundColor: AppColors.background,
           resizeToAvoidBottomInset: false,
@@ -172,7 +183,7 @@ class _ControlScreenState extends State<ControlScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  controller.connectedDeviceName ?? BLEConstants.deviceName,
+                  screenTitle,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -220,77 +231,83 @@ class _ControlScreenState extends State<ControlScreen>
               child: Column(
                 children: [
                   controller.estopLatched
-                      ? _buildResetSection()
-                      : _buildEStopButton(),
+                      ? _buildResetSection(labels.resetEstopLabel)
+                      : _buildEStopButton(
+                          height: sizing.resolvedEstopHeight,
+                          instructionLabel: labels.estopSwipeInstruction,
+                        ),
                   const SizedBox(height: 6),
-                  _sensorRow(controller),
-                  const SizedBox(height: 6),
-
-                  _liveLEDs(controller),
-                  const SizedBox(height: 6),
-
-                  // if (controller.conflictActive) _conflictBanner(),
-                  //               if (controller.conflictActive) const SizedBox(height: 6),
+                  if (arrangement.showSensorRow) ...[
+                    _sensorRow(controller),
+                    const SizedBox(height: 6),
+                  ],
+                  if (arrangement.showLiveLEDs) ...[
+                    _liveLEDs(controller),
+                    const SizedBox(height: 6),
+                  ],
                   // ── Hoist controls
-                  Row(
-                    children: [
-                      Expanded(
-                        child: CraneSliderButton(
-                          label: 'UP',
-                          icon: Icons.arrow_upward_rounded,
-                          isUp: true,
-                          // Disabled when e-stop is active, disconnected,
-                          // OR the DOWN button is currently active (mutual exclusion).
-                          isDisabled:
-                              controller.estopLatched ||
-                              !controller.isConnected ||
-                              _downActive,
-                          onCommandChanged: (state) {
-                            setState(() {
-                              _upActive = state != ControlState.idle;
-                            });
-                            controller.setHoistCommand(
-                              isUp: true,
-                              state: state,
-                            );
-                          },
-                          externalState: switch (controller.hoistState) {
-                            HoistState.upSlow => ControlState.slow,
-                            HoistState.upFast => ControlState.fast,
-                            _ => ControlState.idle,
-                          },
+                  SizedBox(
+                    height: sizing.resolvedHoistHeight,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: CraneSliderButton(
+                            label: labels.upLabel,
+                            icon: Icons.arrow_upward_rounded,
+                            isUp: true,
+                            // Disabled when e-stop is active, disconnected,
+                            // OR the DOWN button is currently active (mutual exclusion).
+                            isDisabled:
+                                controller.estopLatched ||
+                                !controller.isConnected ||
+                                _downActive,
+                            onCommandChanged: (state) {
+                              setState(() {
+                                _upActive = state != ControlState.idle;
+                              });
+                              controller.setHoistCommand(
+                                isUp: true,
+                                state: state,
+                              );
+                            },
+                            externalState: switch (controller.hoistState) {
+                              HoistState.upSlow => ControlState.slow,
+                              HoistState.upFast => ControlState.fast,
+                              _ => ControlState.idle,
+                            },
+                          ),
                         ),
-                      ),
-                  
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: CraneSliderButton(
-                          label: 'DOWN',
-                          icon: Icons.arrow_downward_rounded,
-                          isUp: false,
-                          // Disabled when e-stop is active, disconnected,
-                          // OR the UP button is currently active (mutual exclusion).
-                          isDisabled:
-                              controller.estopLatched ||
-                              !controller.isConnected ||
-                              _upActive,
-                          onCommandChanged: (state) {
-                            setState(() {
-                              _downActive = state != ControlState.idle;
-                            });
-                            controller.setHoistCommand(
-                              isUp: false,
-                              state: state,
-                            );
-                          },
-                          externalState: switch (controller.hoistState) {
-                            HoistState.downSlow => ControlState.slow,
-                            HoistState.downFast => ControlState.fast,
-                            _ => ControlState.idle,
-                          },
+
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CraneSliderButton(
+                            label: labels.downLabel,
+                            icon: Icons.arrow_downward_rounded,
+                            isUp: false,
+                            // Disabled when e-stop is active, disconnected,
+                            // OR the UP button is currently active (mutual exclusion).
+                            isDisabled:
+                                controller.estopLatched ||
+                                !controller.isConnected ||
+                                _upActive,
+                            onCommandChanged: (state) {
+                              setState(() {
+                                _downActive = state != ControlState.idle;
+                              });
+                              controller.setHoistCommand(
+                                isUp: false,
+                                state: state,
+                              );
+                            },
+                            externalState: switch (controller.hoistState) {
+                              HoistState.downSlow => ControlState.slow,
+                              HoistState.downFast => ControlState.fast,
+                              _ => ControlState.idle,
+                            },
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 8),
@@ -533,13 +550,20 @@ class _ControlScreenState extends State<ControlScreen>
 
   // ── E-Stop button ───────────────────────────────────────────────────────────
 
-  Widget _buildEStopButton() {
-    return EStopSwipeButton(onActivated: _onEStopTap);
+  Widget _buildEStopButton({
+    required double height,
+    required String instructionLabel,
+  }) {
+    return EStopSwipeButton(
+      onActivated: _onEStopTap,
+      buttonHeight: height,
+      instructionLabel: instructionLabel,
+    );
   }
 
   // ── ESTOP active → Reset section ────────────────────────────────────────────
 
-  Widget _buildResetSection() {
+  Widget _buildResetSection(String resetLabel) {
     return Column(
       children: [
         Container(
@@ -602,9 +626,9 @@ class _ControlScreenState extends State<ControlScreen>
           child: OutlinedButton.icon(
             onPressed: _onResetEStopTap,
             icon: const Icon(Icons.lock_open_rounded, size: 16),
-            label: const Text(
-              'RESET E-STOP — Password Required',
-              style: TextStyle(fontSize: 12, letterSpacing: 0.5),
+            label: Text(
+              '$resetLabel — Password Required',
+              style: const TextStyle(fontSize: 12, letterSpacing: 0.5),
             ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.eStopColorLight,

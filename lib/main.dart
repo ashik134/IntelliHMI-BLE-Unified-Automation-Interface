@@ -8,7 +8,9 @@ import 'package:rev6_crane_control_ops/screens/login_screen.dart';
 import 'package:rev6_crane_control_ops/screens/control_screen.dart';
 import 'package:rev6_crane_control_ops/screens/connection_screen.dart';
 import 'package:rev6_crane_control_ops/screens/splash_screen.dart';
+import 'package:rev6_crane_control_ops/screens/home_screen.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
 
 void main() {
    WidgetsFlutterBinding.ensureInitialized();
@@ -20,16 +22,22 @@ class CraneControlApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => CraneController(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CraneController()),
+        ChangeNotifierProvider(create: (_) => LayoutSettingsController()),
+      ],
       child: MaterialApp(
         title: AppConstants.appTitle,
         theme: AppTheme.theme,
         debugShowCheckedModeBanner: false,
         home: StartupSplashScreen(
-          destinationBuilder: (_) => const CraneAppShell(),
+          destinationBuilder: (_) => const HomeScreen(),
         ),
-        routes: {'/connection': (_) => const CraneAppShell()},
+        routes: {
+          '/home': (_) => const HomeScreen(),
+          '/crane': (_) => const CraneAppShell(),
+        },
       ),
     );
   }
