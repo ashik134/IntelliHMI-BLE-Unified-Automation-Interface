@@ -320,8 +320,8 @@ class _SizingPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final hoistH = _previewHoistBase * hoistScale;
     final estopH = _previewEstopBase * estopScale;
-    final savedHoistH = _previewHoistBase * savedHoistScale;
-    final savedEstopH = _previewEstopBase * savedEstopScale;
+    // final savedHoistH = _previewHoistBase * savedHoistScale;
+    // final savedEstopH = _previewEstopBase * savedEstopScale;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
