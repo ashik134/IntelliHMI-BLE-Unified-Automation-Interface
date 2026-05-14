@@ -98,6 +98,13 @@ class LayoutSettingsController extends ChangeNotifier {
     _persist();
   }
 
+  /// Updates the toggle-control wiring configuration.
+  void updateToggleConfig(ToggleControlConfig toggleConfig) {
+    _config = _config.copyWith(toggleConfig: toggleConfig);
+    notifyListeners();
+    _persist();
+  }
+
   /// Resets every sub-configuration to factory defaults.
   Future<void> resetToDefaults() async {
     _config = const ControlLayoutConfig();

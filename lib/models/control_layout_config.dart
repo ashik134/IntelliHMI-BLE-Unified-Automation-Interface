@@ -239,26 +239,30 @@ class ControlLayoutConfig {
     this.sizeConfig = const ControlWidgetSizeConfig(),
     this.labelConfig = const ControlLabelConfig(),
     this.arrangementConfig = const ControlArrangementConfig(),
+    this.toggleConfig = const ToggleControlConfig(),
   });
 
-  /// Intended control widget type.  Only [ControlWidgetType.sliderButton] is
-  /// currently functional; other values are persisted but not yet rendered.
+  /// Active control widget type.  [sliderButton] and [toggle] are functional;
+  /// other values are persisted for future use.
   final ControlWidgetType widgetType;
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
   final ControlArrangementConfig arrangementConfig;
+  final ToggleControlConfig toggleConfig;
 
   ControlLayoutConfig copyWith({
     ControlWidgetType? widgetType,
     ControlWidgetSizeConfig? sizeConfig,
     ControlLabelConfig? labelConfig,
     ControlArrangementConfig? arrangementConfig,
+    ToggleControlConfig? toggleConfig,
   }) {
     return ControlLayoutConfig(
       widgetType: widgetType ?? this.widgetType,
       sizeConfig: sizeConfig ?? this.sizeConfig,
       labelConfig: labelConfig ?? this.labelConfig,
       arrangementConfig: arrangementConfig ?? this.arrangementConfig,
+      toggleConfig: toggleConfig ?? this.toggleConfig,
     );
   }
 
@@ -267,6 +271,7 @@ class ControlLayoutConfig {
     'sizeConfig': sizeConfig.toJson(),
     'labelConfig': labelConfig.toJson(),
     'arrangementConfig': arrangementConfig.toJson(),
+    'toggleConfig': toggleConfig.toJson(),
   };
 
   factory ControlLayoutConfig.fromJson(Map<String, dynamic> json) {
@@ -292,6 +297,11 @@ class ControlLayoutConfig {
               json['arrangementConfig'] as Map<String, dynamic>,
             )
           : const ControlArrangementConfig(),
+      toggleConfig: json['toggleConfig'] != null
+          ? ToggleControlConfig.fromJson(
+              json['toggleConfig'] as Map<String, dynamic>,
+            )
+          : const ToggleControlConfig(),
     );
   }
 
@@ -314,9 +324,153 @@ class ControlLayoutConfig {
           other.widgetType == widgetType &&
           other.sizeConfig == sizeConfig &&
           other.labelConfig == labelConfig &&
-          other.arrangementConfig == arrangementConfig;
+          other.arrangementConfig == arrangementConfig &&
+          other.toggleConfig == toggleConfig;
 
   @override
   int get hashCode =>
-      Object.hash(widgetType, sizeConfig, labelConfig, arrangementConfig);
+      Object.hash(widgetType, sizeConfig, labelConfig, arrangementConfig,
+          toggleConfig);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ToggleWiringConfig
+//
+// Industrial electrical wiring terminology for the toggle switch mechanism.
+// Maps directly to the five standard 2-position / 3-position switch schemas
+// used in industrial HMI panel design.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ToggleWiringConfig {
+  /// 0-T  ·  Off → Momentary ON
+  /// Both UP and DOWN buttons are spring-return: active only while held.
+  offMomentary,
+
+  /// 0-R  ·  Off → Latched ON
+  /// Both buttons are maintained: tap once to start, tap again to stop.
+  offLatched,
+
+  /// R-0-R  ·  Latched ON → OFF → Latched ON
+  /// Both buttons latch independently but are mutually exclusive —
+  /// activating one direction automatically deactivates the other.
+  latchedOffLatched,
+
+  /// T-0-R  ·  Momentary ON (UP) → OFF → Latched ON (DOWN)
+  /// UP is spring-return (hold to move up), DOWN is latched (tap to move down).
+  momentaryUpLatchedDown,
+
+  /// T-0-T  ·  Momentary ON → OFF → Momentary ON
+  /// Both buttons spring-return. Equivalent to offMomentary but explicit
+  /// about the 3-position nature (neutral centre).
+  dualMomentary,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ToggleWiringConfig helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+extension ToggleWiringConfigInfo on ToggleWiringConfig {
+  String get label {
+    switch (this) {
+      case ToggleWiringConfig.offMomentary:         return '0-T  ·  Off → Momentary';
+      case ToggleWiringConfig.offLatched:           return '0-R  ·  Off → Latched';
+      case ToggleWiringConfig.latchedOffLatched:    return 'R-0-R  ·  Latched ↔ Latched';
+      case ToggleWiringConfig.momentaryUpLatchedDown: return 'T-0-R  ·  Momentary UP / Latched DOWN';
+      case ToggleWiringConfig.dualMomentary:        return 'T-0-T  ·  Dual Momentary';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case ToggleWiringConfig.offMomentary:
+        return 'Hold either button to run. Release to stop. Both directions spring-return.';
+      case ToggleWiringConfig.offLatched:
+        return 'Tap UP to start lifting; tap again to stop. Same for DOWN. Independent latching.';
+      case ToggleWiringConfig.latchedOffLatched:
+        return 'Tap UP to latch hoist UP. Tap DOWN to switch direction. Mutually exclusive.';
+      case ToggleWiringConfig.momentaryUpLatchedDown:
+        return 'Hold UP to lift (spring-return). Tap DOWN to lower and latch until cancelled.';
+      case ToggleWiringConfig.dualMomentary:
+        return 'Hold UP or DOWN to run. Release either to stop. Three-position neutral centre.';
+    }
+  }
+
+  /// Whether the UP button uses spring-return behaviour for this config.
+  bool get upIsSpringReturn {
+    switch (this) {
+      case ToggleWiringConfig.offMomentary:
+      case ToggleWiringConfig.dualMomentary:
+      case ToggleWiringConfig.momentaryUpLatchedDown:
+        return true;
+      case ToggleWiringConfig.offLatched:
+      case ToggleWiringConfig.latchedOffLatched:
+        return false;
+    }
+  }
+
+  /// Whether the DOWN button uses spring-return behaviour for this config.
+  bool get downIsSpringReturn {
+    switch (this) {
+      case ToggleWiringConfig.offMomentary:
+      case ToggleWiringConfig.dualMomentary:
+        return true;
+      case ToggleWiringConfig.offLatched:
+      case ToggleWiringConfig.latchedOffLatched:
+      case ToggleWiringConfig.momentaryUpLatchedDown:
+        return false;
+    }
+  }
+
+  /// Whether activating one direction should deactivate the other.
+  bool get isMutuallyExclusive {
+    switch (this) {
+      case ToggleWiringConfig.latchedOffLatched:
+        return true;
+      default:
+        return false;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ToggleControlConfig
+//
+// Configuration for toggle-mode hoist controls.
+// Stored within ControlLayoutConfig when widgetType == toggle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ToggleControlConfig {
+  const ToggleControlConfig({
+    this.wiringConfig = ToggleWiringConfig.offMomentary,
+  });
+
+  /// The wiring schema that determines spring-return vs latched behaviour
+  /// per button and mutual exclusion rules.
+  final ToggleWiringConfig wiringConfig;
+
+  ToggleControlConfig copyWith({ToggleWiringConfig? wiringConfig}) {
+    return ToggleControlConfig(
+      wiringConfig: wiringConfig ?? this.wiringConfig,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'wiringConfig': wiringConfig.name};
+
+  factory ToggleControlConfig.fromJson(Map<String, dynamic> json) {
+    final name = json['wiringConfig'] as String?;
+    return ToggleControlConfig(
+      wiringConfig: ToggleWiringConfig.values.firstWhere(
+        (e) => e.name == name,
+        orElse: () => ToggleWiringConfig.offMomentary,
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ToggleControlConfig && other.wiringConfig == wiringConfig;
+
+  @override
+  int get hashCode => wiringConfig.hashCode;
 }

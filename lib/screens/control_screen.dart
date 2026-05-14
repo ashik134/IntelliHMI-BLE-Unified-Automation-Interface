@@ -4,9 +4,10 @@ import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
-// import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev6_crane_control_ops/utils/constants.dart';
 import 'package:rev6_crane_control_ops/widgets/crane_slider_button.dart';
+import 'package:rev6_crane_control_ops/widgets/toggle_control_button.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -248,20 +249,17 @@ class _ControlScreenState extends State<ControlScreen>
                   // ── Hoist controls
                   SizedBox(
                     height: sizing.resolvedHoistHeight,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: CraneSliderButton(
-                            label: labels.upLabel,
-                            icon: Icons.arrow_upward_rounded,
-                            isUp: true,
-                            // Disabled when e-stop is active, disconnected,
-                            // OR the DOWN button is currently active (mutual exclusion).
+                    child: layoutCfg.widgetType == ControlWidgetType.toggle
+                        ? ToggleControlGroup(
+                            toggleConfig: layoutCfg.toggleConfig,
+                            upLabel: labels.upLabel,
+                            downLabel: labels.downLabel,
                             isDisabled:
                                 controller.estopLatched ||
-                                !controller.isConnected ||
-                                _downActive,
-                            onCommandChanged: (state) {
+                                !controller.isConnected,
+                            upActive: controller.hoistState == HoistState.upSlow,
+                            downActive: controller.hoistState == HoistState.downSlow,
+                            onUpChanged: (state) {
                               setState(() {
                                 _upActive = state != ControlState.idle;
                               });
@@ -270,27 +268,7 @@ class _ControlScreenState extends State<ControlScreen>
                                 state: state,
                               );
                             },
-                            externalState: switch (controller.hoistState) {
-                              HoistState.upSlow => ControlState.slow,
-                              HoistState.upFast => ControlState.fast,
-                              _ => ControlState.idle,
-                            },
-                          ),
-                        ),
-
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: CraneSliderButton(
-                            label: labels.downLabel,
-                            icon: Icons.arrow_downward_rounded,
-                            isUp: false,
-                            // Disabled when e-stop is active, disconnected,
-                            // OR the UP button is currently active (mutual exclusion).
-                            isDisabled:
-                                controller.estopLatched ||
-                                !controller.isConnected ||
-                                _upActive,
-                            onCommandChanged: (state) {
+                            onDownChanged: (state) {
                               setState(() {
                                 _downActive = state != ControlState.idle;
                               });
@@ -299,15 +277,66 @@ class _ControlScreenState extends State<ControlScreen>
                                 state: state,
                               );
                             },
-                            externalState: switch (controller.hoistState) {
-                              HoistState.downSlow => ControlState.slow,
-                              HoistState.downFast => ControlState.fast,
-                              _ => ControlState.idle,
-                            },
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: CraneSliderButton(
+                                  label: labels.upLabel,
+                                  icon: Icons.arrow_upward_rounded,
+                                  isUp: true,
+                                  // Disabled when e-stop is active, disconnected,
+                                  // OR the DOWN button is currently active (mutual exclusion).
+                                  isDisabled:
+                                      controller.estopLatched ||
+                                      !controller.isConnected ||
+                                      _downActive,
+                                  onCommandChanged: (state) {
+                                    setState(() {
+                                      _upActive = state != ControlState.idle;
+                                    });
+                                    controller.setHoistCommand(
+                                      isUp: true,
+                                      state: state,
+                                    );
+                                  },
+                                  externalState: switch (controller.hoistState) {
+                                    HoistState.upSlow => ControlState.slow,
+                                    HoistState.upFast => ControlState.fast,
+                                    _ => ControlState.idle,
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: CraneSliderButton(
+                                  label: labels.downLabel,
+                                  icon: Icons.arrow_downward_rounded,
+                                  isUp: false,
+                                  // Disabled when e-stop is active, disconnected,
+                                  // OR the UP button is currently active (mutual exclusion).
+                                  isDisabled:
+                                      controller.estopLatched ||
+                                      !controller.isConnected ||
+                                      _upActive,
+                                  onCommandChanged: (state) {
+                                    setState(() {
+                                      _downActive = state != ControlState.idle;
+                                    });
+                                    controller.setHoistCommand(
+                                      isUp: false,
+                                      state: state,
+                                    );
+                                  },
+                                  externalState: switch (controller.hoistState) {
+                                    HoistState.downSlow => ControlState.slow,
+                                    HoistState.downFast => ControlState.fast,
+                                    _ => ControlState.idle,
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
 
                   const SizedBox(height: 8),
