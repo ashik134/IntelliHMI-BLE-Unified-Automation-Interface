@@ -173,7 +173,7 @@ class _ToggleTile extends StatelessWidget {
         Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: AppColors.connPrimary,
+          activeThumbColor: AppColors.connPrimary,
           trackColor: WidgetStateProperty.resolveWith(
             (states) => states.contains(WidgetState.selected)
                 ? AppColors.connPrimary.withAlpha(50)
@@ -255,7 +255,7 @@ class _LayoutPreview extends StatelessWidget {
               if (showSensorRow) const SizedBox(height: 6),
 
               // E-Stop
-              _LayoutRowBlock(
+              const _LayoutRowBlock(
                 label: 'E-STOP',
                 color: AppColors.eStopColor,
                 height: 28,
@@ -265,7 +265,7 @@ class _LayoutPreview extends StatelessWidget {
               const SizedBox(height: 6),
 
               // Hoist buttons
-              Row(
+              const Row(
                 children: [
                   Expanded(
                     child: _LayoutRowBlock(
@@ -276,7 +276,7 @@ class _LayoutPreview extends StatelessWidget {
                       always: true,
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  SizedBox(width: 6),
                   Expanded(
                     child: _LayoutRowBlock(
                       label: 'DOWN',
@@ -301,14 +301,14 @@ class _LayoutPreview extends StatelessWidget {
 
               // Legend
               const SizedBox(height: 10),
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   _LegendDot(
                     color: AppColors.connPrimary,
                     label: 'Optional',
                   ),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   _LegendDot(
                     color: AppColors.darkTextSub,
                     label: 'Always shown',
@@ -397,7 +397,7 @@ class _LayoutRowBlock extends StatelessWidget {
           ),
           if (!always) ...[
             const SizedBox(width: 4),
-            Icon(Icons.circle, size: 5, color: AppColors.connPrimary),
+            const Icon(Icons.circle, size: 5, color: AppColors.connPrimary),
           ],
         ],
       ),

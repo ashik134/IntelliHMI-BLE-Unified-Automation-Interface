@@ -490,7 +490,7 @@ class _HoistMock extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label.toUpperCase(),
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.darkText,
               fontSize: 9,
               fontWeight: FontWeight.w800,

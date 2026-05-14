@@ -86,7 +86,7 @@ class _ControlTypeBody extends StatelessWidget {
               ],
             ),
           ),
-          _PageCard(
+          const _PageCard(
             title: 'CONTROL BEHAVIOR REFERENCE',
             icon: Icons.info_outline_rounded,
             child: Column(
@@ -99,7 +99,7 @@ class _ControlTypeBody extends StatelessWidget {
                   icon: Icons.touch_app_rounded,
                   color: AppColors.homeWarning,
                 ),
-                const Divider(height: 20, color: AppColors.divider),
+                Divider(height: 20, color: AppColors.divider),
                 _BehaviorRefTile(
                   label: 'Maintained  (R)',
                   description:
@@ -108,7 +108,7 @@ class _ControlTypeBody extends StatelessWidget {
                   icon: Icons.lock_outline_rounded,
                   color: AppColors.connPrimary,
                 ),
-                const Divider(height: 20, color: AppColors.divider),
+                Divider(height: 20, color: AppColors.divider),
                 _BehaviorRefTile(
                   label: 'Mutual Exclusion  (R-0-R)',
                   description:
@@ -379,7 +379,7 @@ class _WiringConfigTile extends StatelessWidget {
                           ),
                           if (config.isMutuallyExclusive) ...[
                             const SizedBox(width: 6),
-                            _BehaviorChip(
+                            const _BehaviorChip(
                               label: 'EXCLUSIVE',
                               color: AppColors.homeSuccess,
                             ),
@@ -502,8 +502,8 @@ class _ControlTypePreview extends StatefulWidget {
 }
 
 class _ControlTypePreviewState extends State<_ControlTypePreview> {
-  bool _upDemo = false;
-  bool _downDemo = false;
+  final bool _upDemo = false;
+  final bool _downDemo = false;
 
   @override
   Widget build(BuildContext context) {
@@ -579,16 +579,16 @@ class _ControlTypePreviewState extends State<_ControlTypePreview> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppColors.connWarning.withAlpha(50)),
             ),
-            child: Row(
+            child: const Row(
               children: [
-                const Icon(Icons.info_outline_rounded,
+                Icon(Icons.info_outline_rounded,
                     size: 13, color: AppColors.connWarning),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Toggle mode sends slow speed only. '
                     'Use Slider mode to access fast speed.',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.connWarning,
                       fontSize: 10,
                       height: 1.4,

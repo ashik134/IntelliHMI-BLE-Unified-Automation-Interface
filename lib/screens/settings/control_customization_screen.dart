@@ -77,35 +77,35 @@ class _MenuCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
+      child: const Column(
         children: [
           _NavTile(
             icon: Icons.widgets_outlined,
             title: 'Control Type',
             subtitle: 'Slider, toggle wiring and more',
-            destination: const ControlTypePage(),
+            destination: ControlTypePage(),
             isFirst: true,
           ),
-          const Divider(height: 1, indent: 56, color: AppColors.divider),
+          Divider(height: 1, indent: 56, color: AppColors.divider),
           _NavTile(
             icon: Icons.open_in_full_rounded,
             title: 'Button Sizing',
             subtitle: 'Hoist and E-Stop button height scales',
-            destination: const ButtonSizingPage(),
+            destination: ButtonSizingPage(),
           ),
-          const Divider(height: 1, indent: 56, color: AppColors.divider),
+          Divider(height: 1, indent: 56, color: AppColors.divider),
           _NavTile(
             icon: Icons.label_outline_rounded,
             title: 'Label Customisation',
             subtitle: 'Button, E-Stop and screen title text',
-            destination: const LabelCustomizationPage(),
+            destination: LabelCustomizationPage(),
           ),
-          const Divider(height: 1, indent: 56, color: AppColors.divider),
+          Divider(height: 1, indent: 56, color: AppColors.divider),
           _NavTile(
             icon: Icons.dashboard_customize_rounded,
             title: 'Layout Configuration',
             subtitle: 'Show or hide optional screen rows',
-            destination: const LayoutConfigurationPage(),
+            destination: LayoutConfigurationPage(),
             isLast: true,
           ),
         ],
