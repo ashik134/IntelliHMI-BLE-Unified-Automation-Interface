@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   static const String plcName = 'PLC 14';
-  static const String appTitle = '$plcName Crane Remote Control';
+  static const String appTitle = 'IntelliMotion HMI';
   static const String appVersion = '1.0.0';
   static const String prefsKeyEmail = 'saved_email';
   static const String prefsKeyPassword = 'saved_password';

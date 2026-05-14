@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
@@ -447,12 +448,14 @@ class _ProfessionalHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       AppConstants.appTitle,
-                      style: TextStyle(
+                      style: GoogleFonts.cinzel(
+                        
                         color: AppColors.lightText,
                         fontSize: 17,
-                        fontWeight: FontWeight.w800,
+
+                        fontWeight: FontWeight.w700,
                         letterSpacing: 0.3,
                       ),
                     ),
