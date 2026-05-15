@@ -92,7 +92,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'CRANE CONTROL',
+              'Tusker HaulControl',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
@@ -101,7 +101,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
             ),
             Text(
-              'PLC14 BLE Remote',
+              'Trailer RRC - Connection',
               style: TextStyle(fontSize: 11, color: ConnectionColors.textMuted),
             ),
           ],

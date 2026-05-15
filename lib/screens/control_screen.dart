@@ -198,9 +198,11 @@ class _ControlScreenState extends State<ControlScreen>
         final isDisabled = controller.estopLatched || !controller.isConnected;
         
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: ConnectionColors.background,
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
+            backgroundColor: ConnectionColors.surface,
+            elevation: 0,
             automaticallyImplyLeading: false,
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -210,7 +212,7 @@ class _ControlScreenState extends State<ControlScreen>
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+                    color: ConnectionColors.textPrimary,
                   ),
                 ),
                 Row(
@@ -244,7 +246,7 @@ class _ControlScreenState extends State<ControlScreen>
                 icon: const Icon(
                   Icons.bluetooth_disabled,
                   size: 20,
-                  color: AppColors.textSecondary,
+                  color: ConnectionColors.textSecondary,
                 ),
                 tooltip: 'Disconnect',
                 onPressed: () {
@@ -256,6 +258,10 @@ class _ControlScreenState extends State<ControlScreen>
                 },
               ),
             ],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(height: 1, color: ConnectionColors.divider),
+            ),
           ),
           body: SafeArea(
             maintainBottomViewPadding: true,
@@ -368,13 +374,13 @@ class _ControlScreenState extends State<ControlScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.success,
+              color: ConnectionColors.primarySoft,
               borderRadius: BorderRadius.circular(6),
             ),
             child: const Text(
               'HOLD-TO-RUN',
               style: TextStyle(
-                color: AppColors.success,
+                color: ConnectionColors.primary,
                 fontSize: 8,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 1.0,
@@ -424,14 +430,14 @@ class _ControlScreenState extends State<ControlScreen>
           style: const TextStyle(
             fontSize: 8,
             fontWeight: FontWeight.bold,
-            color: AppColors.textSecondary,
+            color: ConnectionColors.textSecondary,
           ),
         ),
         Text(
           label,
           style: TextStyle(
             fontSize: 9,
-            color: active ? color : AppColors.textMuted,
+            color: active ? color : ConnectionColors.textMuted,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -649,7 +655,7 @@ class _ControlScreenState extends State<ControlScreen>
                     Text(
                       'All crane controls are locked',
                       style: TextStyle(
-                        color: AppColors.textSecondary,
+                        color: ConnectionColors.textSecondary,
                         fontSize: 10,
                       ),
                     ),
@@ -802,7 +808,7 @@ class _DeadmanButtonState extends State<_DeadmanButton>
                       ? widget.colorLight
                       : isDisabled
                           ? AppColors.disabled
-                          : AppColors.border,
+                      : ConnectionColors.border,
                   width: isActive ? 3 : 1.5,
                 ),
                 boxShadow: isActive
@@ -820,7 +826,7 @@ class _DeadmanButtonState extends State<_DeadmanButton>
                       ]
                     : [
                         BoxShadow(
-                          color: AppColors.panel.withAlpha(70),
+                          color: Colors.black.withAlpha(35),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
@@ -868,7 +874,7 @@ class _DeadmanButtonState extends State<_DeadmanButton>
                             ? Colors.white
                             : isDisabled
                                 ? AppColors.disabled
-                                : AppColors.textPrimary,
+                                : ConnectionColors.textPrimary,
                         fontSize: isActive ? 18 : 16,
                         fontWeight: FontWeight.w800,
                         height: 1.3,
@@ -884,7 +890,7 @@ class _DeadmanButtonState extends State<_DeadmanButton>
                             ? Colors.white.withAlpha(200)
                             : isDisabled
                                 ? AppColors.disabled
-                                : AppColors.textMuted,
+                                : ConnectionColors.textMuted,
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
                       ),

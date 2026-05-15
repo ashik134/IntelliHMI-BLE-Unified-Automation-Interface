@@ -73,7 +73,11 @@ class BleService {
 
   Completer<BleAuthOutcome>?
   _pendingAuthCompleter; // For tracking ongoing authentication attempts.
+  Completer<void>? _pendingSafeStateCompleter;
   bool _isDisposing = false;
+
+  static const int _safeStateMaxAttempts = 3;
+  static const Duration _safeStateAckTimeout = Duration(milliseconds: 1200);
 
   void _emit(BleConnectionStatus status, {String? message}) {
     if (_isDisposing || _connectionController.isClosed) {
@@ -166,7 +170,6 @@ class BleService {
         license: License.commercial,
       );
       await _discoverServices();
-      _emit(BleConnectionStatus.awaitingAuthentication);
     } catch (e) {
       _connectedDevice = null;
       _emit(
@@ -257,6 +260,12 @@ class BleService {
       }
       _device!.cancelWhenDisconnected(_authSubscription!, next: true);
       _device!.cancelWhenDisconnected(_statusSubscription!, next: true);
+
+      _emit(
+        BleConnectionStatus.connecting,
+        message: 'Synchronizing safe state with PLC...',
+      );
+      await _sendSafeStatePreAuthBestEffort();
       _emit(BleConnectionStatus.awaitingAuthentication);
     } catch (e) {
       await _device!.disconnect();
@@ -271,6 +280,20 @@ class BleService {
   Future<void> disconnect({bool emitState = true}) async {
     _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
     _pendingAuthCompleter = null;
+    final pendingSafeState = _pendingSafeStateCompleter;
+    if (pendingSafeState != null && !pendingSafeState.isCompleted) {
+      pendingSafeState.complete();
+    }
+    _pendingSafeStateCompleter = null;
+
+    final device = _device;
+    if (device != null && device.isConnected) {
+      try {
+        await _sendSafeStateCommand().timeout(const Duration(milliseconds: 900));
+      } catch (_) {
+        _logger.w('Safe-state cleanup write failed during disconnect.');
+      }
+    }
 
     await _analogSubscription?.cancel();
     await _authSubscription?.cancel();
@@ -281,7 +304,6 @@ class BleService {
     _statusSubscription = null;
     _connStateSub = null;
 
-    final device = _device;
     _device = null;
     _analogChar = null;
     _digitalChar = null;
@@ -365,7 +387,68 @@ class BleService {
     _logger.i(
       'PLC status: estop=${command.estop} dir=${command.direction} speed=${command.speed}',
     );
+    if (command.isIdle) {
+      final pending = _pendingSafeStateCompleter;
+      if (pending != null && !pending.isCompleted) {
+        pending.complete();
+      }
+      _pendingSafeStateCompleter = null;
+    }
     _statusController.add(command);
+  }
+
+  Future<void> _sendSafeStateAndAwaitAck() async {
+    if (_digitalChar == null) {
+      throw StateError('Digital characteristic is not ready.');
+    }
+
+    Object? lastError;
+    for (var attempt = 1; attempt <= _safeStateMaxAttempts; attempt++) {
+      final ackCompleter = Completer<void>();
+      _pendingSafeStateCompleter = ackCompleter;
+      try {
+        await _sendSafeStateCommand();
+        await ackCompleter.future.timeout(_safeStateAckTimeout);
+        _logger.i('Safe-state synchronized with PLC on attempt $attempt.');
+        return;
+      } catch (error) {
+        lastError = error;
+        _logger.w(
+          'Safe-state sync attempt $attempt failed: ${error.toString()}',
+        );
+      } finally {
+        if (identical(_pendingSafeStateCompleter, ackCompleter)) {
+          _pendingSafeStateCompleter = null;
+        }
+      }
+    }
+
+    throw StateError(
+      'Failed to synchronize safe state with PLC after $_safeStateMaxAttempts attempts. '
+      '${lastError ?? ''}',
+    );
+  }
+
+  Future<void> _sendSafeStatePreAuthBestEffort() async {
+    if (_digitalChar == null) {
+      return;
+    }
+    try {
+      await _sendSafeStateCommand().timeout(const Duration(milliseconds: 900));
+      _logger.i('Pre-auth safe-state packet sent (best effort).');
+    } catch (error) {
+      _logger.w('Pre-auth safe-state write failed: ${error.toString()}');
+    }
+  }
+
+  Future<void> _sendSafeStateCommand() async {
+    if (_digitalChar == null) {
+      throw StateError('Digital characteristic is not ready.');
+    }
+    await _digitalChar!.write(
+      PlcOutputCommand.idle().wireBytes.toList(),
+      withoutResponse: false,
+    );
   }
 
   void _handleAuthNotification(List<int> bytes) {
@@ -380,9 +463,7 @@ class BleService {
     }
 
     if (payload == BLEConstants.authSuccess) {
-      _emit(BleConnectionStatus.authenticated);
-      _pendingAuthCompleter?.complete(BleAuthOutcome.success);
-      _pendingAuthCompleter = null;
+      _finalizeAuthenticatedSession();
       return;
     }
 
@@ -395,6 +476,31 @@ class BleService {
       );
       _pendingAuthCompleter = null;
       _emit(BleConnectionStatus.error, message: payload);
+    }
+  }
+
+  Future<void> _finalizeAuthenticatedSession() async {
+    _emit(
+      BleConnectionStatus.authenticating,
+      message: 'Finalizing safe-state synchronization...',
+    );
+
+    try {
+      await _sendSafeStateAndAwaitAck();
+      _emit(BleConnectionStatus.authenticated);
+      _pendingAuthCompleter?.complete(BleAuthOutcome.success);
+      _pendingAuthCompleter = null;
+    } catch (error) {
+      _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
+      _pendingAuthCompleter = null;
+      _emit(
+        BleConnectionStatus.error,
+        message: 'Post-auth safe-state sync failed: ${error.toString()}',
+      );
+      final device = _device;
+      if (device != null && device.isConnected) {
+        await device.disconnect();
+      }
     }
   }
 
