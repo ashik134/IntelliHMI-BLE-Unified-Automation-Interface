@@ -58,9 +58,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: ic_launcher
   ios: false
-  image_path: assets/images/app_icon.png
+  image_path: assets/images/app_icon3.png
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: assets/images/app_icon.png
+  adaptive_icon_foreground: assets/images/app_icon3.png
   web:
     generate: false
   windows:
@@ -94,6 +94,9 @@ flutter:
     - assets/images/app_icon.png
     - assets/images/Intellicontrol Final Logo300PPI.png
     - assets/images/intellicontrol-icon-1024x1024 (6).png
+    - assets/images/app_icon2.png
+    - assets/images/app_icon3.png
+    - assets/images/splash_tusker.jpeg
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

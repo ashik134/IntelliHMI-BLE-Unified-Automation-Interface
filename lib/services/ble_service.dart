@@ -73,8 +73,12 @@ class BleService {
 
   Completer<BleAuthOutcome>?
   _pendingAuthCompleter; // For tracking ongoing authentication attempts.
+  bool _isDisposing = false;
 
   void _emit(BleConnectionStatus status, {String? message}) {
+    if (_isDisposing || _connectionController.isClosed) {
+      return;
+    }
     _snapshot = BleConnectionState(
       status: status,
       message: message,
@@ -216,7 +220,7 @@ class BleService {
       }
 
       //
-      if (digital == null || auth == null || analog == null || status == null) {
+      if (digital == null || auth == null || status == null) {
         await _device!.disconnect();
         _connectedDevice = null;
         _emit(
@@ -231,12 +235,16 @@ class BleService {
       _authChar = auth;
       _statusChar = status;
 
-      await _analogChar!.setNotifyValue(true);
+      if (_analogChar != null) {
+        await _analogChar!.setNotifyValue(true);
+      }
       await _authChar!.setNotifyValue(true);
       await _statusChar!.setNotifyValue(true);
-      _analogSubscription = _analogChar!.onValueReceived.listen(
-        _handleAnalogNotification,
-      );
+      if (_analogChar != null) {
+        _analogSubscription = _analogChar!.onValueReceived.listen(
+          _handleAnalogNotification,
+        );
+      }
       _authSubscription = _authChar!.onValueReceived.listen(
         _handleAuthNotification,
       );
@@ -244,7 +252,9 @@ class BleService {
         _handleStatusNotification,
       );
 
-      _device!.cancelWhenDisconnected(_analogSubscription!, next: true);
+      if (_analogSubscription != null) {
+        _device!.cancelWhenDisconnected(_analogSubscription!, next: true);
+      }
       _device!.cancelWhenDisconnected(_authSubscription!, next: true);
       _device!.cancelWhenDisconnected(_statusSubscription!, next: true);
       _emit(BleConnectionStatus.awaitingAuthentication);
@@ -290,6 +300,9 @@ class BleService {
   }
 
   void _handleDisconnect() {
+    if (_isDisposing) {
+      return;
+    }
     _device = null;
     _connectedDevice = null;
     _connStateSub?.cancel();
@@ -304,8 +317,12 @@ class BleService {
     _analogSubscription = null;
     _authSubscription = null;
     _statusSubscription = null;
-    _analogController.add(const {'A1': 0, 'A2': 0});
-    _statusController.add(PlcOutputCommand.idle());
+    if (!_analogController.isClosed) {
+      _analogController.add(const {'A1': 0, 'A2': 0});
+    }
+    if (!_statusController.isClosed) {
+      _statusController.add(PlcOutputCommand.idle());
+    }
     _emit(BleConnectionStatus.disconnected);
   }
 
@@ -448,8 +465,28 @@ class BleService {
   }
 
   void dispose() {
-    stopScan();
-    disconnect();
+    _isDisposing = true;
+    _scanResultsSub?.cancel();
+    _analogSubscription?.cancel();
+    _authSubscription?.cancel();
+    _statusSubscription?.cancel();
+    _connStateSub?.cancel();
+
+    if (FlutterBluePlus.isScanningNow) {
+      FlutterBluePlus.stopScan();
+    }
+
+    final device = _device;
+    _device = null;
+    _connectedDevice = null;
+    _analogChar = null;
+    _digitalChar = null;
+    _authChar = null;
+    _statusChar = null;
+    if (device != null && device.isConnected) {
+      device.disconnect();
+    }
+
     _connectionController.close();
     _scanController.close();
     _analogController.close();

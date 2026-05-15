@@ -147,6 +147,41 @@ class CraneController extends ChangeNotifier {
     _ => AppScreen.connection,
   };
 
+  Future<void> sendCommand({
+    required bool estop,
+    required bool up,
+    required bool down,
+    required bool fast,
+  }) async {
+    if (estop) {
+      await triggerEStop();
+      return;
+    }
+
+    if (_estopLatched || !isConnected) {
+      return;
+    }
+
+    final PlcOutputCommand next;
+    if (up && down) {
+      next = PlcOutputCommand.idle();
+    } else if (up) {
+      next = PlcOutputCommand.motion(
+        direction: HoistDirection.up,
+        speed: fast ? HoistSpeed.fast : HoistSpeed.slow,
+      );
+    } else if (down) {
+      next = PlcOutputCommand.motion(
+        direction: HoistDirection.down,
+        speed: fast ? HoistSpeed.fast : HoistSpeed.slow,
+      );
+    } else {
+      next = PlcOutputCommand.idle();
+    }
+
+    await _sendCommand(next);
+  }
+
   // Future<void> sendCommand({
   //   required bool estop,
   //   required bool up,
@@ -374,6 +409,16 @@ class CraneController extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _errorMessage = null;
+
+    // Best-effort safe stop before disconnecting transport.
+    if (isConnected && !_estopLatched) {
+      try {
+        await _sendCommand(PlcOutputCommand.idle());
+      } catch (_) {
+        // Ignore: transport teardown below remains the final safety path.
+      }
+    }
+
     await _bleService.disconnect();
     notifyListeners();
   }

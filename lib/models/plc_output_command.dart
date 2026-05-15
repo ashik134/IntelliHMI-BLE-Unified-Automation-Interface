@@ -47,12 +47,14 @@ class PlcOutputCommand {
           .split(',')
           .map((s) => int.tryParse(s.trim()) ?? 0)
           .toList();
-      if (parts.length != 4) return PlcOutputCommand.idle();
+      // PLC firmware publishes status as "estop,up,down".
+      // Accept an optional 4th legacy value for backward compatibility.
+      if (parts.length < 3) return PlcOutputCommand.idle();
 
       final estop = parts[0] != 0;
       final up = parts[1] != 0;
       final down = parts[2] != 0;
-      final fast = parts[3] != 0;
+      final fast = parts.length > 3 ? parts[3] != 0 : false;
 
       if (estop) return PlcOutputCommand.emergencyStop();
       if (!up && !down) return PlcOutputCommand.idle();
@@ -84,7 +86,8 @@ class PlcOutputCommand {
     return speed == HoistSpeed.slow || speed == HoistSpeed.fast;
   }
 
-  String get wireFormat => '[$estopBit,$upBit,$downBit,$fastBit]';
+  // PLC command format is strictly [estop,up,down].
+  String get wireFormat => '[$estopBit,$upBit,$downBit]';
   Uint8List get wireBytes => Uint8List.fromList(utf8.encode(wireFormat));
 
   String get statusLabel {
