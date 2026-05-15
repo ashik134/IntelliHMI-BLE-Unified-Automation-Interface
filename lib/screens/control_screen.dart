@@ -5,6 +5,7 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev6_crane_control_ops/utils/constants.dart';
 import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev6_crane_control_ops/widgets/estop_swipe_button.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // ControlScreen — Deadman Hold-to-Run Industrial Controls
@@ -39,11 +40,6 @@ class _ControlScreenState extends State<ControlScreen>
   // ── Deadman state tracking ──────────────────────────────
   bool _upPressed = false;
   bool _downPressed = false;
-  
-  // Reset dialog state
-  bool _isResetDialogVisible = false;
-  bool _isDismissingResetDialog = false;
-  BuildContext? _resetDialogContext;
 
   @override
   void initState() {
@@ -71,11 +67,7 @@ class _ControlScreenState extends State<ControlScreen>
   void _onControllerChange() {
     final controller = _craneController;
     if (!mounted || controller == null) return;
-    
-    if (controller.currentScreen != AppScreen.control || controller.isDisconnected) {
-      _dismissResetDialogIfVisible();
-    }
-    
+
     if (controller.isDisconnected) {
       // Auto-release both buttons on disconnect
       setState(() {
@@ -91,23 +83,6 @@ class _ControlScreenState extends State<ControlScreen>
         ),
       );
     }
-  }
-
-  void _dismissResetDialogIfVisible() {
-    if (!mounted || !_isResetDialogVisible || _isDismissingResetDialog) return;
-    _isDismissingResetDialog = true;
-    FocusManager.instance.primaryFocus?.unfocus();
-    final dialogContext = _resetDialogContext;
-    if (dialogContext != null && dialogContext.mounted) {
-      Navigator.of(dialogContext).pop(false);
-      _isDismissingResetDialog = false;
-      return;
-    }
-    final rootNavigator = Navigator.of(context, rootNavigator: true);
-    if (rootNavigator.canPop()) {
-      rootNavigator.pop(false);
-    }
-    _isDismissingResetDialog = false;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -203,36 +178,13 @@ class _ControlScreenState extends State<ControlScreen>
   }
 
   Future<void> _onResetEStopTap() async {
-    final controller = context.read<CraneController>();
-    final confirmed = await _showResetDialog(controller);
-    if (confirmed && mounted) {
-      await controller.resetEStop();
-      Vibration.vibrate(duration: 100);
-    }
-  }
-
-  Future<bool> _showResetDialog(CraneController controller) async {
-    if (!mounted || _isResetDialogVisible) return false;
+    final controller = _craneController;
+    if (controller == null) return;
     if (controller.currentScreen != AppScreen.control || !controller.isConnected) {
-      return false;
+      return;
     }
-
-    _isResetDialogVisible = true;
-    try {
-      final result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          _resetDialogContext = dialogContext;
-          return _ResetEStopDialog(controller: controller);
-        },
-      );
-      return result ?? false;
-    } finally {
-      _isResetDialogVisible = false;
-      _isDismissingResetDialog = false;
-      _resetDialogContext = null;
-    }
+    await controller.resetEStop();
+    Vibration.vibrate(duration: 100);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -710,21 +662,12 @@ class _ControlScreenState extends State<ControlScreen>
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
-          height: 44,
-          child: OutlinedButton.icon(
-            onPressed: _onResetEStopTap,
-            icon: const Icon(Icons.lock_open_rounded, size: 16),
-            label: const Text(
-              'RESET E-STOP — Password Required',
-              style: TextStyle(fontSize: 12, letterSpacing: 0.5),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.eStopColorLight,
-              side: const BorderSide(color: AppColors.eStopColorLight),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
+          child: EStopSwipeButton(
+            onActivated: () {
+              _onResetEStopTap();
+            },
+            instructionTitle: 'SWIPE TO RESET E-STOP',
+            instructionSubtitle: 'Slide right to clear emergency lockout',
           ),
         ),
       ],
@@ -967,131 +910,6 @@ class _DeadmanButtonState extends State<_DeadmanButton>
           );
         },
       ),
-    );
-  }
-}
-// ═══════════════════════════════════════════════════════════
-// Reset E-Stop Dialog (unchanged from original)
-// ═══════════════════════════════════════════════════════════
-
-class _ResetEStopDialog extends StatefulWidget {
-  final CraneController controller;
-
-  const _ResetEStopDialog({required this.controller});
-
-  @override
-  State<_ResetEStopDialog> createState() => _ResetEStopDialogState();
-}
-
-class _ResetEStopDialogState extends State<_ResetEStopDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscure = true;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      backgroundColor: AppColors.panel,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
-          SizedBox(width: 10),
-          Text(
-            'Reset Emergency Stop',
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 17),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Enter your password to unlock crane controls.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          if (_errorMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.eStopColor.withAlpha(31),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.eStopColor.withAlpha(102)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: AppColors.eStopColorLight, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(color: AppColors.eStopColorLight, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.panelAlt,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: TextField(
-              controller: _passwordController,
-              obscureText: _obscure,
-              autofocus: true,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Password',
-                hintStyle: const TextStyle(color: AppColors.textSecondary),
-                prefixIcon: const Icon(Icons.lock_outlined, color: AppColors.textSecondary, size: 20),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (widget.controller.verifyLocalPassword(_passwordController.text)) {
-              Navigator.pop(context, true);
-              return;
-            }
-            setState(() => _errorMessage = 'Incorrect password.');
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.upColor,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('UNLOCK'),
-        ),
-      ],
     );
   }
 }
