@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 
-import 'package:rev6_crane_control_ops/utils/constants.dart';
-import 'package:rev6_crane_control_ops/services/ble_service.dart';
-import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/services/ble_service.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

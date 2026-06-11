@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 // import 'package:provider/provider.dart';
 
-// import 'package:rev6_crane_control_ops/controllers/layout_settings_controller.dart';
-// import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
-import 'package:rev6_crane_control_ops/screens/settings/pages/control_type_page.dart';
-import 'package:rev6_crane_control_ops/screens/settings/pages/button_sizing_page.dart';
-import 'package:rev6_crane_control_ops/screens/settings/pages/label_customization_page.dart';
-import 'package:rev6_crane_control_ops/screens/settings/pages/layout_configuration_page.dart';
+// import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+// import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/screens/settings/pages/control_type_page.dart';
+import 'package:rev_crane_control_ops/screens/settings/pages/button_sizing_page.dart';
+import 'package:rev_crane_control_ops/screens/settings/pages/label_customization_page.dart';
+import 'package:rev_crane_control_ops/screens/settings/pages/layout_configuration_page.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlCustomizationScreen

@@ -1,6 +1,6 @@
 {
-    "name": "rev6_crane_control_ops",
-    "short_name": "rev6_crane_control_ops",
+    "name": "rev_crane_control_ops",
+    "short_name": "rev_crane_control_ops",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

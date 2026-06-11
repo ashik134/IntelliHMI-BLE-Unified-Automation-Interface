@@ -1,4 +1,4 @@
-package com.example.rev6_crane_control_ops
+package com.example.rev_crane_control_ops
 
 import android.os.Build
 import android.os.Bundle

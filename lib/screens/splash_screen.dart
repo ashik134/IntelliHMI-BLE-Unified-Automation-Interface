@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 
-import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev6_crane_control_ops/startup/app_startup_initializer.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/startup/app_startup_initializer.dart';
 
 class StartupSplashScreen extends StatefulWidget {
   const StartupSplashScreen({required this.destinationBuilder, super.key});

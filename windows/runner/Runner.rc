@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "rev6_crane_control_ops" "\0"
+            VALUE "FileDescription", "rev_crane_control_ops" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "rev6_crane_control_ops" "\0"
+            VALUE "InternalName", "rev_crane_control_ops" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "rev6_crane_control_ops.exe" "\0"
-            VALUE "ProductName", "rev6_crane_control_ops" "\0"
+            VALUE "OriginalFilename", "rev_crane_control_ops.exe" "\0"
+            VALUE "ProductName", "rev_crane_control_ops" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

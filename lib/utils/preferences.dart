@@ -1,4 +1,4 @@
-import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppPreferences {

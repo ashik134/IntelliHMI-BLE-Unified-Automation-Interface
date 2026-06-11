@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:rev6_crane_control_ops/models/ble_scan_device.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 
 class DeviceCard extends StatelessWidget {
   const DeviceCard({

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 typedef StartupProgressCallback = void Function(String message);
 

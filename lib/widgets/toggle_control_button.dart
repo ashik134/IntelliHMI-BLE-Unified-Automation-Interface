@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleControlGroup

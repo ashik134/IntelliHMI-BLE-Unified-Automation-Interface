@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:rev6_crane_control_ops/models/ble_scan_device.dart';
-import 'package:rev6_crane_control_ops/models/plc_output_command.dart';
-import 'package:rev6_crane_control_ops/services/ble_service.dart';
-import 'package:rev6_crane_control_ops/services/permission_service.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
-import 'package:rev6_crane_control_ops/utils/preferences.dart';
+import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/models/plc_output_command.dart';
+import 'package:rev_crane_control_ops/services/ble_service.dart';
+import 'package:rev_crane_control_ops/services/permission_service.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/preferences.dart';
 
 enum AppScreen { connection, authentication, control }
 

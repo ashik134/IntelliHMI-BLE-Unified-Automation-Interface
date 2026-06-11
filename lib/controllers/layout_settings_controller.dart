@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev6_crane_control_ops/services/layout_validation_service.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutSettingsController

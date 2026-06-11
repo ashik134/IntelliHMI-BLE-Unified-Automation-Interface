@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:rev6_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 
 class TriStateHoistButton extends StatelessWidget {
   const TriStateHoistButton({

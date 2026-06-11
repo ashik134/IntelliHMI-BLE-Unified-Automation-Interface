@@ -6,9 +6,9 @@ import 'package:logger/logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import 'package:rev6_crane_control_ops/models/ble_scan_device.dart';
-import 'package:rev6_crane_control_ops/models/plc_output_command.dart';
-import 'package:rev6_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/models/plc_output_command.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 
 enum BleConnectionStatus {
   disconnected,

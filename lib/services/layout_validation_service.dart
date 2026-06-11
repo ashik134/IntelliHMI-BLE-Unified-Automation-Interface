@@ -1,4 +1,4 @@
-import 'package:rev6_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ValidationResult
