@@ -56,6 +56,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_native_splash: ^2.4.3
 
 flutter_launcher_icons:
   android: ic_launcher
@@ -70,16 +71,30 @@ flutter_launcher_icons:
   macos:
     generate: false
 
-# flutter_native_splash:
-#   color: "#F5F7FA"
-#   android: true
-#   ios: true
-#   web: false
-#   fullscreen: false
+flutter_native_splash:
+  # Light theme: white background.
+  color: "#FFFFFF"
+  # Dark theme: black background.
+  color_dark: "#FFFFF8"
 
-#   android_12:
-#     color: "#F5F7FA"
-#     icon_background_color: "#F5F7FA"
+  # Splash image — ONLY for native startup; launcher icon (app_icon2.png) is unchanged.
+  image: assets/images/app_icon1.png
+
+  android: true
+  ios: false
+  web: false
+  fullscreen: false
+
+  android_gravity: center
+
+  android_12:
+    # Light theme: white background + white icon circle (circle invisible on white).
+    color: "#FFFFFF"
+    icon_background_color: "#FFFFFF"
+    image: assets/images/app_icon1.png
+    # Dark theme: black background + black icon circle (circle invisible on black).
+    color_dark: "#FFFFF8"
+    icon_background_color_dark: "#FFFFF8"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -94,6 +109,9 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/app_icon.png
+    - assets/images/app_icon1.png
+    - assets/images/app_icon2.png
+    - assets/images/app_icon3.png
     - assets/images/Intellicontrol Final Logo300PPI.png
     - assets/images/intellicontrol-icon-1024x1024 (6).png
   #   - images/a_dot_ham.jpeg
