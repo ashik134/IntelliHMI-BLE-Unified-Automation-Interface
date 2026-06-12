@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 
 class AppColors {
+  AppColors._();
   // ── Dark theme – Crane Control Screen ───────────────────────────────
   static const Color darkBg = Color(0xFF0D1117);
   static const Color darkBgTop = Color(0xFF0C1A26);

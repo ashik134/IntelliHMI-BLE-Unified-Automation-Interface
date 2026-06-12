@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/app_theme.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
@@ -16,11 +17,11 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const CraneControlApp());
+  runApp(const IntelliHMIApp());
 }
 
-class CraneControlApp extends StatelessWidget {
-  const CraneControlApp({super.key});
+class IntelliHMIApp extends StatelessWidget {
+  const IntelliHMIApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -38,15 +39,15 @@ class CraneControlApp extends StatelessWidget {
         ),
         routes: {
           '/home': (_) => const HomeScreen(),
-          '/crane': (_) => const CraneAppShell(),
+          '/crane': (_) => const HMIAppShell(),
         },
       ),
     );
   }
 }
 
-class CraneAppShell extends StatelessWidget {
-  const CraneAppShell({super.key});
+class HMIAppShell extends StatelessWidget {
+  const HMIAppShell({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 

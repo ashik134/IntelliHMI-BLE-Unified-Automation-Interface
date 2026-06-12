@@ -1,12 +1,32 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:battery_plus/battery_plus.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/screens/settings/settings_screen.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+
+// ─── Data Models ─────────────────────────────────────────────────────────────
+
+class _RecentEvent {
+  const _RecentEvent({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.detail,
+    required this.time,
+  });
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String detail;
+  final String time;
+}
+
+enum _MetricStatus { ok, warning, error, neutral }
 
 // ═══════════════════════════════════════════════════════════════
 // HomeScreen
@@ -21,13 +41,41 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _currentNavIndex = 0;
+  bool _commStatsExpanded = false;
 
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
 
-  // Subtle pulse for status indicator
-  late final AnimationController _pulseController;
-  // late final Animation<double> _pulseAnimation;
+  static const List<_RecentEvent> _recentEvents = [
+    _RecentEvent(
+      icon: Icons.check_circle_outline_rounded,
+      color: AppColors.homeSuccess,
+      title: 'System Initialized',
+      detail: 'Application started successfully',
+      time: 'Just now',
+    ),
+    _RecentEvent(
+      icon: Icons.bluetooth_rounded,
+      color: AppColors.homePrimary,
+      title: 'BLE Adapter Checked',
+      detail: 'Bluetooth adapter scanned',
+      time: 'Just now',
+    ),
+    _RecentEvent(
+      icon: Icons.shield_outlined,
+      color: AppColors.homeInfo,
+      title: 'Permissions Verified',
+      detail: 'Runtime permissions checked',
+      time: 'Just now',
+    ),
+    _RecentEvent(
+      icon: Icons.info_outline_rounded,
+      color: AppColors.lightTextMuted,
+      title: 'No Previous Session',
+      detail: 'Connect to start a new session',
+      time: '\u2014',
+    ),
+  ];
 
   @override
   void initState() {
@@ -35,22 +83,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 450),
     )..forward();
 
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
       curve: Curves.easeOutCubic,
     );
-
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
-
-    // _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
-    //   CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    // );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -61,11 +100,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _fadeController.dispose();
-    _pulseController.dispose();
     super.dispose();
   }
-
-  // ─── Navigation Handlers ──────────────────────────────
 
   void _navigateToConnect() {
     HapticFeedback.mediumImpact();
@@ -79,23 +115,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
+  void _showComingSoon(String feature) {
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.construction_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Text(
+              '$feature \u2014 Coming soon',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.connPrimary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _onNavTap(int index) {
     HapticFeedback.selectionClick();
     setState(() => _currentNavIndex = index);
 
     switch (index) {
-      case 0: // Home — already here
+      case 0:
         break;
-      case 1: // Connect
+      case 1:
         _navigateToConnect();
-        break;
-      case 2: // Settings
+      case 2:
+        _showComingSoon('Diagnostics');
+      case 3:
+        _showComingSoon('Logs');
+      case 4:
         _navigateToSettings();
-        break;
     }
   }
-
-  // ─── Build ────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -103,55 +162,51 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return Scaffold(
       backgroundColor: AppColors.homeBg,
-
-      // ── Bottom Navigation Bar ──────────────────────
-      bottomNavigationBar: _AnimatedBottomNav(
+      bottomNavigationBar: _IndustrialBottomNav(
         currentIndex: _currentNavIndex,
         onTap: _onNavTap,
-        isConnected: controller.isConnected,
       ),
-
-      // ── Body ────────────────────────────────────────
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: SafeArea(
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              // Header
               SliverToBoxAdapter(
-                child: _ProfessionalHeader(controller: controller),
+                child: _ProfessionalHeader(
+                  onSettingsTap: _navigateToSettings,
+                ),
               ),
-
-              // Content
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
-                    // Quick Status Banner
-                    _QuickStatusBanner(controller: controller),
-                    const SizedBox(height: 16),
-
-                    // Quick Actions Row
-                    _QuickActionsRow(
-                      onConnect: _navigateToConnect,
+                    _ConnectPlcCard(onConnect: _navigateToConnect),
+                    const SizedBox(height: 22),
+                    const _SectionLabel(label: 'QUICK ACTIONS'),
+                    const SizedBox(height: 10),
+                    _QuickActionsGrid(
+                      onControlPanel: _navigateToConnect,
+                      onDiagnostics: () => _showComingSoon('Diagnostics'),
+                      onLogs: () => _showComingSoon('Logs'),
                       onSettings: _navigateToSettings,
                     ),
-                    const SizedBox(height: 20),
-
-                    // Connection Status Card
-                    // _EnhancedConnectionCard(
-                    //   controller: controller,
-                    //   pulseAnimation: _pulseAnimation,
-                    // ),
+                    const SizedBox(height: 22),
+                    const _SectionLabel(label: 'SYSTEM HEALTH'),
+                    const SizedBox(height: 10),
+                    _SystemHealthCard(controller: controller),
                     const SizedBox(height: 16),
-
-                    // System Health Cards
-                    _SystemHealthGrid(controller: controller),
+                    _CommStatsPanel(
+                      expanded: _commStatsExpanded,
+                      onToggle: () => setState(
+                        () => _commStatsExpanded = !_commStatsExpanded,
+                      ),
+                    ),
                     const SizedBox(height: 16),
-
-                    // Recent Activity
-                    _RecentActivityCard(controller: controller),
+                    const _SectionLabel(label: 'RECENT EVENTS'),
+                    const SizedBox(height: 10),
+                    _RecentEventsCard(events: _recentEvents),
+                    const SizedBox(height: 8),
                   ]),
                 ),
               ),
@@ -164,25 +219,56 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Animated Bottom Navigation Bar
+// Section Label
 // ═══════════════════════════════════════════════════════════════
 
-class _AnimatedBottomNav extends StatelessWidget {
-  const _AnimatedBottomNav({
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        color: AppColors.lightTextMuted,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.4,
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Industrial Bottom Navigation Bar (5 Tabs)
+// ═══════════════════════════════════════════════════════════════
+
+class _IndustrialBottomNav extends StatelessWidget {
+  const _IndustrialBottomNav({
     required this.currentIndex,
     required this.onTap,
-    required this.isConnected,
   });
 
   final int currentIndex;
-  final Function(int) onTap;
-  final bool isConnected;
+  final void Function(int) onTap;
+
+  static const _tabs = [
+    (icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
+    (icon: Icons.tune_outlined, activeIcon: Icons.tune_rounded, label: 'Control'),
+    (icon: Icons.monitor_heart_outlined, activeIcon: Icons.monitor_heart_rounded, label: 'Diagnostics'),
+    (icon: Icons.receipt_long_outlined, activeIcon: Icons.receipt_long_rounded, label: 'Logs'),
+    (icon: Icons.settings_outlined, activeIcon: Icons.settings_rounded, label: 'Settings'),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.navBarBg,
+        border: Border(
+          top: BorderSide(color: AppColors.navBarBorder, width: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AppColors.shadowMedium,
@@ -190,42 +276,22 @@ class _AnimatedBottomNav extends StatelessWidget {
             offset: Offset(0, -2),
           ),
         ],
-        border: Border(
-          top: BorderSide(color: AppColors.navBarBorder, width: 0.5),
-        ),
       ),
       child: SafeArea(
+        top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(
-                index: 0,
-                currentIndex: currentIndex,
-                icon: Icons.dashboard_rounded,
-                activeIcon: Icons.dashboard_rounded,
-                label: 'Dashboard',
-                onTap: () => onTap(0),
-              ),
-              _NavItem(
-                index: 1,
-                currentIndex: currentIndex,
-                icon: Icons.bluetooth_rounded,
-                activeIcon: Icons.bluetooth_connected_rounded,
-                label: 'Connect',
-                badge: isConnected ? _NavBadge.pulse : null,
-                onTap: () => onTap(1),
-              ),
-              _NavItem(
-                index: 2,
-                currentIndex: currentIndex,
-                icon: Icons.settings_outlined,
-                activeIcon: Icons.settings_rounded,
-                label: 'Settings',
-                onTap: () => onTap(2),
-              ),
-            ],
+            children: List.generate(_tabs.length, (i) {
+              final isActive = i == currentIndex;
+              return _NavTabItem(
+                icon: isActive ? _tabs[i].activeIcon : _tabs[i].icon,
+                label: _tabs[i].label,
+                isActive: isActive,
+                onTap: () => onTap(i),
+              );
+            }),
           ),
         ),
       ),
@@ -233,163 +299,54 @@ class _AnimatedBottomNav extends StatelessWidget {
   }
 }
 
-// ignore: unused_field
-enum _NavBadge { pulse, count }
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.index,
-    required this.currentIndex,
+class _NavTabItem extends StatelessWidget {
+  const _NavTabItem({
     required this.icon,
-    required this.activeIcon,
     required this.label,
-    this.badge,
+    required this.isActive,
     required this.onTap,
   });
 
-  final int index;
-  final int currentIndex;
   final IconData icon;
-  final IconData activeIcon;
   final String label;
-  final _NavBadge? badge;
+  final bool isActive;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isActive = index == currentIndex;
-
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
-        padding: EdgeInsets.symmetric(
-          horizontal: isActive ? 20 : 12,
-          vertical: 8,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isActive ? AppColors.homePrimaryLight : Colors.transparent,
-          borderRadius: BorderRadius.circular(28),
+          color: isActive
+              ? AppColors.navBarActive.withAlpha(20)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Icon with animation
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.8, end: isActive ? 1.0 : 0.8),
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutBack,
-              builder: (context, scale, child) {
-                return Transform.scale(
-                  scale: scale,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
-                        isActive ? activeIcon : icon,
-                        color: isActive
-                            ? AppColors.navBarActive
-                            : AppColors.navBarInactive,
-                        size: 24,
-                      ),
-                      // Pulse badge for connected state
-                      if (badge == _NavBadge.pulse)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: const BoxDecoration(
-                              color: AppColors.homeSuccess,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const _PulseDot(),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+            Icon(
+              icon,
+              color: isActive ? AppColors.navBarActive : AppColors.navBarInactive,
+              size: 22,
             ),
-            // Label (only when active)
-            if (isActive) ...[
-              const SizedBox(width: 8),
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 200),
-                builder: (context, opacity, child) {
-                  return Opacity(
-                    opacity: opacity,
-                    child: Text(
-                      label,
-                      style: const TextStyle(
-                        color: AppColors.navBarActive,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  );
-                },
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: isActive ? AppColors.navBarActive : AppColors.navBarInactive,
+                fontSize: 10,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               ),
-            ],
+            ),
           ],
         ),
       ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Pulse Dot (for connection indicator)
-// ═══════════════════════════════════════════════════════════════
-
-class _PulseDot extends StatefulWidget {
-  const _PulseDot();
-
-  @override
-  State<_PulseDot> createState() => _PulseDotState();
-}
-
-class _PulseDotState extends State<_PulseDot>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.6, end: 1.0).animate(_controller);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.homeSuccess.withAlpha(
-              (_animation.value * 255).toInt(),
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -399,296 +356,319 @@ class _PulseDotState extends State<_PulseDot>
 // ═══════════════════════════════════════════════════════════════
 
 class _ProfessionalHeader extends StatelessWidget {
-  const _ProfessionalHeader({required this.controller});
+  const _ProfessionalHeader({required this.onSettingsTap});
 
-  final CraneController controller;
+  final VoidCallback onSettingsTap;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 14, 10, 14),
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(
           bottom: BorderSide(color: AppColors.homeBorder, width: 0.5),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              // Logo
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.homePrimary, AppColors.homePrimaryDark],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.homePrimary.withAlpha(64),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.precision_manufacturing_rounded,
-                  color: Colors.white,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppConstants.appTitle,
-                      style: GoogleFonts.cinzel(
-                        
-                        color: AppColors.lightText,
-                        fontSize: 17,
-
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'PLC14 Industrial Control System',
-                      style: TextStyle(
-                        color: AppColors.lightTextSub.withAlpha(204),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Version badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.homePrimaryLight,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'v${AppConstants.appVersion}',
-                  style: TextStyle(
-                    color: AppColors.homePrimary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          // Status strip
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            width: 46,
+            height: 46,
+            padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
-              color: AppColors.homeSurfaceAlt,
-              borderRadius: BorderRadius.circular(10),
+              color: AppColors.homePrimaryLight,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: AppColors.homePrimary.withAlpha(40)),
             ),
-            child: Row(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: Image.asset(
+                'assets/images/intellicontrol-icon-1024x1024 (6).png',
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _MiniStatusDot(
-                  active: controller.bluetoothReady,
-                  color: AppColors.homeSuccess,
-                  label: 'BT',
-                ),
-                const SizedBox(width: 12),
-                _MiniStatusDot(
-                  active: controller.isConnected,
-                  color: AppColors.homePrimary,
-                  label: 'PLC',
-                ),
-                const SizedBox(width: 12),
-                _MiniStatusDot(
-                  active: controller.isAuthenticated,
-                  color: AppColors.homeInfo,
-                  label: 'Auth',
-                ),
-                const Spacer(),
                 Text(
-                  controller.isConnected ? 'Online' : 'Standby',
+                  'IntelliHMI',
+                  style: GoogleFonts.exo2(
+                    color: AppColors.lightText,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                    height: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'PLC Control System',
                   style: TextStyle(
-                    color: controller.isConnected
-                        ? AppColors.homeSuccess
-                        : AppColors.lightTextMuted,
+                    color: AppColors.lightTextSub,
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.2,
                   ),
                 ),
               ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: AppColors.homePrimaryLight,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'v${AppConstants.appVersion}',
+              style: TextStyle(
+                color: AppColors.homePrimary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          _HeaderIconButton(
+            icon: Icons.person_outline_rounded,
+            tooltip: 'Profile',
+            onTap: () {},
+          ),
+          _HeaderIconButton(
+            icon: Icons.settings_outlined,
+            tooltip: 'Settings',
+            onTap: onSettingsTap,
+          ),
         ],
       ),
     );
   }
 }
 
-class _MiniStatusDot extends StatelessWidget {
-  const _MiniStatusDot({
-    required this.active,
-    required this.color,
-    required this.label,
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
   });
 
-  final bool active;
-  final Color color;
-  final String label;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: active ? color : AppColors.borderStrong,
-            shape: BoxShape.circle,
-            boxShadow: active
-                ? [BoxShadow(color: color.withAlpha(102), blurRadius: 4)]
-                : null,
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(icon, color: AppColors.lightTextSub, size: 22),
           ),
         ),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: TextStyle(
-            color: active ? AppColors.lightText : AppColors.lightTextMuted,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Quick Status Banner
+// Connect PLC — Primary CTA Card
 // ═══════════════════════════════════════════════════════════════
 
-class _QuickStatusBanner extends StatelessWidget {
-  const _QuickStatusBanner({required this.controller});
+class _ConnectPlcCard extends StatefulWidget {
+  const _ConnectPlcCard({required this.onConnect});
+  final VoidCallback onConnect;
 
-  final CraneController controller;
+  @override
+  State<_ConnectPlcCard> createState() => _ConnectPlcCardState();
+}
+
+class _ConnectPlcCardState extends State<_ConnectPlcCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pressCtrl;
+  late Animation<double> _pressAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _pressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _pressAnim = Tween<double>(begin: 1.0, end: 0.97).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pressCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = controller.isConnected;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isConnected
-              ? [AppColors.homeSuccessLight, AppColors.homeSuccessLight]
-              : [AppColors.homeWarningLight, AppColors.homeWarningLight],
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isConnected
-              ? AppColors.homeSuccess.withAlpha(51)
-              : AppColors.homeWarning.withAlpha(51),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isConnected ? Icons.check_circle_rounded : Icons.info_rounded,
-            color: isConnected ? AppColors.homeSuccess : AppColors.homeWarning,
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              isConnected
-                  ? 'System ready — Connected to ${controller.connectedDeviceName ?? "PLC14"}'
-                  : 'Device not connected — Tap Connect to begin',
-              style: TextStyle(
-                color: isConnected ? AppColors.homeSuccess : AppColors.homeWarning,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+    return GestureDetector(
+      onTapDown: (_) => _pressCtrl.forward(),
+      onTapUp: (_) {
+        _pressCtrl.reverse();
+        widget.onConnect();
+      },
+      onTapCancel: () => _pressCtrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _pressAnim,
+        builder: (_, child) =>
+            Transform.scale(scale: _pressAnim.value, child: child),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppColors.homePrimary, AppColors.homePrimaryDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ),
-          if (isConnected)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.homeSuccess.withAlpha(38),
-                borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.homePrimary.withAlpha(90),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
               ),
-              child: const Text(
-                'LIVE',
-                style: TextStyle(
-                  color: AppColors.homeSuccess,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(38),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.bluetooth_searching_rounded,
+                  color: Colors.white,
+                  size: 32,
                 ),
               ),
-            ),
-        ],
+              const SizedBox(width: 18),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CONNECT PLC',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Scan & pair your PLC device via Bluetooth LE',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(38),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Quick Actions Row
+// Quick Actions Grid (2 x 2)
 // ═══════════════════════════════════════════════════════════════
 
-class _QuickActionsRow extends StatelessWidget {
-  const _QuickActionsRow({required this.onConnect, required this.onSettings});
+class _QuickActionsGrid extends StatelessWidget {
+  const _QuickActionsGrid({
+    required this.onControlPanel,
+    required this.onDiagnostics,
+    required this.onLogs,
+    required this.onSettings,
+  });
 
-  final VoidCallback onConnect;
+  final VoidCallback onControlPanel;
+  final VoidCallback onDiagnostics;
+  final VoidCallback onLogs;
   final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          flex: 3,
-          child: _QuickActionCard(
-            icon: Icons.bluetooth_searching_rounded,
-            label: 'Connect Device',
-            subtitle: 'Scan & pair',
-            color: AppColors.homePrimary,
-            onTap: onConnect,
-            primary: true,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          flex: 2,
-          child: _QuickActionCard(
-            icon: Icons.tune_rounded,
-            label: 'Settings',
-            subtitle: 'Configure',
-            color: AppColors.homeInfo,
-            onTap: onSettings,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isTablet = constraints.maxWidth > 560;
+        return GridView.count(
+          crossAxisCount: isTablet ? 4 : 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: isTablet ? 1.1 : 1.55,
+          children: [
+            _QuickActionCard(
+              icon: Icons.dashboard_customize_rounded,
+              label: 'Control Panel',
+              subtitle: 'Machine controls',
+              color: AppColors.homePrimary,
+              onTap: onControlPanel,
+            ),
+            _QuickActionCard(
+              icon: Icons.monitor_heart_rounded,
+              label: 'Diagnostics',
+              subtitle: 'System health check',
+              color: AppColors.homeInfo,
+              onTap: onDiagnostics,
+            ),
+            _QuickActionCard(
+              icon: Icons.receipt_long_rounded,
+              label: 'Event Logs',
+              subtitle: 'Activity history',
+              color: AppColors.homeWarning,
+              onTap: onLogs,
+            ),
+            _QuickActionCard(
+              icon: Icons.tune_rounded,
+              label: 'Settings',
+              subtitle: 'App configuration',
+              color: AppColors.lightTextSub,
+              onTap: onSettings,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -700,7 +680,6 @@ class _QuickActionCard extends StatefulWidget {
     required this.subtitle,
     required this.color,
     required this.onTap,
-    this.primary = false,
   });
 
   final IconData icon;
@@ -708,7 +687,6 @@ class _QuickActionCard extends StatefulWidget {
   final String subtitle;
   final Color color;
   final VoidCallback onTap;
-  final bool primary;
 
   @override
   State<_QuickActionCard> createState() => _QuickActionCardState();
@@ -716,439 +694,423 @@ class _QuickActionCard extends StatefulWidget {
 
 class _QuickActionCardState extends State<_QuickActionCard>
     with SingleTickerProviderStateMixin {
-  // ignore: unused_field
-  bool _isPressed = false;
-  late AnimationController _pressController;
-  late Animation<double> _pressAnimation;
+  late AnimationController _pressCtrl;
+  late Animation<double> _pressAnim;
 
   @override
   void initState() {
     super.initState();
-    _pressController = AnimationController(
+    _pressCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 120),
     );
-    _pressAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _pressController, curve: Curves.easeInOut),
+    _pressAnim = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut),
     );
   }
 
   @override
   void dispose() {
-    _pressController.dispose();
+    _pressCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) {
-        setState(() => _isPressed = true);
-        _pressController.forward();
-      },
+      onTapDown: (_) => _pressCtrl.forward(),
       onTapUp: (_) {
-        setState(() => _isPressed = false);
-        _pressController.reverse();
+        _pressCtrl.reverse();
         widget.onTap();
       },
-      onTapCancel: () {
-        setState(() => _isPressed = false);
-        _pressController.reverse();
-      },
+      onTapCancel: () => _pressCtrl.reverse(),
       child: AnimatedBuilder(
-        animation: _pressAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _pressAnimation.value,
-            child: Container(
-              padding: EdgeInsets.all(widget.primary ? 16 : 14),
-              decoration: BoxDecoration(
-                color: widget.primary
-                    ? widget.color.withAlpha(242)
-                    : AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: widget.primary
-                    ? null
-                    : Border.all(color: AppColors.homeBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: widget.primary
-                        ? widget.color.withAlpha(77)
-                        : AppColors.shadowLight,
-                    blurRadius: widget.primary ? 12 : 6,
-                    offset: Offset(0, widget.primary ? 6 : 2),
-                  ),
-                ],
+        animation: _pressAnim,
+        builder: (_, child) =>
+            Transform.scale(scale: _pressAnim.value, child: child),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.homeBorder),
+            boxShadow: const [
+              BoxShadow(
+                color: AppColors.shadowLight,
+                blurRadius: 6,
+                offset: Offset(0, 2),
               ),
-              child: Column(
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: widget.color.withAlpha(24),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(widget.icon, color: widget.color, size: 18),
+              ),
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: widget.primary ? 44 : 36,
-                    height: widget.primary ? 44 : 36,
-                    decoration: BoxDecoration(
-                      color: widget.primary
-                          ? Colors.white.withAlpha(51)
-                          : widget.color.withAlpha(26),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      widget.icon,
-                      color: widget.primary ? Colors.white : widget.color,
-                      size: widget.primary ? 24 : 20,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
                   Text(
                     widget.label,
-                    style: TextStyle(
-                      color: widget.primary
-                          ? Colors.white
-                          : AppColors.lightText,
-                      fontSize: widget.primary ? 14 : 13,
+                    style: const TextStyle(
+                      color: AppColors.lightText,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     widget.subtitle,
-                    style: TextStyle(
-                      color: widget.primary
-                          ? Colors.white.withAlpha(204)
-                          : AppColors.lightTextMuted,
+                    style: const TextStyle(
+                      color: AppColors.lightTextMuted,
                       fontSize: 10,
                     ),
                   ),
                 ],
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Enhanced Connection Card
+// System Health Card (with live battery)
 // ═══════════════════════════════════════════════════════════════
 
-// class _EnhancedConnectionCard extends StatelessWidget {
-//   const _EnhancedConnectionCard({
-//     required this.controller,
-//     required this.pulseAnimation,
-//   });
-
-//   final CraneController controller;
-//   final Animation<double> pulseAnimation;
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Container(
-//       padding: const EdgeInsets.all(16),
-//       decoration: BoxDecoration(
-//         color: AppColors.surface,
-//         borderRadius: BorderRadius.circular(16),
-//         border: Border.all(color: AppColors.homeBorder),
-//         boxShadow: [
-//           const BoxShadow(
-//             color: AppColors.shadowLight,
-//             blurRadius: 8,
-//             offset: Offset(0, 2),
-//           ),
-//         ],
-//       ),
-//       child: Column(
-//         crossAxisAlignment: CrossAxisAlignment.start,
-//         children: [
-//           // Title row
-//           Row(
-//             children: [
-//               const Icon(
-//                 Icons.bluetooth_rounded,
-//                 color: AppColors.homePrimary,
-//                 size: 18,
-//               ),
-//               const SizedBox(width: 8),
-//               const Text(
-//                 'Connection Status',
-//                 style: TextStyle(
-//                   color: AppColors.lightText,
-//                   fontSize: 14,
-//                   fontWeight: FontWeight.w700,
-//                 ),
-//               ),
-//               const Spacer(),
-//               if (controller.isConnected)
-//                 AnimatedBuilder(
-//                   animation: pulseAnimation,
-//                   builder: (context, child) {
-//                     return Container(
-//                       width: 10,
-//                       height: 10,
-//                       decoration: BoxDecoration(
-//                         color: AppColors.homeSuccess.withAlpha(
-//                           (pulseAnimation.value * 255).toInt(),
-//                         ),
-//                         shape: BoxShape.circle,
-//                       ),
-//                     );
-//                   },
-//                 ),
-//             ],
-//           ),
-//           const SizedBox(height: 14),
-//           // Device info
-//           Row(
-//             children: [
-//               Container(
-//                 width: 52,
-//                 height: 52,
-//                 decoration: BoxDecoration(
-//                   color: controller.isConnected
-//                       ? AppColors.homeSuccessLight
-//                       : AppColors.homeSurfaceAlt,
-//                   borderRadius: BorderRadius.circular(14),
-//                 ),
-//                 child: Icon(
-//                   controller.isConnected
-//                       ? Icons.bluetooth_connected_rounded
-//                       : Icons.bluetooth_rounded,
-//                   color: controller.isConnected
-//                       ? AppColors.homeSuccess
-//                       : AppColors.lightTextMuted,
-//                   size: 28,
-//                 ),
-//               ),
-//               const SizedBox(width: 14),
-//               Expanded(
-//                 child: Column(
-//                   crossAxisAlignment: CrossAxisAlignment.start,
-//                   children: [
-//                     Text(
-//                       controller.isConnected
-//                           ? controller.connectedDeviceName ?? 'PLC14_BLE'
-//                           : 'No Device Connected',
-//                       style: const TextStyle(
-//                         color: AppColors.lightText,
-//                         fontSize: 15,
-//                         fontWeight: FontWeight.w700,
-//                       ),
-//                     ),
-//                     const SizedBox(height: 3),
-//                     Text(
-//                       controller.isConnected
-//                           ? 'BLE · Authenticated · ${BLEConstants.serviceUuid.substring(0, 8)}...'
-//                           : 'Tap Connect to scan for PLC14',
-//                       style: const TextStyle(
-//                         color: AppColors.lightTextSub,
-//                         fontSize: 11,
-//                       ),
-//                     ),
-//                   ],
-//                 ),
-//               ),
-//             ],
-//           ),
-//           const SizedBox(height: 14),
-//           // Progress bar for connection state
-//           if (controller.isConnecting || controller.isScanning)
-//             Padding(
-//               padding: const EdgeInsets.only(bottom: 12),
-//               child: ClipRRect(
-//                 borderRadius: BorderRadius.circular(3),
-//                 child: const LinearProgressIndicator(
-//                   minHeight: 3,
-//                   backgroundColor: AppColors.homeSurfaceAlt,
-//                   valueColor: AlwaysStoppedAnimation<Color>(
-//                     AppColors.homePrimary,
-//                   ),
-//                 ),
-//               ),
-//             ),
-//           // Action button
-//           SizedBox(
-//             width: double.infinity,
-//             child: ElevatedButton.icon(
-//               onPressed: controller.isConnected
-//                   ? null
-//                   : () {
-//                       HapticFeedback.mediumImpact();
-//                       Navigator.of(context).pushNamed('/crane');
-//                     },
-//               icon: Icon(
-//                 controller.isConnected
-//                     ? Icons.check_rounded
-//                     : Icons.bluetooth_rounded,
-//                 size: 18,
-//               ),
-//               label: Text(
-//                 controller.isConnected ? 'Connected' : 'Connect to Device',
-//                 style: const TextStyle(fontWeight: FontWeight.w600),
-//               ),
-//               style: ElevatedButton.styleFrom(
-//                 backgroundColor: controller.isConnected
-//                     ? AppColors.homeSuccess
-//                     : AppColors.homePrimary,
-//                 foregroundColor: Colors.white,
-//                 disabledBackgroundColor: AppColors.homeSuccess.withAlpha(204),
-//                 disabledForegroundColor: Colors.white,
-//                 padding: const EdgeInsets.symmetric(vertical: 14),
-//                 shape: RoundedRectangleBorder(
-//                   borderRadius: BorderRadius.circular(12),
-//                 ),
-//                 elevation: 0,
-//               ),
-//             ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-// }
-
-// ═══════════════════════════════════════════════════════════════
-// System Health Grid
-// ═══════════════════════════════════════════════════════════════
-
-class _SystemHealthGrid extends StatelessWidget {
-  const _SystemHealthGrid({required this.controller});
-
+class _SystemHealthCard extends StatefulWidget {
+  const _SystemHealthCard({required this.controller});
   final CraneController controller;
+
+  @override
+  State<_SystemHealthCard> createState() => _SystemHealthCardState();
+}
+
+class _SystemHealthCardState extends State<_SystemHealthCard> {
+  final Battery _battery = Battery();
+  int? _batteryLevel;
+  BatteryState _batteryState = BatteryState.unknown;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchBattery();
+  }
+
+  Future<void> _fetchBattery() async {
+    try {
+      final level = await _battery.batteryLevel;
+      final state = await _battery.batteryState;
+      if (mounted) {
+        setState(() {
+          _batteryLevel = level;
+          _batteryState = state;
+        });
+      }
+    } catch (_) {
+      // Battery not available on this platform
+    }
+  }
+
+  String get _batteryValue {
+    if (_batteryLevel == null) return '\u2014';
+    return '$_batteryLevel%';
+  }
+
+  IconData get _batteryIcon {
+    if (_batteryState == BatteryState.charging ||
+        _batteryState == BatteryState.full) {
+      return Icons.battery_charging_full_rounded;
+    }
+    final level = _batteryLevel ?? 100;
+    if (level <= 10) return Icons.battery_0_bar_rounded;
+    if (level <= 30) return Icons.battery_2_bar_rounded;
+    if (level <= 50) return Icons.battery_3_bar_rounded;
+    if (level <= 70) return Icons.battery_4_bar_rounded;
+    if (level <= 90) return Icons.battery_5_bar_rounded;
+    return Icons.battery_full_rounded;
+  }
+
+  _MetricStatus get _batteryStatus {
+    if (_batteryLevel == null) return _MetricStatus.neutral;
+    if (_batteryLevel! <= 10) return _MetricStatus.error;
+    if (_batteryLevel! <= 25) return _MetricStatus.warning;
+    return _MetricStatus.ok;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.homeBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.shadowLight,
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _HealthMetricRow(
+            icon: Icons.check_circle_rounded,
+            label: 'App Status',
+            value: 'Operational',
+            status: _MetricStatus.ok,
+            isFirst: true,
+          ),
+          _HealthMetricRow(
+            icon: Icons.bluetooth_rounded,
+            label: 'BLE Adapter',
+            value: widget.controller.bluetoothReady ? 'Ready' : 'Offline',
+            status: widget.controller.bluetoothReady
+                ? _MetricStatus.ok
+                : _MetricStatus.error,
+          ),
+          _HealthMetricRow(
+            icon: Icons.security_rounded,
+            label: 'Permissions',
+            value: widget.controller.permissionsGranted ? 'Granted' : 'Missing',
+            status: widget.controller.permissionsGranted
+                ? _MetricStatus.ok
+                : _MetricStatus.warning,
+          ),
+          _HealthMetricRow(
+            icon: Icons.memory_rounded,
+            label: 'Memory',
+            value: 'Normal',
+            status: _MetricStatus.ok,
+          ),
+          _HealthMetricRow(
+            icon: _batteryIcon,
+            label: _batteryState == BatteryState.charging
+                ? 'Battery (Charging)'
+                : 'Battery',
+            value: _batteryValue,
+            status: _batteryStatus,
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthMetricRow extends StatelessWidget {
+  const _HealthMetricRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.status,
+    this.isFirst = false,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final _MetricStatus status;
+  final bool isFirst;
+  final bool isLast;
+
+  Color get _color => switch (status) {
+        _MetricStatus.ok => AppColors.homeSuccess,
+        _MetricStatus.warning => AppColors.homeWarning,
+        _MetricStatus.error => AppColors.homeDanger,
+        _MetricStatus.neutral => AppColors.lightTextMuted,
+      };
+
+  Color get _bgColor => switch (status) {
+        _MetricStatus.ok => AppColors.homeSuccessLight,
+        _MetricStatus.warning => AppColors.homeWarningLight,
+        _MetricStatus.error => AppColors.homeDangerLight,
+        _MetricStatus.neutral => AppColors.homeSurfaceAlt,
+      };
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10),
-          child: Text(
-            'SYSTEM HEALTH',
-            style: TextStyle(
-              color: AppColors.lightTextMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-            ),
+        if (!isFirst)
+          const Divider(height: 1, thickness: 0.5, color: AppColors.homeBorder),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _bgColor,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, color: _color, size: 16),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppColors.lightText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _bgColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: _color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _HealthCard(
-                icon: Icons.bluetooth_rounded,
-                label: 'Bluetooth',
-                value: controller.bluetoothReady ? 'Ready' : 'Disabled',
-                status: controller.bluetoothReady ? 'good' : 'error',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _HealthCard(
-                icon: Icons.security_rounded,
-                label: 'Permissions',
-                value: controller.permissionsGranted ? 'Granted' : 'Missing',
-                status: controller.permissionsGranted ? 'good' : 'warning',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _HealthCard(
-                icon: Icons.verified_user_rounded,
-                label: 'Auth',
-                value: controller.isAuthenticated ? 'Active' : 'Idle',
-                status: controller.isAuthenticated ? 'good' : 'neutral',
-              ),
-            ),
-          ],
         ),
       ],
     );
   }
 }
 
-class _HealthCard extends StatelessWidget {
-  const _HealthCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.status,
-  });
+// ═══════════════════════════════════════════════════════════════
+// Communication Statistics Panel (Expandable)
+// ═══════════════════════════════════════════════════════════════
 
-  final IconData icon;
-  final String label;
-  final String value;
-  final String status; // 'good', 'warning', 'error', 'neutral'
+class _CommStatsPanel extends StatelessWidget {
+  const _CommStatsPanel({required this.expanded, required this.onToggle});
 
-  Color get _statusColor {
-    switch (status) {
-      case 'good':
-        return AppColors.homeSuccess;
-      case 'warning':
-        return AppColors.homeWarning;
-      case 'error':
-        return AppColors.homeDanger;
-      default:
-        return AppColors.lightTextMuted;
-    }
-  }
-
-  Color get _statusBg {
-    switch (status) {
-      case 'good':
-        return AppColors.homeSuccessLight;
-      case 'warning':
-        return AppColors.homeWarningLight;
-      case 'error':
-        return AppColors.homeDangerLight;
-      default:
-        return AppColors.homeSurfaceAlt;
-    }
-  }
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.homeBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.shadowLight,
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
+      clipBehavior: Clip.hardEdge,
       child: Column(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _statusBg,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: _statusColor, size: 18),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.lightTextSub,
-              fontSize: 10,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: _statusBg,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              value,
-              style: TextStyle(
-                color: _statusColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
+          InkWell(
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.homePrimaryLight,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: const Icon(
+                      Icons.bar_chart_rounded,
+                      color: AppColors.homePrimary,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'COMMUNICATION STATISTICS',
+                      style: TextStyle(
+                        color: AppColors.lightText,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 220),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.lightTextMuted,
+                      size: 22,
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 230),
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(),
+            secondChild: Column(
+              children: [
+                const Divider(
+                    height: 1, thickness: 0.5, color: AppColors.homeBorder),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    children: [
+                      _StatRowItem(
+                        icon: Icons.link_rounded,
+                        label: 'Total Sessions',
+                        value: '0',
+                      ),
+                      _StatRowItem(
+                        icon: Icons.refresh_rounded,
+                        label: 'Connection Attempts',
+                        value: '0',
+                      ),
+                      _StatRowItem(
+                        icon: Icons.error_outline_rounded,
+                        label: 'Communication Errors',
+                        value: '0',
+                        isWarning: true,
+                      ),
+                      _StatRowItem(
+                        icon: Icons.schedule_rounded,
+                        label: 'Last Successful Conn.',
+                        value: 'Never',
+                      ),
+                      _StatRowItem(
+                        icon: Icons.swap_horiz_rounded,
+                        label: 'Packets Exchanged',
+                        value: '0',
+                        isLast: true,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1157,14 +1119,78 @@ class _HealthCard extends StatelessWidget {
   }
 }
 
+class _StatRowItem extends StatelessWidget {
+  const _StatRowItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isWarning = false,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isWarning;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isWarning
+                    ? AppColors.homeWarning
+                    : AppColors.lightTextMuted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppColors.lightTextSub,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  color: isWarning ? AppColors.homeWarning : AppColors.lightText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!isLast)
+          const Divider(
+            height: 1,
+            thickness: 0.5,
+            color: AppColors.homeBorder,
+            indent: 25,
+          ),
+      ],
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
-// Recent Activity Card
+// Recent Events Card (Timeline Feed)
 // ═══════════════════════════════════════════════════════════════
 
-class _RecentActivityCard extends StatelessWidget {
-  const _RecentActivityCard({required this.controller});
-
-  final CraneController controller;
+class _RecentEventsCard extends StatelessWidget {
+  const _RecentEventsCard({required this.events});
+  final List<_RecentEvent> events;
 
   @override
   Widget build(BuildContext context) {
@@ -1174,77 +1200,100 @@ class _RecentActivityCard extends StatelessWidget {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.homeBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.shadowLight,
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        children: List.generate(events.length, (i) {
+          return _EventTimelineItem(
+            event: events[i],
+            isLast: i == events.length - 1,
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _EventTimelineItem extends StatelessWidget {
+  const _EventTimelineItem({required this.event, required this.isLast});
+  final _RecentEvent event;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.history_rounded,
-                size: 16,
-                color: AppColors.lightTextMuted,
-              ),
-              SizedBox(width: 6),
-              Text(
-                'DEVICE INFORMATION',
-                style: TextStyle(
-                  color: AppColors.lightTextMuted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
+          SizedBox(
+            width: 30,
+            child: Column(
+              children: [
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: event.color.withAlpha(24),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(event.icon, size: 12, color: event.color),
                 ),
-              ),
-            ],
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 1.5,
+                      margin: const EdgeInsets.symmetric(vertical: 3),
+                      color: AppColors.homeBorder,
+                    ),
+                  ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.homePrimaryLight,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.developer_board_rounded,
-                  color: AppColors.homePrimary,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      controller.connectedDeviceName ?? BLEConstants.deviceName,
-                      style: const TextStyle(
-                        color: AppColors.lightText,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          event.title,
+                          style: const TextStyle(
+                            color: AppColors.lightText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Service: ${BLEConstants.serviceUuid}',
-                      style: TextStyle(
-                        color: AppColors.lightTextMuted,
-                        fontSize: 9,
-                        fontFamily: 'monospace',
+                      Text(
+                        event.time,
+                        style: const TextStyle(
+                          color: AppColors.lightTextMuted,
+                          fontSize: 10,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    event.detail,
+                    style: const TextStyle(
+                      color: AppColors.lightTextSub,
+                      fontSize: 11,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.lightTextMuted,
-                size: 20,
-              ),
-            ],
+            ),
           ),
         ],
       ),
