@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
@@ -15,16 +14,9 @@ class AppStartupInitializer {
 
   Future<void> initialize({StartupProgressCallback? onProgress}) async {
     onProgress?.call('Applying runtime policies');
-    await Future.wait<void>([
-      _safeTask(() async {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp,
-        ]);
-      }),
-      _safeTask(() async {
-        await WakelockPlus.enable();
-      }),
-    ]);
+    await _safeTask(() async {
+      await WakelockPlus.enable();
+    });
 
     onProgress?.call('Preparing BLE and safety services');
     await _controller.initialize();

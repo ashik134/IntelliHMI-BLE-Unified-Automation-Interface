@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';
 import 'package:rev_crane_control_ops/services/permission_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/preferences.dart';
-
 
 enum HoistState { idle, upSlow, upFast, downSlow, downFast }
 
@@ -52,6 +52,9 @@ class CraneController extends ChangeNotifier {
   // bool _downActive = false;
   // bool _fastActive = false;
 
+  bool _cancellingConnection = false;
+   BleScanDevice? _cancellingDevice;
+
   bool get isInitializing => _initializing;
   bool get bluetoothReady => _bluetoothReady;
   bool get permissionsGranted => _permissionState.isGranted;
@@ -92,6 +95,16 @@ class CraneController extends ChangeNotifier {
       _transportConnState.status == BleConnectionStatus.authenticated;
   bool get isAwaitingAuthentication =>
       _transportConnState.status == BleConnectionStatus.awaitingAuthentication;
+  bool get isConnectionActive =>
+      _transportConnState.status == BleConnectionStatus.connecting ||
+      _transportConnState.status == BleConnectionStatus.discoveringServices ||
+      _transportConnState.status ==
+          BleConnectionStatus.configuringNotifications ||
+      _transportConnState.status == BleConnectionStatus.initializingSafeState ||
+      _transportConnState.status == BleConnectionStatus.connected ||
+      _transportConnState.status ==
+          BleConnectionStatus.awaitingAuthentication ||
+      _transportConnState.status == BleConnectionStatus.authenticating;
 
   // ── Analog sensor values ────────────────────────────────────────────────
   int get a1 => _analogValues['A1'] ?? 0;
@@ -105,6 +118,9 @@ class CraneController extends ChangeNotifier {
       _activeCommand.direction == HoistDirection.down && !_activeCommand.estop;
   bool get ledFast =>
       _activeCommand.speed == HoistSpeed.fast && !_activeCommand.estop;
+
+  bool get isCancellingConnection => _cancellingConnection;
+    BleScanDevice? get cancellingDevice => _cancellingDevice;
 
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;

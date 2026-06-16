@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
+import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';

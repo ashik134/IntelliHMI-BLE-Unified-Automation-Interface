@@ -5,39 +5,11 @@ import 'dart:io';
 import 'package:logger/logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
-
-enum BleConnectionStatus {
-  disconnected,
-  scanning,
-  connecting,
-  connected,
-  awaitingAuthentication,
-  authenticating,
-  authenticated,
-  error,
-}
-
-enum BleAuthOutcome { success, failed, timedOut }
-
-class BleConnectionState {
-  const BleConnectionState({
-    required this.status,
-    this.message,
-    this.connectedDevice,
-  });
-
-  final BleConnectionStatus status;
-  final String? message;
-  final BleScanDevice? connectedDevice;
-
-  factory BleConnectionState.initial() {
-    return const BleConnectionState(status: BleConnectionStatus.disconnected);
-  }
-}
 
 class BleService {
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));

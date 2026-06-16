@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 
-import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
-import 'package:rev_crane_control_ops/services/ble_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
+
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -84,51 +86,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.connBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        elevation: 0,
-        titleSpacing: 16,
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'CRANE CONTROL',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
-                color: AppColors.connText,
-              ),
-            ),
-            Text(
-              'PLC14 BLE Remote',
-              style: TextStyle(fontSize: 11, color: AppColors.connTextMuted),
-            ),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.primarySoft,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.precision_manufacturing_rounded,
-                color: AppColors.connPrimary,
-                size: 22,
-              ),
-            ),
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: AppColors.divider),
-        ),
-      ),
+
       body: controller.isInitializing
           ? const _InitializingView()
           : Container(
@@ -140,25 +98,77 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 ),
               ),
               child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: Column(
-                    children: [
-                      _HeroStatusCard(controller: controller),
-                      const SizedBox(height: 12),
-                      _QuickStatusRow(controller: controller),
-                      const SizedBox(height: 12),
-                      Expanded(child: _DevicesPanel(controller: controller)),
-                      const SizedBox(height: 12),
-                      _BottomActionBar(controller: controller),
-                    ],
-                  ),
+                child: Column(
+                  children: [
+                    _buildAppBar(controller),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        child: Column(
+                          children: [
+                            _HeroStatusCard(controller: controller),
+                            const SizedBox(height: 12),
+                            _QuickStatusRow(controller: controller),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: _DevicesPanel(controller: controller),
+                            ),
+                            const SizedBox(height: 12),
+                            _BottomActionBar(controller: controller),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
     );
   }
+}
+
+Widget _buildAppBar(CraneController controller) {
+  return IndustrialAppBar(
+    title: 'Scan Devices',
+
+    showBackButton: true,
+    onBackPressed: () {},
+    isScanning: controller.isScanning,
+    canScan:
+        !controller.isConnectionActive &&
+        !controller.isCancellingConnection &&
+        !controller.isConnected &&
+        controller.bluetoothReady &&
+        controller.permissionsGranted,
+    onScanPressed: controller.scanForDevices,
+    onStopScan: controller.stopScan,
+    onSettingsPressed: () {
+      // Navigate to settings
+      // Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+    },
+  );
+}
+
+class _StatusCardModel {
+  const _StatusCardModel({
+    required this.primary,
+    required this.background,
+    required this.border,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.loading = false,
+    this.actions = const [],
+  });
+
+  final Color primary;
+  final Color background;
+  final Color border;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool loading;
+  final List<Widget> actions;
 }
 
 class _HeroStatusCard extends StatelessWidget {
@@ -171,7 +181,8 @@ class _HeroStatusCard extends StatelessWidget {
     final status = _resolveStatus(controller);
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOut,
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
@@ -222,6 +233,8 @@ class _HeroStatusCard extends StatelessWidget {
                         fontSize: 12.5,
                         height: 1.35,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -252,7 +265,7 @@ class _HeroStatusCard extends StatelessWidget {
         background: AppColors.warningBg,
         border: AppColors.warningBorder,
         icon: Icons.key_rounded,
-        title: 'Permissions Needed',
+        title: 'Permissions Required',
         subtitle: 'Bluetooth permissions are required to discover PLC devices.',
         actions: [
           _StatusActionButton(
@@ -289,15 +302,24 @@ class _HeroStatusCard extends StatelessWidget {
     }
 
     if (controller.connectionState.status == BleConnectionStatus.error) {
+      final msg =
+          controller.connectionState.message ?? 'An unexpected error occurred.';
+      final msgLower = msg.toLowerCase();
+      final bool isUnreachable =
+          msgLower.contains('unreachable') ||
+          msgLower.contains('timed out') ||
+          msgLower.contains('timeout') ||
+          msgLower.contains('out of range') ||
+          msgLower.contains('offline');
       return _StatusCardModel(
-        primary: AppColors.error,
-        background: AppColors.errorBg,
-        border: AppColors.errorBorder,
-        icon: Icons.error_outline_rounded,
-        title: 'Connection Error',
-        subtitle:
-            controller.connectionState.message ??
-            'An unexpected error occurred.',
+        primary: isUnreachable ? AppColors.connWarning : AppColors.error,
+        background: isUnreachable ? AppColors.warningBg : AppColors.errorBg,
+        border: isUnreachable ? AppColors.warningBorder : AppColors.errorBorder,
+        icon: isUnreachable
+            ? Icons.wifi_off_rounded
+            : Icons.error_outline_rounded,
+        title: isUnreachable ? 'Device Unreachable' : 'Connection Error',
+        subtitle: msg,
       );
     }
 
@@ -310,14 +332,19 @@ class _HeroStatusCard extends StatelessWidget {
         title: 'Session Active',
         subtitle:
             'Connected to ${controller.connectedDeviceName ?? BLEConstants.deviceName}. Continue to authentication.',
-        actions: [
-          _StatusActionButton(
-            label: 'Disconnect',
-            color: AppColors.error,
-            outlined: true,
-            onTap: controller.disconnect,
-          ),
-        ],
+      );
+    }
+
+    if (controller.isCancellingConnection) {
+      return _StatusCardModel(
+        icon: Icons.close_rounded,
+        title: 'Cancelling Connection',
+        subtitle:
+            'Aborting connection to ${controller.cancellingDevice?.name ?? "device"}...',
+        border: AppColors.neutralBorder,
+        loading: true,
+        primary: AppColors.connTextSub,
+        background: AppColors.neutralBg,
       );
     }
 
@@ -356,28 +383,6 @@ class _HeroStatusCard extends StatelessWidget {
       subtitle: 'Tap scan to discover available crane controllers.',
     );
   }
-}
-
-class _StatusCardModel {
-  const _StatusCardModel({
-    required this.primary,
-    required this.background,
-    required this.border,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.loading = false,
-    this.actions = const [],
-  });
-
-  final Color primary;
-  final Color background;
-  final Color border;
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool loading;
-  final List<Widget> actions;
 }
 
 class _StatusActionButton extends StatelessWidget {
@@ -547,6 +552,7 @@ class _MiniStatCard extends StatelessWidget {
     );
   }
 }
+
 class _DevicesPanel extends StatelessWidget {
   const _DevicesPanel({required this.controller});
 
@@ -892,11 +898,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.circle,
-                        size: 8,
-                        color: AppColors.connected,
-                      ),
+                      Icon(Icons.circle, size: 8, color: AppColors.connected),
                       SizedBox(width: 4),
                       Text(
                         'LIVE',
@@ -967,9 +969,7 @@ class _EmptyDeviceState extends StatelessWidget {
               ),
               child: Icon(
                 scanning ? Icons.radar_rounded : Icons.bluetooth_rounded,
-                color: scanning
-                    ? AppColors.scanning
-                    : AppColors.connTextMuted,
+                color: scanning ? AppColors.scanning : AppColors.connTextMuted,
                 size: 36,
               ),
             ),
@@ -1122,12 +1122,243 @@ class _InitializingView extends StatelessWidget {
             SizedBox(height: 5),
             Text(
               'Checking Bluetooth and permissions...',
-              style: TextStyle(
-                color: AppColors.connTextMuted,
-                fontSize: 12.5,
+              style: TextStyle(color: AppColors.connTextMuted, fontSize: 12.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final String title;
+  final VoidCallback? onScanPressed;
+  final VoidCallback? onSettingsPressed;
+  final bool isScanning;
+  final bool canScan;
+  final VoidCallback? onStopScan;
+  final bool showBackButton;
+  final VoidCallback? onBackPressed;
+  final List<Widget>? actions;
+  final Color? backgroundColor;
+  final double? elevation;
+
+  const IndustrialAppBar({
+    super.key,
+    required this.title,
+    this.onScanPressed,
+    this.onSettingsPressed,
+    this.isScanning = false,
+    this.canScan = false,
+    this.onStopScan,
+    this.showBackButton = true,
+    this.onBackPressed,
+    this.actions,
+    this.backgroundColor,
+    this.elevation = 0.5,
+  });
+
+  @override
+  Size get preferredSize => const Size.fromHeight(72);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        height: preferredSize.height,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: backgroundColor ?? AppColors.surface,
+          border: const Border(
+            bottom: BorderSide(color: AppColors.accentSoft, width: 1),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha((0.04 * 255).toInt()),
+              blurRadius: elevation! * 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            if (showBackButton) _buildBackButton(context),
+
+            _buildBrandSection(),
+
+            const Spacer(),
+
+            ...?actions,
+
+            if (onScanPressed != null) _buildScanButton(context),
+
+            // Settings Button
+            if (onSettingsPressed != null) _buildSettingsButton(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackButton(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: () {
+            if (canPop) {
+              Navigator.pop(context);
+            } else if (onBackPressed != null) {
+              onBackPressed!();
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No previous screen to return to'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          borderRadius: BorderRadius.circular(10),
+          customBorder: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.connBorder, width: 1),
+            ),
+            child: Icon(
+              Icons.arrow_back_ios_outlined,
+              size: 22,
+              color: canPop ? AppColors.lightText : AppColors.lightTextMuted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrandSection() {
+    return Row(
+      children: [
+        const Icon(Icons.bluetooth, color: Colors.blueAccent, size: 24),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.lightText,
+                letterSpacing: -0.5,
+                height: 1,
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScanButton(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        height: 40,
+        child: isScanning
+            ? OutlinedButton(
+                onPressed: onStopScan,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: BorderSide(
+                    color: AppColors.error.withAlpha(115),
+                    width: 1.5,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  minimumSize: const Size(70, 40),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.stop_rounded, size: 16),
+                    SizedBox(width: 6),
+                    Text(
+                      'STOP',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : FilledButton(
+                onPressed: canScan ? onScanPressed : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color.fromARGB(223, 0, 170, 255),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.neutral.withAlpha(115),
+                  disabledForegroundColor: AppColors.lightText.withAlpha(115),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  minimumSize: const Size(80, 40),
+                  elevation: 2,
+                  shadowColor: AppColors.accent.withAlpha(115),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bluetooth_searching_rounded, size: 16),
+                    SizedBox(width: 8),
+                    Text(
+                      'SCAN',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsButton(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onSettingsPressed,
+        borderRadius: BorderRadius.circular(10),
+        customBorder: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(
+          Icons.settings_rounded,
+          color: AppColors.lightText,
+          size: 26,
         ),
       ),
     );
