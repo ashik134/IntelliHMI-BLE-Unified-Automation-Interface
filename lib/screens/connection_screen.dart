@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 
-
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev_crane_control_ops/widgets/heros_status_card.dart';
+import 'package:rev_crane_control_ops/widgets/scan_page/heros_status_card.dart';
+import 'package:rev_crane_control_ops/widgets/scan_page/quick_status_row.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -87,7 +86,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.connBg,
-
       body: controller.isInitializing
           ? const _InitializingView()
           : Container(
@@ -109,10 +107,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           children: [
                             HeroStatusCard(controller: controller),
                             const SizedBox(height: 12),
-                            _QuickStatusRow(controller: controller),
+                            QuickStatusRow(controller: controller),
                             const SizedBox(height: 12),
                             Expanded(
-                              child: _DevicesPanel(controller: controller),
+                              child: DevicesPanel(controller: controller),
                             ),
                             const SizedBox(height: 12),
                             _BottomActionBar(controller: controller),
@@ -151,228 +149,6 @@ Widget _buildAppBar(CraneController controller) {
 }
 
 
-
-
-
-class _QuickStatusRow extends StatelessWidget {
-  const _QuickStatusRow({required this.controller});
-
-  final CraneController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _MiniStatCard(
-            label: 'Devices',
-            value: controller.isConnected
-                ? '1'
-                : controller.isConnecting
-                ? '...'
-                : '${controller.devices.length}',
-            icon: Icons.memory_rounded,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _MiniStatCard(
-            label: 'Bluetooth',
-            value: controller.bluetoothReady ? 'ON' : 'OFF',
-            icon: controller.bluetoothReady
-                ? Icons.bluetooth_connected_rounded
-                : Icons.bluetooth_disabled_rounded,
-            valueColor: controller.bluetoothReady
-                ? AppColors.connected
-                : AppColors.error,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _MiniStatCard(
-            label: 'Permission',
-            value: controller.permissionsGranted ? 'OK' : 'WAIT',
-            icon: controller.permissionsGranted
-                ? Icons.verified_rounded
-                : Icons.key_off_rounded,
-            valueColor: controller.permissionsGranted
-                ? AppColors.connected
-                : AppColors.connWarning,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MiniStatCard extends StatelessWidget {
-  const _MiniStatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    this.valueColor = AppColors.connPrimary,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    // Calculate size based on screen width
-    final screenWidth = MediaQuery.of(context).size.width;
-    final double cardWidth = screenWidth < 600 ? 110 : 140;
-    final double cardHeight = screenWidth < 600 ? 65 : 75;
-
-    return Container(
-      width: cardWidth,
-      height: cardHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.connBorder),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: AppColors.connTextMuted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppColors.connTextMuted,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: valueColor,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DevicesPanel extends StatelessWidget {
-  const _DevicesPanel({required this.controller});
-
-  final CraneController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.connBorder),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            child: Row(
-              children: [
-                const Text(
-                  'NEARBY DEVICES',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: AppColors.connTextMuted,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  _countLabel(controller),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.connTextMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: AppColors.divider),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              child: _buildBody(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _countLabel(CraneController controller) {
-    if (controller.isConnected) return '1 connected';
-    if (controller.isConnecting) return 'connecting...';
-    return '${controller.devices.length} found';
-  }
-
-  Widget _buildBody() {
-    if (controller.isConnected || controller.isConnecting) {
-      final device = controller.connectionState.connectedDevice;
-      if (device == null) {
-        return const _EmptyDeviceState(
-          key: ValueKey('empty-connected'),
-          scanning: false,
-        );
-      }
-      return ListView(
-        key: const ValueKey('connected-list'),
-        padding: const EdgeInsets.all(14),
-        children: [
-          _ConnectedDeviceCard(
-            device: device,
-            isConnecting: controller.isConnecting,
-            onDisconnect: controller.disconnect,
-          ),
-        ],
-      );
-    }
-
-    if (controller.devices.isEmpty) {
-      return _EmptyDeviceState(
-        key: const ValueKey('empty-idle'),
-        scanning: controller.isScanning,
-      );
-    }
-
-    return ListView.separated(
-      key: const ValueKey('devices-list'),
-      padding: const EdgeInsets.all(14),
-      itemCount: controller.devices.length,
-      separatorBuilder: (_, index) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _AvailableDeviceCard(
-        device: controller.devices[i],
-        connecting: controller.isConnecting,
-        onConnect: () => controller.connectToDevice(controller.devices[i]),
-      ),
-    );
-  }
-}
 
 class _AvailableDeviceCard extends StatelessWidget {
   const _AvailableDeviceCard({

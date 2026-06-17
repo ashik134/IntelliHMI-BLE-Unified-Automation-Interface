@@ -78,8 +78,7 @@ class CraneController extends ChangeNotifier {
   Map<String, int> get analogValues => _analogValues;
   String get savedEmail => _savedEmail;
   String get savedPassword => _savedPassword;
-
-  
+  //////////////////////////////////////////////////////////////////////////
   BleConnectionState get connectionState => _transportConnState;
   bool get isScanning =>
       _transportConnState.status == BleConnectionStatus.scanning;
@@ -94,28 +93,25 @@ class CraneController extends ChangeNotifier {
       _transportConnState.status == BleConnectionStatus.initializingSafeState;
   bool get isAuthenticating =>
       _transportConnState.status == BleConnectionStatus.authenticating;
+  bool get isAuthenticated =>
+      _transportConnState.status == BleConnectionStatus.authenticated;
+  bool get isAwaitingAuthentication =>
+      _transportConnState.status == BleConnectionStatus.awaitingAuthentication;
   bool get isConnected =>
       _transportConnState.status == BleConnectionStatus.connected ||
       _transportConnState.status == BleConnectionStatus.authenticated;
   bool get isDisconnected =>
       _transportConnState.status == BleConnectionStatus.disconnected;
-  bool get isAuthenticated =>
-      _transportConnState.status == BleConnectionStatus.authenticated;
-  bool get isAwaitingAuthentication =>
-      _transportConnState.status == BleConnectionStatus.awaitingAuthentication;
   bool get isConnectionActive =>
       _transportConnState.status == BleConnectionStatus.connecting ||
       _transportConnState.status == BleConnectionStatus.discoveringServices ||
       _transportConnState.status ==
           BleConnectionStatus.configuringNotifications ||
       _transportConnState.status == BleConnectionStatus.initializingSafeState ||
-      _transportConnState.status == BleConnectionStatus.connected ||
       _transportConnState.status ==
           BleConnectionStatus.awaitingAuthentication ||
       _transportConnState.status == BleConnectionStatus.authenticating;
-
-  
-
+  ////////////////////////////////////////////////////////////////////////////////////////////
   // ── Analog sensor values ────────────────────────────────────────────────
   int get a1 => _analogValues['A1'] ?? 0;
   int get a2 => _analogValues['A2'] ?? 0;
