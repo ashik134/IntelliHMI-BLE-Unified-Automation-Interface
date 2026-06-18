@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/widgets/scan_page/devices_panel.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/heros_status_card.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/quick_status_row.dart';
 
@@ -41,6 +42,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final error = _controller?.errorMessage;
     if (error != null && error != _lastShownError) {
       _lastShownError = error;
+
+      final errorLower = error.toLowerCase();
+
+      final bool isUnreachable =
+          errorLower.contains('unreachable') ||
+          errorLower.contains('timed out') ||
+          errorLower.contains('timeout') ||
+          errorLower.contains('out of range') ||
+          errorLower.contains('offline');
+      final String snackTitle = isUnreachable
+          ? 'Device Unavailable'
+          : 'Connection Error';
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
@@ -48,29 +62,66 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           ..showSnackBar(
             SnackBar(
               behavior: SnackBarBehavior.floating,
-              backgroundColor: AppColors.error,
+              backgroundColor: isUnreachable
+                  ? AppColors.connWarning
+                  : AppColors.error,
               margin: const EdgeInsets.all(16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
-              duration: const Duration(seconds: 5),
+              duration: const Duration(seconds: 4),
+              dismissDirection: DismissDirection.horizontal,
+              onVisible: () {},
               content: Row(
                 children: [
-                  const Icon(
-                    Icons.error_outline_rounded,
-                    color: Colors.white,
-                    size: 18,
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(51),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isUnreachable
+                          ? Icons.wifi_off_rounded
+                          : Icons.error_outline_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      error,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          snackTitle,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          error,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withAlpha(230),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.swipe_rounded,
+                    color: Colors.white.withAlpha(200),
+                    size: 16,
                   ),
                 ],
               ),
@@ -113,7 +164,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                               child: DevicesPanel(controller: controller),
                             ),
                             const SizedBox(height: 12),
-                            _BottomActionBar(controller: controller),
                           ],
                         ),
                       ),
@@ -146,443 +196,6 @@ Widget _buildAppBar(CraneController controller) {
       // Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
     },
   );
-}
-
-
-
-class _AvailableDeviceCard extends StatelessWidget {
-  const _AvailableDeviceCard({
-    required this.device,
-    required this.connecting,
-    required this.onConnect,
-  });
-
-  final BleScanDevice device;
-  final bool connecting;
-  final VoidCallback onConnect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.connSurfaceAlt,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.connBorder),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.primarySoft,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.developer_board_rounded,
-              color: AppColors.connPrimary,
-              size: 23,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  device.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.connText,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  device.id,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.connTextMuted,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _SignalPill(rssi: device.rssi, label: device.signalLabel),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 92,
-            child: FilledButton(
-              onPressed: connecting ? null : onConnect,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.connPrimary,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: AppColors.neutral,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.6,
-                ),
-              ),
-              child: connecting
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
-                      ),
-                    )
-                  : const Text('CONNECT'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalPill extends StatelessWidget {
-  const _SignalPill({required this.rssi, required this.label});
-
-  final int rssi;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final tone = rssi >= -68
-        ? AppColors.connected
-        : rssi >= -80
-        ? AppColors.connWarning
-        : AppColors.error;
-    final barValue = (((rssi + 100) / 50).clamp(0.05, 1.0)).toDouble();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: tone.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '$rssi dBm  |  $label',
-              style: TextStyle(
-                color: tone,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 36,
-            child: LinearProgressIndicator(
-              value: barValue,
-              minHeight: 4,
-              borderRadius: BorderRadius.circular(4),
-              backgroundColor: tone.withValues(alpha: 0.22),
-              valueColor: AlwaysStoppedAnimation<Color>(tone),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectedDeviceCard extends StatelessWidget {
-  const _ConnectedDeviceCard({
-    required this.device,
-    required this.isConnecting,
-    required this.onDisconnect,
-  });
-
-  final BleScanDevice device;
-  final bool isConnecting;
-  final VoidCallback onDisconnect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.connectedBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.connectedBorder),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.connectedBorder),
-                ),
-                child: const Icon(
-                  Icons.verified_rounded,
-                  color: AppColors.connected,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      device.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.connText,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      device.id,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.connTextMuted,
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isConnecting)
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppColors.scanning,
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: AppColors.connectedBorder),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.circle, size: 8, color: AppColors.connected),
-                      SizedBox(width: 4),
-                      Text(
-                        'LIVE',
-                        style: TextStyle(
-                          color: AppColors.connected,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          if (!isConnecting) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onDisconnect,
-                icon: const Icon(Icons.bluetooth_disabled_rounded, size: 16),
-                label: const Text('DISCONNECT'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error,
-                  side: BorderSide(
-                    color: AppColors.error.withValues(alpha: 0.5),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyDeviceState extends StatelessWidget {
-  const _EmptyDeviceState({required this.scanning, super.key});
-
-  final bool scanning;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 74,
-              height: 74,
-              decoration: BoxDecoration(
-                color: AppColors.primarySoft,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: AppColors.connBorder),
-              ),
-              child: Icon(
-                scanning ? Icons.radar_rounded : Icons.bluetooth_rounded,
-                color: scanning ? AppColors.scanning : AppColors.connTextMuted,
-                size: 36,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              scanning ? 'Scanning for Devices...' : 'No Controllers Found',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.connText,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              scanning
-                  ? 'Looking for ${BLEConstants.deviceName} nearby.'
-                  : 'Power on the PLC14 controller and keep it in BLE range.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.connTextMuted,
-                fontSize: 12.5,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BottomActionBar extends StatelessWidget {
-  const _BottomActionBar({required this.controller});
-
-  final CraneController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final scanning = controller.isScanning;
-    final connecting = controller.isConnecting;
-    final connected = controller.isConnected;
-
-    final canScan =
-        !scanning &&
-        !connecting &&
-        !connected &&
-        controller.bluetoothReady &&
-        controller.permissionsGranted;
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.connBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: scanning
-            ? OutlinedButton.icon(
-                onPressed: controller.stopScan,
-                icon: const Icon(
-                  Icons.stop_circle_outlined,
-                  color: AppColors.error,
-                ),
-                label: const Text(
-                  'STOP SCANNING',
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.error),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              )
-            : FilledButton.icon(
-                onPressed: canScan ? controller.scanForDevices : null,
-                icon: Icon(
-                  connected
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.bluetooth_searching_rounded,
-                ),
-                label: Text(
-                  connected ? 'SESSION ACTIVE' : 'SCAN FOR DEVICES',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.9,
-                  ),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: connected
-                      ? AppColors.connected
-                      : AppColors.connPrimary,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.neutral,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-      ),
-    );
-  }
 }
 
 class _InitializingView extends StatelessWidget {

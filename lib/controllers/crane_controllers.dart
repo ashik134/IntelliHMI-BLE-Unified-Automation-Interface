@@ -325,9 +325,17 @@ class CraneController extends ChangeNotifier {
     }
     notifyListeners();
   }
+  
+  // Future<void> pauseScan() async {
+  //   await _bleService.pauseScan();
+  // }
 
-  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  /// Device Scanning and Connection //////////////////////////////////////////////////////////////////////////////////
+  // Future<void> resumeScan() async {
+  //   if (!bluetoothReady || !permissionsGranted) return;
+  //   await _bleService.resumeScan();
+  // }
+  
+
   Future<void> scanForDevices() async {
     _errorMessage = null;
 
@@ -387,6 +395,19 @@ class CraneController extends ChangeNotifier {
       _errorMessage = 'Could not connect to ${device.name}: ${e.toString()}';
       notifyListeners();
     }
+  }
+
+  Future<void> cancelConnecting() async {
+    if (_cancellingConnection) return;
+    _errorMessage = null;
+
+    _cancellingDevice = _transportConnState.connectedDevice;
+    _cancellingConnection = true;
+    notifyListeners();
+    await _bleService.cancelConnecting();
+    _cancellingConnection = false;
+    _cancellingDevice = null;
+    notifyListeners();
   }
 
   void setRememberCredentials(bool value) {

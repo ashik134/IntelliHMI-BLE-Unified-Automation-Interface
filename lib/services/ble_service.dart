@@ -43,6 +43,8 @@ class BleService {
   StreamSubscription<List<int>>? _statusSubscription;
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
 
+  bool _connectCancelled = false;
+
   Completer<BleAuthOutcome>?
   _pendingAuthCompleter; // For tracking ongoing authentication attempts.
 
@@ -228,6 +230,31 @@ class BleService {
         message: 'Service discovery failed: ${e.toString()}',
       );
     }
+  }
+  
+  Future<void> cancelConnecting() async {
+    if (_snapshot.status != BleConnectionStatus.connecting) return;
+
+    _connectCancelled = true;
+
+    await _connStateSub?.cancel();
+    _connStateSub = null;
+
+    final device = _device;
+    _device = null;
+    _connectedDevice = null;
+    _digitalChar = null;
+    _authChar = null;
+    _statusChar = null;
+
+    if (device != null) {
+      try {
+        await device.disconnect();
+      } catch (_) {}
+    }
+
+    _connectCancelled = false;
+    _emit(BleConnectionStatus.disconnected);
   }
 
   Future<void> disconnect({bool emitState = true}) async {

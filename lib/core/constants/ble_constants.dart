@@ -7,7 +7,9 @@ class BLEConstants {
   static const String authCharUuid = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
   static const String statusCharUuid = '6e400005-b5a3-f393-e0a9-e50e24dcca9e';
 
-  static const String deviceName = 'PLC14_BLE_2';
+  static const String deviceName = 'RRC_PLC';
+
+  static const String scanNamePrefix = 'RRC_';
 
   static const String authRequest = 'AUTH_REQ:email|password';
   static const String authSuccess = 'AUTH_OK';

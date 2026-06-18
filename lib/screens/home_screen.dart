@@ -205,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     const SizedBox(height: 16),
                     const _SectionLabel(label: 'RECENT EVENTS'),
                     const SizedBox(height: 10),
-                    _RecentEventsCard(events: _recentEvents),
+                    const _RecentEventsCard(events: _recentEvents),
                     const SizedBox(height: 8),
                   ]),
                 ),
@@ -866,7 +866,7 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
       ),
       child: Column(
         children: [
-          _HealthMetricRow(
+          const _HealthMetricRow(
             icon: Icons.check_circle_rounded,
             label: 'App Status',
             value: 'Operational',
@@ -889,7 +889,7 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
                 ? _MetricStatus.ok
                 : _MetricStatus.warning,
           ),
-          _HealthMetricRow(
+          const _HealthMetricRow(
             icon: Icons.memory_rounded,
             label: 'Memory',
             value: 'Normal',
@@ -1072,12 +1072,12 @@ class _CommStatsPanel extends StatelessWidget {
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
             firstChild: const SizedBox.shrink(),
-            secondChild: Column(
+            secondChild: const Column(
               children: [
-                const Divider(
+                Divider(
                     height: 1, thickness: 0.5, color: AppColors.homeBorder),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
                     children: [
                       _StatRowItem(
