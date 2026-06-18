@@ -114,6 +114,8 @@ flutter:
     - assets/images/app_icon3.png
     - assets/images/Intellicontrol Final Logo300PPI.png
     - assets/images/intellicontrol-icon-1024x1024 (6).png
+    - assets/icons/Connector.png
+    - assets/icons/plc.png
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
