@@ -1,8 +1,14 @@
-enum AppScreen { connection, authentication, control }
+enum AppScreen { connection, authentication, control, plc38Control }
 
 enum DeviceStaleStatus { active, stale, expired }
 
 enum ControlState { idle, slow, fast }
+
+/// Horizontal traverse direction (PLC38 — Left / Right axis).
+enum TraverseDirection { idle, left, right }
+
+/// Longitudinal travel direction (PLC38 — Forward / Reverse axis).
+enum TravelDirection { idle, forward, reverse }
 
 enum PlcType {
   plc14('PLC14'),

@@ -1,7 +1,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const String plcName = 'PLC 14';
+  static const String plcName = 'IntelliHMI PLC';
   static const String appTitle = 'IntelliMotion HMI';
   static const String appVersion = '1.0.0';
 

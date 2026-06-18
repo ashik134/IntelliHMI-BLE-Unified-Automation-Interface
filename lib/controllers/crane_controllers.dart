@@ -46,6 +46,14 @@ class CraneController extends ChangeNotifier {
   String? _errorMessage;
   String _savedEmail = '';
   String _savedPassword = '';
+
+  // ── PLC38 independent axis states ─────────────────────────────────────────
+  bool _p38VertIsUp = true;
+  ControlState _p38VertState = ControlState.idle;
+  bool _p38TravIsLeft = true;
+  ControlState _p38TravState = ControlState.idle;
+  bool _p38TripIsForward = true;
+  ControlState _p38TripState = ControlState.idle;
   // bool _conflictActive = false;
   // bool _upActive = false;
   // bool _downActive = false;
@@ -78,6 +86,18 @@ class CraneController extends ChangeNotifier {
   Map<String, int> get analogValues => _analogValues;
   String get savedEmail => _savedEmail;
   String get savedPassword => _savedPassword;
+
+  /// The PLC model type detected from BLE manufacturer data during scan.
+  PlcType get connectedPlcType =>
+      _transportConnState.connectedDevice?.plcType ?? PlcType.unknown;
+
+  // ── PLC38 axis state getters ───────────────────────────────────────────────
+  TraverseDirection get traverseDir => _activeCommand.traverseDirection;
+  bool get traverseFast =>
+      _activeCommand.fastLr && !_activeCommand.estop;
+  TravelDirection get travelDir => _activeCommand.travelDirection;
+  bool get travelFast =>
+      _activeCommand.fastFb && !_activeCommand.estop;
   //////////////////////////////////////////////////////////////////////////
   BleConnectionState get connectionState => _transportConnState;
   bool get isScanning =>
@@ -118,12 +138,16 @@ class CraneController extends ChangeNotifier {
 
   // ── LED indicator states (sourced from PLC) ───────────────────────────────
   bool get ledEstop => _activeCommand.estop;
-  bool get ledUp =>
-      _activeCommand.direction == HoistDirection.up && !_activeCommand.estop;
-  bool get ledDown =>
-      _activeCommand.direction == HoistDirection.down && !_activeCommand.estop;
-  bool get ledFast =>
-      _activeCommand.speed == HoistSpeed.fast && !_activeCommand.estop;
+  bool get ledUp => _activeCommand.up && !_activeCommand.estop;
+  bool get ledDown => _activeCommand.down && !_activeCommand.estop;
+  bool get ledFast => _activeCommand.fastUd && !_activeCommand.estop;
+  // PLC38 extended LED states
+  bool get ledLeft => _activeCommand.left && !_activeCommand.estop;
+  bool get ledRight => _activeCommand.right && !_activeCommand.estop;
+  bool get ledFastLr => _activeCommand.fastLr && !_activeCommand.estop;
+  bool get ledForward => _activeCommand.forward && !_activeCommand.estop;
+  bool get ledReverse => _activeCommand.reverse && !_activeCommand.estop;
+  bool get ledFastFb => _activeCommand.fastFb && !_activeCommand.estop;
 
   bool get isCancellingConnection => _cancellingConnection;
   BleScanDevice? get cancellingDevice => _cancellingDevice;
@@ -160,7 +184,7 @@ class CraneController extends ChangeNotifier {
   String get statusLabel => _activeCommand.statusLabel;
 
   AppScreen get currentScreen => switch (_transportConnState.status) {
-    BleConnectionStatus.authenticated => AppScreen.control,
+    BleConnectionStatus.authenticated => _resolveControlScreen(),
     BleConnectionStatus.awaitingAuthentication ||
     BleConnectionStatus.authenticating => AppScreen.authentication,
     BleConnectionStatus.error
@@ -168,6 +192,12 @@ class CraneController extends ChangeNotifier {
       AppScreen.authentication,
     _ => AppScreen.connection,
   };
+
+  AppScreen _resolveControlScreen() {
+    return connectedPlcType == PlcType.plc38
+        ? AppScreen.plc38Control
+        : AppScreen.control;
+  }
 
   // Future<void> sendCommand({
   //   required bool estop,
@@ -268,6 +298,9 @@ class CraneController extends ChangeNotifier {
         _activeCommand = PlcOutputCommand.idle();
         _estopLatched = false;
         _sessionEmail = null;
+        _p38VertState = ControlState.idle;
+        _p38TravState = ControlState.idle;
+        _p38TripState = ControlState.idle;
       }
       notifyListeners();
     });
@@ -321,7 +354,7 @@ class CraneController extends ChangeNotifier {
       _bluetoothReady = state == BluetoothAdapterState.on;
     } catch (e) {
       _errorMessage =
-          'Bluetooth must be enabled before scanning for PLC 14. Please enable Bluetooth and try again.';
+          'Bluetooth must be enabled before scanning for PLC devices. Please enable Bluetooth and try again.';
     }
     notifyListeners();
   }
@@ -432,7 +465,7 @@ class CraneController extends ChangeNotifier {
   Future<void> _sendCommand(PlcOutputCommand command) async {
     _activeCommand = command;
     notifyListeners();
-    final bytes = command.wireBytes.toList();
+    final bytes = command.wireBytesFor(connectedPlcType).toList();
     if (_commandInFlight) {
       // Replace whatever was pending — latest command wins.
       _pendingCommandBytes = bytes;
@@ -463,10 +496,14 @@ class CraneController extends ChangeNotifier {
 
   Future<void> triggerEStop() async {
     _estopLatched = true;
+    // Reset PLC38 axis states so resumed motion starts clean.
+    _p38VertState = ControlState.idle;
+    _p38TravState = ControlState.idle;
+    _p38TripState = ControlState.idle;
     final cmd = PlcOutputCommand.emergencyStop();
     _activeCommand = cmd;
     notifyListeners();
-    final bytes = cmd.wireBytes.toList();
+    final bytes = cmd.wireBytesFor(connectedPlcType).toList();
     // E-stop bypasses the serializer: preempts any pending command and sends
     // immediately after the current in-flight write (or right now if idle).
     _pendingCommandBytes = bytes;
@@ -520,18 +557,63 @@ class CraneController extends ChangeNotifier {
     required ControlState state,
   }) async {
     if (_estopLatched || !isConnected) return;
-    final PlcOutputCommand cmd = switch (state) {
-      ControlState.idle => PlcOutputCommand.idle(),
-      ControlState.slow => PlcOutputCommand.motion(
-        direction: isUp ? HoistDirection.up : HoistDirection.down,
-        speed: HoistSpeed.slow,
-      ),
-      ControlState.fast => PlcOutputCommand.motion(
-        direction: isUp ? HoistDirection.up : HoistDirection.down,
-        speed: HoistSpeed.fast,
-      ),
-    };
+    final PlcOutputCommand cmd;
+    if (connectedPlcType == PlcType.plc38) {
+      _p38VertIsUp = isUp;
+      _p38VertState = state;
+      cmd = _composePlc38Command();
+    } else {
+      cmd = switch (state) {
+        ControlState.idle => PlcOutputCommand.idle(),
+        ControlState.slow => PlcOutputCommand.motion(
+          direction: isUp ? HoistDirection.up : HoistDirection.down,
+          speed: HoistSpeed.slow,
+        ),
+        ControlState.fast => PlcOutputCommand.motion(
+          direction: isUp ? HoistDirection.up : HoistDirection.down,
+          speed: HoistSpeed.fast,
+        ),
+      };
+    }
     await _sendCommand(cmd);
+  }
+
+  /// Horizontal traverse command — PLC38 only.
+  Future<void> setTraverseCommand({
+    required bool isLeft,
+    required ControlState state,
+  }) async {
+    if (_estopLatched || !isConnected) return;
+    _p38TravIsLeft = isLeft;
+    _p38TravState = state;
+    await _sendCommand(_composePlc38Command());
+  }
+
+  /// Longitudinal travel command — PLC38 only.
+  Future<void> setTravelCommand({
+    required bool isForward,
+    required ControlState state,
+  }) async {
+    if (_estopLatched || !isConnected) return;
+    _p38TripIsForward = isForward;
+    _p38TripState = state;
+    await _sendCommand(_composePlc38Command());
+  }
+
+  /// Builds a full PLC38 command from the three independent axis states.
+  PlcOutputCommand _composePlc38Command() {
+    return PlcOutputCommand.compose(
+      estop: false,
+      up: _p38VertIsUp && _p38VertState != ControlState.idle,
+      down: !_p38VertIsUp && _p38VertState != ControlState.idle,
+      fastUd: _p38VertState == ControlState.fast,
+      left: _p38TravIsLeft && _p38TravState != ControlState.idle,
+      right: !_p38TravIsLeft && _p38TravState != ControlState.idle,
+      fastLr: _p38TravState == ControlState.fast,
+      forward: _p38TripIsForward && _p38TripState != ControlState.idle,
+      reverse: !_p38TripIsForward && _p38TripState != ControlState.idle,
+      fastFb: _p38TripState == ControlState.fast,
+    );
   }
 
   Future<bool> authenticate({
@@ -563,7 +645,7 @@ class CraneController extends ChangeNotifier {
 
       _errorMessage = outcome == BleAuthOutcome.timedOut
           ? 'PLC authentication timed out.'
-          : 'Credentials were rejected by PLC 14.';
+          : 'Credentials were rejected by the PLC.';
       notifyListeners();
       return false;
     } catch (error) {

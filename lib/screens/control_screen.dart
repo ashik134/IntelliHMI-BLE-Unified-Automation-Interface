@@ -85,7 +85,7 @@ class _ControlScreenState extends State<ControlScreen>
     if (controller.isDisconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(controller.errorMessage ?? 'Disconnected from PLC14'),
+          content: Text(controller.errorMessage ?? 'Disconnected from PLC'),
           backgroundColor: AppColors.eStopColor,
           duration: const Duration(seconds: 3),
         ),

@@ -12,15 +12,20 @@ class CraneSliderButton extends StatefulWidget {
   final void Function(ControlState state) onCommandChanged;
   final ControlState externalState;
 
+  /// Optional color override for the slow/active state.
+  /// When provided, replaces the default [isUp]-based color selection.
+  /// The fast color always uses [AppColors.fastColor].
+  final Color? axisColor;
+
   const CraneSliderButton({
     super.key,
     required this.label,
     required this.icon,
     required this.isUp,
     this.isDisabled = false,
-
     required this.onCommandChanged,
     this.externalState = ControlState.idle,
+    this.axisColor,
   });
 
   @override
@@ -167,11 +172,16 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
       case ControlState.idle:
         return AppColors.idleColor;
       case ControlState.slow:
-        return widget.isUp ? AppColors.upColor : AppColors.downColor;
+        return widget.axisColor ??
+            (widget.isUp ? AppColors.upColor : AppColors.downColor);
       case ControlState.fast:
         return AppColors.fastColor;
     }
   }
+
+  Color get _activeAxisColor =>
+      widget.axisColor ??
+      (widget.isUp ? AppColors.upColor : AppColors.downColor);
 
   // ignore: unused_element
   Color get _bgColor {
@@ -181,8 +191,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
       case ControlState.idle:
         return AppColors.panelAlt;
       case ControlState.slow:
-        return (widget.isUp ? AppColors.upColorLight : AppColors.downColorLight)
-            .withAlpha((0.25 * 255).toInt());
+        return _activeAxisColor.withAlpha((0.25 * 255).toInt());
       case ControlState.fast:
         return AppColors.fastColorLight.withAlpha((0.33 * 255).toInt());
     }
@@ -252,15 +261,11 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                         ),
                         activeTrackColor: _sliderValue >= _fastThreshold
                             ? AppColors.fastColor
-                            : (widget.isUp
-                                  ? AppColors.upColor
-                                  : AppColors.downColor),
+                            : _activeAxisColor,
                         inactiveTrackColor: Colors.grey.shade200,
                         thumbColor: _sliderValue >= _fastThreshold
                             ? AppColors.fastColor
-                            : (widget.isUp
-                                  ? AppColors.upColor
-                                  : AppColors.downColor),
+                            : _activeAxisColor,
                         overlayColor: _primaryColor.withAlpha(50),
                       ),
                       child: Slider(

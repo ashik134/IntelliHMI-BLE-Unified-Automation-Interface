@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:logger/logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
@@ -69,7 +70,9 @@ class BleService {
         final seen = <String>{};
         final devices = results
             .map(BleScanDevice.fromScanResult)
-            .where((d) => d.name == BLEConstants.deviceName)
+            .where((d) =>
+                d.name.startsWith(BLEConstants.scanNamePrefix) ||
+                d.plcType != PlcType.unknown)
             .where((d) => seen.add(d.id))
             .toList();
         debugPrint(
@@ -195,7 +198,7 @@ class BleService {
         _connectedDevice = null;
         _emit(
           BleConnectionStatus.error,
-          message: 'PLC14 service not found on this device.',
+          message: 'PLC service not found on this device.',
         );
         return;
       }

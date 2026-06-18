@@ -24,6 +24,12 @@ class AppColors {
   static const Color downColorLight = Color(0xFF58A6FF);
   static const Color fastColor = Color(0xFFD29922);
   static const Color fastColorLight = Color(0xFFE3B341);
+  // Horizontal traverse (PLC38 — Left / Right)
+  static const Color traverseColor = Color(0xFF8250DF);
+  static const Color traverseColorLight = Color(0xFFA371F7);
+  // Longitudinal travel (PLC38 — Forward / Reverse)
+  static const Color travelColor = Color(0xFF1A7F74);
+  static const Color travelColorLight = Color(0xFF3DC9B0);
   // E-Stop
   static const Color eStopColor = Color(0xFFDA3633);
   static const Color eStopColorLight = Color(0xFFF85149);

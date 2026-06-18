@@ -24,6 +24,11 @@ class _LoginScreenState extends State<LoginScreen>
   bool _obscurePassword = true;
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
+  // Tracks the last error message to avoid showing duplicate snackbars.
+  String? _lastShownError;
+
+  CraneController? _controllerRef;
+
   late final AnimationController _introController;
   late final AnimationController _pulseController;
   late final Animation<double> _fadeAnimation;
@@ -56,18 +61,93 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    final controller = context.read<CraneController>();
+
+    // Attach controller listener once.
+    if (_controllerRef != controller) {
+      _controllerRef?.removeListener(_onControllerChanged);
+      _controllerRef = controller;
+      controller.addListener(_onControllerChanged);
+    }
+
     if (_seeded) {
       return;
     }
 
-    final controller = context.read<CraneController>();
     _emailController.text = controller.savedEmail;
     _passwordController.text = controller.savedPassword;
     _seeded = true;
   }
 
+  void _onControllerChanged() {
+    if (!mounted) return;
+    final controller = _controllerRef;
+    if (controller == null) return;
+
+    final message = controller.errorMessage;
+    if (message == null || message == _lastShownError) return;
+
+    final isTimeout =
+        message == BLEConstants.authTimeout ||
+        message.toLowerCase().contains('timed out');
+
+    if (isTimeout) {
+      _lastShownError = message;
+      _showTimedOutSnack();
+    }
+  }
+
+  void _showTimedOutSnack() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 5),
+          backgroundColor: AppColors.connWarning,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          content: const Row(
+            children: [
+              Icon(Icons.timer_off_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Authentication Timed Out',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'PLC did not receive credentials in time. Please try again.',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+  }
+
   @override
   void dispose() {
+    _controllerRef?.removeListener(_onControllerChanged);
     _introController.dispose();
     _pulseController.dispose();
     _emailController.dispose();
@@ -369,7 +449,7 @@ class _LoginScreenState extends State<LoginScreen>
               state: const _AuthErrorState(
                 title: 'Connection ended',
                 message:
-                    'The authentication link is no longer active. Return to scan and reconnect to PLC14.',
+                    'The authentication link is no longer active. Return to scan and reconnect to the PLC.',
                 icon: Icons.bluetooth_disabled_rounded,
               ),
               onBackToScan: controller.disconnect,
@@ -399,7 +479,7 @@ class _LoginScreenState extends State<LoginScreen>
                   validator: (value) {
                     final candidate = value?.trim() ?? '';
                     if (candidate.isEmpty) {
-                      return 'Email is required to authenticate with PLC14.';
+                      return 'Email is required to authenticate with the PLC.';
                     }
                     final validEmail = RegExp(
                       r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
@@ -573,7 +653,7 @@ class _LoginScreenState extends State<LoginScreen>
       BleConnectionStatus.awaitingAuthentication =>
         'Connected and waiting for credentials.',
       BleConnectionStatus.authenticating =>
-        'Credentials are being verified by PLC14.',
+        'Credentials are being verified by the PLC.',
       BleConnectionStatus.error =>
         'Authentication needs attention before continuing.',
       _ => 'Return to scanning if connection is unavailable.',
@@ -704,7 +784,7 @@ class _LoginScreenState extends State<LoginScreen>
       return const _AuthErrorState(
         title: 'Authentication timeout',
         message:
-            'PLC14 or User did not respond in time. Stay close to the device and retry.',
+            'PLC did not respond in time. Stay close to the device and retry.',
         icon: Icons.timer_off_rounded,
       );
     }
@@ -1003,7 +1083,7 @@ class _BusyCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Authenticating with PLC14...',
+            'Authenticating with PLC...',
             style: TextStyle(
               color: AppColors.scanning,
               fontWeight: FontWeight.w800,

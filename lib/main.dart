@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/screens/login_screen.dart';
 import 'package:rev_crane_control_ops/screens/splash_screen.dart';
 import 'package:rev_crane_control_ops/screens/control_screen.dart';
 import 'package:rev_crane_control_ops/screens/connection_screen.dart';
+import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
@@ -58,6 +59,7 @@ class HMIAppShell extends StatelessWidget {
           AppScreen.connection => const ConnectionScreen(),
           AppScreen.authentication => const LoginScreen(),
           AppScreen.control => const ControlScreen(),
+          AppScreen.plc38Control => const Plc38ControlScreen(),
         };
 
         return AnimatedSwitcher(
