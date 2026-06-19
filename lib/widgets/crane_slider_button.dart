@@ -239,45 +239,47 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
             ),
 
             // Vertical Slider Section
-            Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
-                  child: _sliderIndicator(),
-                ),
-                Center(
-                  child: RotatedBox(
-                    quarterTurns: widget.isUp ? -1 : 1, //
-                    child: SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 16,
-                        thumbShape: const RectSliderThumbShape(
-                          width: 20,
-                          height: 34,
-                          borderRadius: 5,
+            Expanded(
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
+                    child: _sliderIndicator(),
+                  ),
+                  Center(
+                    child: RotatedBox(
+                      quarterTurns: widget.isUp ? -1 : 1, //
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 16,
+                          thumbShape: const RectSliderThumbShape(
+                            width: 20,
+                            height: 34,
+                            borderRadius: 5,
+                          ),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 10,
+                          ),
+                          activeTrackColor: _sliderValue >= _fastThreshold
+                              ? AppColors.fastColor
+                              : _activeAxisColor,
+                          inactiveTrackColor: Colors.grey.shade200,
+                          thumbColor: _sliderValue >= _fastThreshold
+                              ? AppColors.fastColor
+                              : _activeAxisColor,
+                          overlayColor: _primaryColor.withAlpha(50),
                         ),
-                        overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 10,
+                        child: Slider(
+                          value: _sliderValue,
+                          onChanged: widget.isDisabled ? null : _onSliderChanged,
+                          onChangeStart: _onSliderChangeStart,
+                          onChangeEnd: _onSliderChangeEnd,
                         ),
-                        activeTrackColor: _sliderValue >= _fastThreshold
-                            ? AppColors.fastColor
-                            : _activeAxisColor,
-                        inactiveTrackColor: Colors.grey.shade200,
-                        thumbColor: _sliderValue >= _fastThreshold
-                            ? AppColors.fastColor
-                            : _activeAxisColor,
-                        overlayColor: _primaryColor.withAlpha(50),
-                      ),
-                      child: Slider(
-                        value: _sliderValue,
-                        onChanged: widget.isDisabled ? null : _onSliderChanged,
-                        onChangeStart: _onSliderChangeStart,
-                        onChangeEnd: _onSliderChangeEnd,
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         );

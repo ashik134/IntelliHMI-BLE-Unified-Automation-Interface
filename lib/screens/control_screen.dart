@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/toggle_control_button.dart';
+import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -170,8 +171,15 @@ class _ControlScreenState extends State<ControlScreen>
         final layoutCfg = layoutCtrl.config;
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
-        final arrangement = layoutCfg.arrangementConfig;
-
+        final arrangement = layoutCfg.arrangementConfig;          final metrics = ControlLayoutMetrics.compute(
+            MediaQuery.of(ctx).size.height
+                - kToolbarHeight
+                - MediaQuery.of(ctx).padding.top
+                - MediaQuery.of(ctx).padding.bottom,
+            baseEstopHeight: sizing.resolvedEstopHeight,
+            preferShowSensor: arrangement.showSensorRow,
+            preferShowLEDs: arrangement.showLiveLEDs,
+          );
         final screenTitle = labels.screenTitle.isNotEmpty
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
@@ -229,27 +237,30 @@ class _ControlScreenState extends State<ControlScreen>
           body: SafeArea(
             maintainBottomViewPadding: true,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              padding: metrics.bodyPadding,
               child: Column(
                 children: [
                   controller.estopLatched
-                      ? _buildResetSection(labels.resetEstopLabel)
+                      ? _buildResetSection(
+                          labels.resetEstopLabel,
+                          compact: metrics.isCompact,
+                        )
                       : _buildEStopButton(
-                          height: sizing.resolvedEstopHeight,
+                          height: metrics.estopHeight,
                           instructionLabel: labels.estopSwipeInstruction,
                         ),
-                  const SizedBox(height: 6),
-                  if (arrangement.showSensorRow) ...[
+                  SizedBox(height: metrics.itemSpacing),
+                  if (metrics.showSensorRow) ...[
                     _sensorRow(controller),
-                    const SizedBox(height: 6),
+                    SizedBox(height: metrics.itemSpacing),
                   ],
-                  if (arrangement.showLiveLEDs) ...[
+                  if (metrics.showLEDs) ...[
                     _liveLEDs(controller),
-                    const SizedBox(height: 6),
+                    SizedBox(height: metrics.itemSpacing),
                   ],
-                  // ── Hoist controls
-                  SizedBox(
-                    height: sizing.resolvedHoistHeight,
+                  // ── Hoist controls – Expanded fills all remaining space
+                  // (prevents overflow on compact / landscape screens).
+                  Expanded(
                     child: layoutCfg.widgetType == ControlWidgetType.toggle
                         ? ToggleControlGroup(
                             toggleConfig: layoutCfg.toggleConfig,
@@ -340,12 +351,12 @@ class _ControlScreenState extends State<ControlScreen>
                           ),
                   ),
 
-                  const SizedBox(height: 8),
+                  SizedBox(height: metrics.itemSpacing),
 
                   // ── Status bar
                   _buildStatusBar(controller),
 
-                  const SizedBox(height: 8),
+                  SizedBox(height: metrics.itemSpacing),
                 ],
               ),
             ),
@@ -593,12 +604,12 @@ class _ControlScreenState extends State<ControlScreen>
 
   // ── ESTOP active → Reset section ────────────────────────────────────────────
 
-  Widget _buildResetSection(String resetLabel) {
+  Widget _buildResetSection(String resetLabel, {bool compact = false}) {
     return Column(
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(compact ? 8 : 10),
           decoration: BoxDecoration(
             color: AppColors.eStopColor.withAlpha(31),
             borderRadius: BorderRadius.circular(12),
@@ -610,16 +621,16 @@ class _ControlScreenState extends State<ControlScreen>
           child: Row(
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: compact ? 28 : 32,
+                height: compact ? 28 : 32,
                 decoration: const BoxDecoration(
                   color: AppColors.eStopColor,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.warning_amber_rounded,
                   color: Colors.white,
-                  size: 18,
+                  size: compact ? 15 : 18,
                 ),
               ),
               const SizedBox(width: 10),
@@ -649,16 +660,16 @@ class _ControlScreenState extends State<ControlScreen>
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 6 : 8),
         SizedBox(
           width: double.infinity,
-          height: 44,
+          height: compact ? 38 : 44,
           child: OutlinedButton.icon(
             onPressed: _onResetEStopTap,
-            icon: const Icon(Icons.lock_open_rounded, size: 16),
+            icon: Icon(Icons.lock_open_rounded, size: compact ? 14 : 16),
             label: Text(
               '$resetLabel — Password Required',
-              style: const TextStyle(fontSize: 12, letterSpacing: 0.5),
+              style: TextStyle(fontSize: compact ? 11 : 12, letterSpacing: 0.5),
             ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.eStopColorLight,

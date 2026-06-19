@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -176,6 +177,15 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     return Consumer2<CraneController, LayoutSettingsController>(
       builder: (ctx, controller, layoutCtrl, _) {
         final sizing = layoutCtrl.config.sizeConfig;
+        final metrics = ControlLayoutMetrics.compute(
+          MediaQuery.of(ctx).size.height
+              - kToolbarHeight
+              - MediaQuery.of(ctx).padding.top
+              - MediaQuery.of(ctx).padding.bottom,
+          baseEstopHeight: sizing.resolvedEstopHeight,
+          preferShowSensor: true,
+          preferShowLEDs: true,
+        );
         final screenTitle = layoutCtrl.config.labelConfig.screenTitle.isNotEmpty
             ? layoutCtrl.config.labelConfig.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
@@ -233,27 +243,31 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
           body: SafeArea(
             maintainBottomViewPadding: true,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              padding: metrics.bodyPadding,
               child: Column(
                 children: [
                   // ── E-Stop / Reset ──────────────────────────────────────
                   controller.estopLatched
-                      ? _buildResetSection()
+                      ? _buildResetSection(compact: metrics.isCompact)
                       : EStopSwipeButton(
                           onActivated: _onEStopTap,
-                          buttonHeight: sizing.resolvedEstopHeight,
+                          buttonHeight: metrics.estopHeight,
                           instructionLabel: layoutCtrl
                               .config.labelConfig.estopSwipeInstruction,
                         ),
-                  const SizedBox(height: 6),
+                  SizedBox(height: metrics.itemSpacing),
 
-                  // ── Sensor row ──────────────────────────────────────────
-                  _sensorRow(controller),
-                  const SizedBox(height: 6),
+                  // ── Sensor row ────────────────────────────────────────────────
+                  if (metrics.showSensorRow) ...[
+                    _sensorRow(controller),
+                    SizedBox(height: metrics.itemSpacing),
+                  ],
 
                   // ── PLC38 10-output LED indicators ──────────────────────
-                  _liveLEDs(controller),
-                  const SizedBox(height: 6),
+                  if (metrics.showLEDs) ...[
+                    _liveLEDs(controller),
+                    SizedBox(height: metrics.itemSpacing),
+                  ],
 
                   // ── Axis controls (3 rows) ──────────────────────────────
                   Expanded(
@@ -311,7 +325,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: metrics.itemSpacing),
 
                         // Row 2: Horizontal traverse
                         _axisRow(
@@ -368,7 +382,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: metrics.itemSpacing),
 
                         // Row 3: Longitudinal travel
                         _axisRow(
@@ -429,11 +443,11 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 8),
+                  SizedBox(height: metrics.itemSpacing),
 
-                  // ── Status bar ──────────────────────────────────────────
+                  // ── Status bar ──────────────────────────────────────────────────────
                   _buildStatusBar(controller),
-                  const SizedBox(height: 8),
+                  SizedBox(height: metrics.itemSpacing),
                 ],
               ),
             ),
@@ -725,12 +739,12 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
   // ── Reset section ───────────────────────────────────────────────────────────
 
-  Widget _buildResetSection() {
+  Widget _buildResetSection({bool compact = false}) {
     return Column(
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(compact ? 8 : 10),
           decoration: BoxDecoration(
             color: AppColors.eStopColor.withAlpha(31),
             borderRadius: BorderRadius.circular(12),
@@ -739,19 +753,19 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               width: 2,
             ),
           ),
-          child: const Row(
+          child: Row(
             children: [
               CircleAvatar(
-                radius: 16,
+                radius: compact ? 13 : 16,
                 backgroundColor: AppColors.eStopColor,
                 child: Icon(
                   Icons.warning_amber_rounded,
                   color: Colors.white,
-                  size: 18,
+                  size: compact ? 15 : 18,
                 ),
               ),
-              SizedBox(width: 10),
-              Expanded(
+              const SizedBox(width: 10),
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -777,16 +791,16 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 6 : 8),
         SizedBox(
           width: double.infinity,
-          height: 44,
+          height: compact ? 38 : 44,
           child: OutlinedButton.icon(
             onPressed: _onResetEStopTap,
-            icon: const Icon(Icons.lock_open_rounded, size: 16),
-            label: const Text(
+            icon: Icon(Icons.lock_open_rounded, size: compact ? 14 : 16),
+            label: Text(
               'RESET E-STOP — Password Required',
-              style: TextStyle(fontSize: 12, letterSpacing: 0.5),
+              style: TextStyle(fontSize: compact ? 11 : 12, letterSpacing: 0.5),
             ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.eStopColorLight,
