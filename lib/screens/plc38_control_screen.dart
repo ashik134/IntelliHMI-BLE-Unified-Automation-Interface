@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -327,57 +328,31 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                         ),
                         SizedBox(height: metrics.itemSpacing),
 
-                        // Row 2: Horizontal traverse
+                        // Row 2: Horizontal traverse (spring-return slider)
                         _axisRow(
                           label: 'TRAVERSE',
                           icon: Icons.swap_horiz_rounded,
                           color: AppColors.traverseColor,
                           children: [
                             Expanded(
-                              child: CraneSliderButton(
-                                label: 'LEFT',
-                                icon: Icons.arrow_back_rounded,
-                                isUp: true,
-                                axisColor: AppColors.traverseColor,
+                              child: CrossTravelSlider(
                                 isDisabled: controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _travRightActive,
-                                onCommandChanged: (state) {
+                                    !controller.isConnected,
+                                onCommandChanged: ({
+                                  required bool isLeft,
+                                  required ControlState state,
+                                }) {
                                   setState(() {
                                     _travLeftActive =
-                                        state != ControlState.idle;
-                                  });
-                                  controller.setTraverseCommand(
-                                    isLeft: true,
-                                    state: state,
-                                  );
-                                },
-                                externalState: _externalTravState(
-                                    controller, isLeft: true),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: CraneSliderButton(
-                                label: 'RIGHT',
-                                icon: Icons.arrow_forward_rounded,
-                                isUp: false,
-                                axisColor: AppColors.traverseColor,
-                                isDisabled: controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _travLeftActive,
-                                onCommandChanged: (state) {
-                                  setState(() {
+                                        isLeft && state != ControlState.idle;
                                     _travRightActive =
-                                        state != ControlState.idle;
+                                        !isLeft && state != ControlState.idle;
                                   });
                                   controller.setTraverseCommand(
-                                    isLeft: false,
+                                    isLeft: isLeft,
                                     state: state,
                                   );
                                 },
-                                externalState: _externalTravState(
-                                    controller, isLeft: false),
                               ),
                             ),
                           ],
