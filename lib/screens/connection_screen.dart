@@ -280,7 +280,7 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
         decoration: BoxDecoration(
           color: backgroundColor ?? AppColors.surface,
           border: const Border(
-            bottom: BorderSide(color: AppColors.accentSoft, width: 1),
+            bottom: BorderSide(color: AppColors.darkInfo, width: 1),
           ),
           boxShadow: [
             BoxShadow(

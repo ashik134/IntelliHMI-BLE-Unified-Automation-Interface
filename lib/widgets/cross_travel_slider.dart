@@ -220,7 +220,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                 child: Row(
                   children: [
                     _zoneLabel(
-                      '◀ FAST',
+                      '< FAST',
                       zone == _TravZone.leftFast,
                       AppColors.fastColor,
                     ),
@@ -238,7 +238,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                     ),
                     const Spacer(),
                     _zoneLabel(
-                      'FAST ▶',
+                      'FAST >',
                       zone == _TravZone.rightFast,
                       AppColors.fastColor,
                     ),
@@ -383,7 +383,7 @@ class _TrackPainter extends CustomPainter {
         Rect.fromLTWH(0, 0, size.width, size.height),
         r,
       ),
-      Paint()..color = Colors.grey.shade800,
+      Paint()..color = const Color.fromARGB(255, 255, 252, 252),
     );
 
     // ── Active fill (centre → thumb) ──────────────────────────────────────
@@ -405,7 +405,7 @@ class _TrackPainter extends CustomPainter {
 
     // ── Zone boundary markers ─────────────────────────────────────────────
     final markerPaint = Paint()
-      ..color = Colors.white.withAlpha(38)
+      ..color = const Color.fromARGB(255, 192, 25, 25).withAlpha(255)
       ..strokeWidth = 1.0;
     for (final sign in [-1.0, 1.0]) {
       // Dead zone edge

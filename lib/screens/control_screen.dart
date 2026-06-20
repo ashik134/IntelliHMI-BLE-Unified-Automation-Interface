@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
-import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:vibration/vibration.dart';
 
-import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
+
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+
+import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/toggle_control_button.dart';
-import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
-import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -20,9 +24,9 @@ class ControlScreen extends StatefulWidget {
 }
 
 class _ControlScreenState extends State<ControlScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _pulseController;
-  // late final Animation<double> _pulseAnim;
+  late final Animation<double> _pulseAnim;
   CraneController? _craneController;
 
   // ── Mutual-exclusion: only one hoist direction active at a time ────────────
@@ -35,13 +39,15 @@ class _ControlScreenState extends State<ControlScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-    // _pulseAnim = Tween<double>(begin: 0.3, end: 1.0).animate(
-    //   CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    // );
+    _pulseAnim = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -55,6 +61,7 @@ class _ControlScreenState extends State<ControlScreen>
     FocusManager.instance.primaryFocus?.unfocus();
     _pulseController.dispose();
     _craneController?.removeListener(_onControllerChange);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -130,37 +137,17 @@ class _ControlScreenState extends State<ControlScreen>
 
   Future<void> _onResetEStopTap() async {
     final controller = context.read<CraneController>();
-    final confirmed = await _showResetDialog(controller);
-    if (confirmed && mounted) {
+      if (controller.currentScreen != AppScreen.control ||
+        !controller.isConnected) {
+      return;
+    }
+    if (mounted) {
       await controller.resetEStop();
       Vibration.vibrate(duration: 100);
     }
   }
 
-  Future<bool> _showResetDialog(CraneController controller) async {
-    if (!mounted || _isResetDialogVisible) return false;
-    if (controller.currentScreen != AppScreen.control ||
-        !controller.isConnected) {
-      return false;
-    }
-
-    _isResetDialogVisible = true;
-    try {
-      final result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          _resetDialogContext = dialogContext;
-          return _ResetEStopDialog(controller: controller);
-        },
-      );
-      return result ?? false;
-    } finally {
-      _isResetDialogVisible = false;
-      _isDismissingResetDialog = false;
-      _resetDialogContext = null;
-    }
-  }
+ 
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
@@ -171,15 +158,16 @@ class _ControlScreenState extends State<ControlScreen>
         final layoutCfg = layoutCtrl.config;
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
-        final arrangement = layoutCfg.arrangementConfig;          final metrics = ControlLayoutMetrics.compute(
-            MediaQuery.of(ctx).size.height
-                - kToolbarHeight
-                - MediaQuery.of(ctx).padding.top
-                - MediaQuery.of(ctx).padding.bottom,
-            baseEstopHeight: sizing.resolvedEstopHeight,
-            preferShowSensor: arrangement.showSensorRow,
-            preferShowLEDs: arrangement.showLiveLEDs,
-          );
+        final arrangement = layoutCfg.arrangementConfig;
+        final metrics = ControlLayoutMetrics.compute(
+          MediaQuery.of(ctx).size.height -
+              kToolbarHeight -
+              MediaQuery.of(ctx).padding.top -
+              MediaQuery.of(ctx).padding.bottom,
+          baseEstopHeight: sizing.resolvedEstopHeight,
+          preferShowSensor: arrangement.showSensorRow,
+          preferShowLEDs: arrangement.showLiveLEDs,
+        );
         final screenTitle = labels.screenTitle.isNotEmpty
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
@@ -240,15 +228,12 @@ class _ControlScreenState extends State<ControlScreen>
               padding: metrics.bodyPadding,
               child: Column(
                 children: [
-                  controller.estopLatched
-                      ? _buildResetSection(
-                          labels.resetEstopLabel,
-                          compact: metrics.isCompact,
-                        )
-                      : _buildEStopButton(
-                          height: metrics.estopHeight,
-                          instructionLabel: labels.estopSwipeInstruction,
-                        ),
+                  _buildSafetyActionPanel(
+                    controller: controller,
+                    compact: metrics.isCompact,
+                    height: metrics.estopHeight,
+                    labels: labels,
+                  ),
                   SizedBox(height: metrics.itemSpacing),
                   if (metrics.showSensorRow) ...[
                     _sensorRow(controller),
@@ -269,8 +254,10 @@ class _ControlScreenState extends State<ControlScreen>
                             isDisabled:
                                 controller.estopLatched ||
                                 !controller.isConnected,
-                            upActive: controller.hoistState == HoistState.upSlow,
-                            downActive: controller.hoistState == HoistState.downSlow,
+                            upActive:
+                                controller.hoistState == HoistState.upSlow,
+                            downActive:
+                                controller.hoistState == HoistState.downSlow,
                             onUpChanged: (state) {
                               setState(() {
                                 _upActive = state != ControlState.idle;
@@ -312,11 +299,12 @@ class _ControlScreenState extends State<ControlScreen>
                                       state: state,
                                     );
                                   },
-                                  externalState: switch (controller.hoistState) {
-                                    HoistState.upSlow => ControlState.slow,
-                                    HoistState.upFast => ControlState.fast,
-                                    _ => ControlState.idle,
-                                  },
+                                  externalState:
+                                      switch (controller.hoistState) {
+                                        HoistState.upSlow => ControlState.slow,
+                                        HoistState.upFast => ControlState.fast,
+                                        _ => ControlState.idle,
+                                      },
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -340,7 +328,8 @@ class _ControlScreenState extends State<ControlScreen>
                                       state: state,
                                     );
                                   },
-                                  externalState: switch (controller.hoistState) {
+                                  externalState: switch (controller
+                                      .hoistState) {
                                     HoistState.downSlow => ControlState.slow,
                                     HoistState.downFast => ControlState.fast,
                                     _ => ControlState.idle,
@@ -363,6 +352,26 @@ class _ControlScreenState extends State<ControlScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildSafetyActionPanel({
+    required CraneController controller,
+    required bool compact,
+    required double height,
+    required ControlLabelConfig labels,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      width: double.infinity,
+      child: controller.estopLatched
+          ? _buildResetSection(labels.resetEstopLabel, compact: compact)
+          : _buildEStopButton(
+              instructionLabel: labels.estopSwipeInstruction,
+              compact: compact,
+              height: height,
+            ),
     );
   }
 
@@ -594,11 +603,87 @@ class _ControlScreenState extends State<ControlScreen>
   Widget _buildEStopButton({
     required double height,
     required String instructionLabel,
+    required bool compact,
   }) {
-    return EStopSwipeButton(
-      onActivated: _onEStopTap,
-      buttonHeight: height,
-      instructionLabel: instructionLabel,
+    return Material(
+      // Wrap with Material for ripple effect
+      color: Colors.transparent,
+      child: InkWell(
+        // Use InkWell instead of GestureDetector
+        onTap: _onEStopTap,
+        borderRadius: BorderRadius.circular(14),
+        splashColor: Colors.white.withAlpha(50),
+        highlightColor: Colors.white.withAlpha(20),
+        child: Container(
+          width: double.infinity,
+          constraints: BoxConstraints(minHeight: compact ? 100 : 100),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF6B0000), AppColors.eStopColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.eStopColor.withAlpha(100),
+                blurRadius: 14,
+                spreadRadius: 2,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: compact ? 32 : 34,
+                height: compact ? 32 : 34,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(31),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withAlpha(64),
+                    width: 2,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.power_settings_new,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              SizedBox(width: compact ? 10 : 12),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'STOP',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  Text(
+                    'Tap to stop all crane operations',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: compact ? 9 : 10,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -661,24 +746,12 @@ class _ControlScreenState extends State<ControlScreen>
           ),
         ),
         SizedBox(height: compact ? 6 : 8),
-        SizedBox(
-          width: double.infinity,
-          height: compact ? 38 : 44,
-          child: OutlinedButton.icon(
-            onPressed: _onResetEStopTap,
-            icon: Icon(Icons.lock_open_rounded, size: compact ? 14 : 16),
-            label: Text(
-              '$resetLabel — Password Required',
-              style: TextStyle(fontSize: compact ? 11 : 12, letterSpacing: 0.5),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.eStopColorLight,
-              side: const BorderSide(color: AppColors.eStopColorLight),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
+        EStopSwipeButton(
+          onActivated: () {
+            _onResetEStopTap();
+          },
+          instructionLabel: 'SWIPE TO RESET E-STOP',
+          instructionSubtitle: 'Slide right to clear emergency lockout',
         ),
       ],
     );

@@ -9,12 +9,14 @@ class EStopSwipeButton extends StatefulWidget {
 
   /// Override the instruction text shown inside the track.
   final String instructionLabel;
+  final String instructionSubtitle;
 
   const EStopSwipeButton({
     super.key,
     required this.onActivated,
     this.buttonHeight,
     this.instructionLabel = 'SWIPE TO EMERGENCY STOP',
+    this.instructionSubtitle = 'Slide right to stop all crane operations',
   });
 
   @override

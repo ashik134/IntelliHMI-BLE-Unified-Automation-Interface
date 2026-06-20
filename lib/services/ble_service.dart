@@ -14,8 +14,6 @@ import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
-
-
 class BleService {
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
 
@@ -37,6 +35,7 @@ class BleService {
   BleConnectionState _snapshot = BleConnectionState.initial();
   BluetoothDevice? _device;
   BleScanDevice? _connectedDevice;
+
   BluetoothCharacteristic? _analogChar;
   BluetoothCharacteristic? _digitalChar;
   BluetoothCharacteristic? _authChar;
@@ -48,12 +47,21 @@ class BleService {
   StreamSubscription<List<int>>? _statusSubscription;
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
 
+  bool _isDisposing = false;
+  bool _scanContinue = false;
+  bool _scanPaused = false;
+
+  Timer? _pruneTimer;
+
   bool _connectCancelled = false;
 
   Completer<BleAuthOutcome>?
   _pendingAuthCompleter; // For tracking ongoing authentication attempts.
 
   void _emit(BleConnectionStatus status, {String? message}) {
+    if (_isDisposing || _connectionController.isClosed) {
+      return;
+    }
     _snapshot = BleConnectionState(
       status: status,
       message: message,
@@ -65,6 +73,8 @@ class BleService {
   // ── Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> startScan() async {
+    _scanContinue = false;
+    _scanPaused = false;
     await stopScan();
     _scanController.add(const []);
     _emit(BleConnectionStatus.scanning);
@@ -74,9 +84,11 @@ class BleService {
         final seen = <String>{};
         final devices = results
             .map(BleScanDevice.fromScanResult)
-            .where((d) =>
-                d.name.startsWith(BLEConstants.scanNamePrefix) ||
-                d.plcType != PlcType.unknown)
+            .where(
+              (d) =>
+                  d.name.startsWith(BLEConstants.scanNamePrefix) ||
+                  d.plcType != PlcType.unknown,
+            )
             .where((d) => seen.add(d.id))
             .toList();
         debugPrint(
@@ -238,7 +250,7 @@ class BleService {
       );
     }
   }
-  
+
   Future<void> cancelConnecting() async {
     if (_snapshot.status != BleConnectionStatus.connecting) return;
 
