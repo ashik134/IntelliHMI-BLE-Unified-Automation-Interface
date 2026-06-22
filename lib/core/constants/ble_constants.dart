@@ -9,7 +9,9 @@ class BLEConstants {
 
   static const String deviceName = 'RRC_PLC';
 
-  static const String scanNamePrefix = 'RRC_';
+  /// Manufacturer Data must start with this prefix (case-insensitive) for a
+  /// scanned device to appear in the UI.
+  static const String manufacturerDataPrefix = 'PLC';
 
   static const String authRequest = 'AUTH_REQ:email|password';
   static const String authSuccess = 'AUTH_OK';

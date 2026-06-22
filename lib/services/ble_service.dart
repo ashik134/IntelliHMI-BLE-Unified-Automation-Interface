@@ -51,12 +51,22 @@ class BleService {
   bool _scanContinue = false;
   bool _scanPaused = false;
 
+  final Map<String, BleScanDevice> _deviceCache = {};
+
+  DateTime? _scanDeadline;
   Timer? _pruneTimer;
+  static const Duration _deviceExpireTimeout = Duration(seconds: 20);
+  static const Duration _pruneInterval = Duration(seconds: 3);
 
   bool _connectCancelled = false;
+  bool _sessionAuthenticated = false;
+  bool _digitalCharWriteNoResponse = false;
 
-  Completer<BleAuthOutcome>?
-  _pendingAuthCompleter; // For tracking ongoing authentication attempts.
+  static const Duration _scanBurstDuration = Duration(seconds: 6);
+  static const Duration _scanPauseDuration = Duration(milliseconds: 1500);
+  static const Duration _maxScanDuration = Duration(minutes: 3);
+
+  Completer<BleAuthOutcome>? _pendingAuthCompleter;
 
   void _emit(BleConnectionStatus status, {String? message}) {
     if (_isDisposing || _connectionController.isClosed) {
@@ -75,26 +85,61 @@ class BleService {
   Future<void> startScan() async {
     _scanContinue = false;
     _scanPaused = false;
-    await stopScan();
-    _scanController.add(const []);
+    _pruneTimer?.cancel;
+    _pruneTimer = null;
+    if (FlutterBluePlus.isScanningNow) {
+      await FlutterBluePlus.stopScan();
+    }
+    await _scanResultsSub?.cancel();
+    _scanResultsSub = null;
+    _deviceCache.clear();
+    _scanDeadline = DateTime.now().add(_maxScanDuration);
+    await _runScanSession();
+  }
+
+  // ── Run Scan Burst Section ───────────────────────────────────────────────────────────────
+
+  Future<void> _runScanSession() async {
+    _unfreezeCache();
     _emit(BleConnectionStatus.scanning);
+    _scanContinue = true;
+
+    if (_deviceCache.isNotEmpty) {
+      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+    }
+
+    _pruneTimer?.cancel();
+    _pruneTimer = Timer.periodic(_pruneInterval, (_) => _pruneStaleDevices());
 
     _scanResultsSub = FlutterBluePlus.scanResults.listen(
       (results) {
-        final seen = <String>{};
-        final devices = results
-            .map(BleScanDevice.fromScanResult)
-            .where(
-              (d) =>
-                  d.name.startsWith(BLEConstants.scanNamePrefix) ||
-                  d.plcType != PlcType.unknown,
-            )
-            .where((d) => seen.add(d.id))
-            .toList();
-        debugPrint(
-          'Scan update: ${devices.length} ${BLEConstants.deviceName} device(s) found',
-        );
-        _scanController.add(List.unmodifiable(devices));
+        bool changed = false;
+
+        for (final result in results) {
+          if (!BleScanDevice.matchesPlcFilter(result)) continue;
+
+          final device = BleScanDevice.fromScanResult(result);
+          final existing = _deviceCache[device.id];
+
+          if (existing == null) {
+            _deviceCache[device.id] = device;
+            changed = true;
+          } else if (existing.rssi != device.rssi || existing.isStale) {
+            _deviceCache[device.id] = device;
+            changed = true;
+          } else {
+            _deviceCache[device.id] = existing.copyWith(
+              lastSeenAt: device.lastSeenAt,
+            );
+          }
+        }
+
+        if (changed) {
+          debugPrint(
+            'Scan update: ${_deviceCache.length} ${BLEConstants.manufacturerDataPrefix}* device(s) in cache',
+          );
+          _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+        }
       },
       onError: (e) {
         _emit(
@@ -104,33 +149,136 @@ class BleService {
       },
     );
 
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
-    await FlutterBluePlus.isScanning.where((s) => !s).first;
-    _scanResultsSub?.cancel();
+    while (_scanContinue && !_isDisposing) {
+      final remaining = _scanDeadline!.difference(DateTime.now());
+      if (remaining.inSeconds < 1) break;
+
+      final burst = remaining < _scanBurstDuration
+          ? remaining
+          : _scanBurstDuration;
+
+      try {
+        await FlutterBluePlus.startScan(
+          timeout: burst,
+          androidScanMode: AndroidScanMode.balanced,
+        );
+        await FlutterBluePlus.isScanning.where((s) => !s).first;
+      } catch (_) {
+        break;
+      }
+      if (!_scanContinue || _isDisposing) break;
+      await Future.delayed(_scanPauseDuration);
+    }
+
+    await _scanResultsSub?.cancel();
     _scanResultsSub = null;
-    _emit(BleConnectionStatus.disconnected);
+
+    _freezeCache();
+
+    if (!_scanPaused) {
+      _scanDeadline = null;
+      if (_snapshot.status == BleConnectionStatus.scanning) {
+        _emit(BleConnectionStatus.disconnected);
+      }
+    }
   }
 
+  // ── Stop Scanning ───────────────────────────────────────────────────────────────
+
   Future<void> stopScan() async {
+    _scanContinue = false;
+    _scanPaused = false;
+    _scanDeadline = null;
     await FlutterBluePlus.stopScan();
-    _scanResultsSub?.cancel();
+    await _scanResultsSub?.cancel();
     _scanResultsSub = null;
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
+    }
+    _freezeCache();
+    if (_snapshot.status == BleConnectionStatus.scanning) {
+      _emit(BleConnectionStatus.disconnected);
+    }
+  }
+
+  // ── Cache freeze ───────────────────────────────────────────────────────────────
+
+  void _freezeCache({bool forceEmit = false}) {
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
+    if (_deviceCache.isEmpty) return;
+    bool changed = false;
+    for (final id in _deviceCache.keys.toList()) {
+      final d = _deviceCache[id]!;
+      if (d.frozenStatus == null) {
+        _deviceCache[id] = d.copyWith(frozenStatus: DeviceStaleStatus.active);
+        changed = true;
+      }
+    }
+    if (changed || forceEmit) {
+      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+    }
+  }
+
+  // ── Uncache freeze  ───────────────────────────────────────────────────────────────
+
+  void _unfreezeCache() {
+    if (_deviceCache.isEmpty) return;
+    final now = DateTime.now();
+    for (final id in _deviceCache.keys.toList()) {
+      _deviceCache[id] = _deviceCache[id]!.copyWith(
+        lastSeenAt: now,
+        clearFrozen: true,
+      );
+    }
+  }
+
+  // ──Remove the Stale Devices ───────────────────────────────────────────────────────────────
+
+  void _pruneStaleDevices() {
+    final now = DateTime.now();
+
+    final expiredIds = _deviceCache.entries
+        .where(
+          (e) =>
+              e.value.frozenStatus == null &&
+              now.difference(e.value.lastSeenAt) > _deviceExpireTimeout,
+        )
+        .map((e) => e.key)
+        .toList();
+
+    for (final id in expiredIds) {
+      _deviceCache.remove(id);
+    }
+    if (expiredIds.isNotEmpty) {
+      debugPrint(
+        '[BLE] Removed ${expiredIds.length} expired device(s) from cache '
+        '(silent > ${_deviceExpireTimeout.inSeconds}s).',
+      );
+    }
+
+    if (_deviceCache.isNotEmpty || expiredIds.isNotEmpty) {
+      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
     }
   }
 
   // ── Connection ─────────────────────────────────────────────────────────────
 
   Future<void> connect(BleScanDevice scanDevice) async {
+    // ✅ From Version 1: Stop any ongoing scan
     await stopScan();
+
+    // ✅ From Version 2: Clean disconnect first
     await disconnect(emitState: false);
+
+    // ✅ From Version 2: Set state early
     _emit(BleConnectionStatus.connecting);
 
     _connectedDevice = scanDevice;
     _device = scanDevice.device;
     var hasreachedConnectedState = false;
 
+    // Setup connection state listener
     _connStateSub = _device!.connectionState.listen((state) {
       if (state == BluetoothConnectionState.connected) {
         hasreachedConnectedState = true;
@@ -149,24 +297,49 @@ class BleService {
     _device!.cancelWhenDisconnected(_connStateSub!, delayed: true, next: true);
 
     try {
+      // ✅ From Version 2: Shorter timeout for better UX (or keep 15s?)
       await _device!.connect(
         autoConnect: false,
-        timeout: const Duration(seconds: 15),
+        timeout: const Duration(seconds: 10), // Balanced
         license: License.commercial,
       );
+
       await _discoverServices();
+
+      // ✅ From Version 1: Authentication state
       _emit(BleConnectionStatus.awaitingAuthentication);
     } catch (e) {
+      // ✅ From Version 2: Handle cancellation
+      if (_connectCancelled) return;
+
+      // ✅ From Version 2: Complete cleanup
+      _connStateSub?.cancel();
+      _connStateSub = null;
+      _device = null;
       _connectedDevice = null;
-      _emit(
-        BleConnectionStatus.error,
-        message: 'Connection failed: ${e.toString()}',
-      );
+
+      // ✅ From Version 2: User-friendly error messages
+      final String message;
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('timed out') || errStr.contains('timeout')) {
+        message = 'Controller unreachable — device is out of range or offline.';
+
+        // ✅ From Version 2: Auto-recovery
+        Future.delayed(const Duration(seconds: 3), () {
+          if (!_isDisposing && _snapshot.status == BleConnectionStatus.error) {
+            _emit(BleConnectionStatus.disconnected);
+          }
+        });
+      } else {
+        message = 'Connection failed: ${e.toString()}';
+      }
+
+      _emit(BleConnectionStatus.error, message: message);
       _logger.e('Connection failed: ${e.toString()}');
       return;
     }
 
-    // Monitor for unexpected disconnection.
+    // Monitor for unexpected disconnection
     _connStateSub?.cancel();
     _connStateSub = _device!.connectionState.listen((state) {
       if (state == BluetoothConnectionState.disconnected) {
@@ -178,15 +351,34 @@ class BleService {
   // Discover services and map characteristics.
   Future<void> _discoverServices() async {
     try {
+      // ✅ From Version 2: Progress tracking
+      _emit(BleConnectionStatus.discoveringServices);
+
+      // ✅ From Version 2: MTU optimization for Android
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          final negotiatedMtu = await _device!.requestMtu(512);
+          debugPrint('[BLE] ATT MTU negotiated: $negotiatedMtu bytes');
+        } catch (e) {
+          _logger.w('MTU negotiation failed — proceeding with default MTU: $e');
+        }
+      }
+
       final services = await _device!.discoverServices();
+
+      // ✅ From Version 1: Analog support
       BluetoothCharacteristic? analog;
       BluetoothCharacteristic? digital;
       BluetoothCharacteristic? auth;
       BluetoothCharacteristic? status;
+      // BluetoothCharacteristic? heartbeat;
+
       _digitalChar = null;
       _authChar = null;
       _analogChar = null;
       _statusChar = null;
+      // _heartbeatChar = null;
+      // _digitalCharWriteNoResponse = false;
 
       for (final service in services) {
         if (service.uuid.toString().toLowerCase() !=
@@ -196,37 +388,71 @@ class BleService {
 
         for (final char in service.characteristics) {
           final uuid = char.uuid.toString().toLowerCase();
+
+          // ✅ From Version 2: Detailed logging
+          debugPrint(
+            '[BLE] Char discovered: $uuid '
+            '| write=${char.properties.write} '
+            '| writeNoResp=${char.properties.writeWithoutResponse} '
+            '| notify=${char.properties.notify}',
+          );
+
+          // ✅ Combined: All characteristics
           if (uuid == BLEConstants.digitalCharUuid.toLowerCase()) {
             digital = char;
+            _digitalCharWriteNoResponse = char.properties.writeWithoutResponse;
           } else if (uuid == BLEConstants.analogCharUuid.toLowerCase()) {
-            analog = char;
+            analog = char; // ← Added from Version 1
           } else if (uuid == BLEConstants.authCharUuid.toLowerCase()) {
             auth = char;
           } else if (uuid == BLEConstants.statusCharUuid.toLowerCase()) {
             status = char;
           }
+          // else if (uuid == BLEConstants.heartbeatCharUuid.toLowerCase()) {
+          //   heartbeat = char;  // ← From Version 2
+          // }
         }
       }
 
-      //
-      if (digital == null || auth == null || analog == null || status == null) {
+      // ✅ Version 2: Better verification (including analog)
+      if (digital == null || auth == null || status == null || analog == null) {
         await _device!.disconnect();
         _connectedDevice = null;
         _emit(
           BleConnectionStatus.error,
-          message: 'PLC service not found on this device.',
+          message: 'PLC service not fully found on this device.',
         );
         return;
       }
 
+      // Store all characteristics
       _analogChar = analog;
       _digitalChar = digital;
       _authChar = auth;
       _statusChar = status;
+      // _heartbeatChar = heartbeat;
 
+      // ✅ Version 2: Write performance check
+      if (!_digitalCharWriteNoResponse) {
+        _logger.w(
+          'Digital characteristic does not support writeWithoutResponse — '
+          'control writes will use ATT WRITE REQUEST (with ACK, ~15–40 ms '
+          'round-trip per command).',
+        );
+      }
+
+      // if (_heartbeatChar == null) {
+      //   debugPrint('[BLE] WARNING: Heartbeat characteristic NOT found.');
+      // }
+
+      // ✅ Version 2: Progress tracking
+      _emit(BleConnectionStatus.configuringNotifications);
+
+      // ✅ Combined: Set up notifications for all characteristics
       await _analogChar!.setNotifyValue(true);
       await _authChar!.setNotifyValue(true);
       await _statusChar!.setNotifyValue(true);
+
       _analogSubscription = _analogChar!.onValueReceived.listen(
         _handleAnalogNotification,
       );
@@ -237,11 +463,19 @@ class BleService {
         _handleStatusNotification,
       );
 
+      // ✅ Version 2: Auto-cleanup on disconnect
       _device!.cancelWhenDisconnected(_analogSubscription!, next: true);
       _device!.cancelWhenDisconnected(_authSubscription!, next: true);
       _device!.cancelWhenDisconnected(_statusSubscription!, next: true);
+
+      // ✅ Version 2: Safe state initialization
+      _emit(BleConnectionStatus.initializingSafeState);
+      await _sendSafeStatePreAuthBestEffort();
+
+      // ✅ From Version 1: Authentication state
       _emit(BleConnectionStatus.awaitingAuthentication);
     } catch (e) {
+      // ✅ From Version 2: Clean error handling
       await _device!.disconnect();
       _connectedDevice = null;
       _emit(
@@ -327,6 +561,39 @@ class BleService {
     _emit(BleConnectionStatus.disconnected);
   }
 
+  Future<void> _sendSafeStatePreAuthBestEffort() async {
+    if (_digitalChar == null) {
+      return;
+    }
+    try {
+      await _sendSafeStateCommand().timeout(const Duration(milliseconds: 900));
+      _logger.i('Pre-auth safe-state packet sent (best effort).');
+    } catch (error) {
+      _logger.w('Pre-auth safe-state write failed: ${error.toString()}');
+    }
+  }
+
+  Future<void> _sendSafeStateCommand() async {
+    if (_digitalChar == null) {
+      throw StateError('Digital characteristic is not ready.');
+    }
+    final plainBytes = PlcOutputCommand.emergencyStop().wireBytes.toList();
+    if (_sessionAuthenticated) {
+      await _writeEncryptedCharacteristic(
+        characteristic: _digitalChar!,
+        plaintext: plainBytes,
+        withoutResponse: _digitalCharWriteNoResponse,
+        label: 'safe-state',
+      );
+      return;
+    }
+    await _digitalChar!.write(
+      plainBytes,
+      withoutResponse: _digitalCharWriteNoResponse,
+    );
+  }
+
+  
   // ── Characteristic callbacks ───────────────────────────────────────────────
 
   // Keeps the last known values so single-channel updates don't zero out the other channel.

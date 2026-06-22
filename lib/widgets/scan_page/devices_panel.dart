@@ -397,7 +397,7 @@ class _EmptyDeviceStateState extends State<_EmptyDeviceState>
             const SizedBox(height: 6),
             Text(
               widget.scanning
-                  ? 'Looking for ${BLEConstants.scanNamePrefix}* nearby.'
+                  ? 'Looking for ${BLEConstants.manufacturerDataPrefix} controllers nearby.'
                   : 'Power on the PLC controller and keep it in BLE range.',
               textAlign: TextAlign.center,
               style: const TextStyle(

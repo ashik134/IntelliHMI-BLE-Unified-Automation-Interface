@@ -1,4 +1,5 @@
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:rev_crane_control_ops/core/constants/ble_constants.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 
 class BleScanDevice {
@@ -51,24 +52,47 @@ class BleScanDevice {
     );
   }
 
+  /// Returns `true` when the device's Manufacturer Data starts with
+  /// [BLEConstants.manufacturerDataPrefix] (case-insensitive).
+  /// All byte sequences that are not printable ASCII are silently skipped.
+  static bool matchesPlcFilter(ScanResult result) {
+    try {
+      final mfrData = result.advertisementData.manufacturerData;
+      for (final entry in mfrData.entries) {
+        final str = _decodeMfrEntry(entry.key, entry.value);
+        if (str != null &&
+            str.toLowerCase().startsWith(
+              BLEConstants.manufacturerDataPrefix.toLowerCase(),
+            )) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
   static PlcType _parsePlcType(ScanResult result) {
     try {
       final mfrData = result.advertisementData.manufacturerData;
       for (final entry in mfrData.entries) {
-        final companyId = entry.key;
-        final payload = entry.value;
-
-        final bytes = [companyId & 0xFF, (companyId >> 8) & 0xFF, ...payload];
-
-        if (bytes.isEmpty || !bytes.every((b) => b >= 0x20 && b <= 0x7E)) {
-          continue;
-        }
-        final str = String.fromCharCodes(bytes);
+        final str = _decodeMfrEntry(entry.key, entry.value);
+        if (str == null) continue;
         final type = PlcType.fromString(str);
         if (type != PlcType.unknown) return type;
       }
     } catch (_) {}
     return PlcType.unknown;
+  }
+
+  /// Reconstructs the full BLE manufacturer data string from the company-ID
+  /// key and raw payload bytes.  Returns `null` when the bytes are not
+  /// printable ASCII (i.e. not a text-encoded identifier).
+  static String? _decodeMfrEntry(int companyId, List<int> payload) {
+    final bytes = [companyId & 0xFF, (companyId >> 8) & 0xFF, ...payload];
+    if (bytes.isEmpty || !bytes.every((b) => b >= 0x20 && b <= 0x7E)) {
+      return null;
+    }
+    return String.fromCharCodes(bytes);
   }
 
   BleScanDevice copyWith({

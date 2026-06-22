@@ -21,7 +21,7 @@ enum PlcType {
   final String displayName;
 
   static PlcType fromString(String? value) {
-    switch (value) {
+    switch (value?.toUpperCase()) {
       case 'PLC14':
         return PlcType.plc14;
       case 'PLC21':
