@@ -140,36 +140,39 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
   Future<void> _onResetEStopTap() async {
     final controller = context.read<CraneController>();
-    final confirmed = await _showResetDialog(controller);
-    if (confirmed && mounted) {
+    if (controller.currentScreen != AppScreen.plc38Control ||
+        !controller.isConnected) {
+      return;
+    }
+    if (mounted) {
       await controller.resetEStop();
       Vibration.vibrate(duration: 100);
     }
   }
 
-  Future<bool> _showResetDialog(CraneController controller) async {
-    if (!mounted || _isResetDialogVisible) return false;
-    if (controller.currentScreen != AppScreen.plc38Control ||
-        !controller.isConnected) {
-      return false;
-    }
-    _isResetDialogVisible = true;
-    try {
-      final result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          _resetDialogContext = dialogContext;
-          return _Plc38ResetDialog(controller: controller);
-        },
-      );
-      return result ?? false;
-    } finally {
-      _isResetDialogVisible = false;
-      _isDismissingResetDialog = false;
-      _resetDialogContext = null;
-    }
-  }
+  // Future<bool> _showResetDialog(CraneController controller) async {
+  //   if (!mounted || _isResetDialogVisible) return false;
+  //   if (controller.currentScreen != AppScreen.plc38Control ||
+  //       !controller.isConnected) {
+  //     return false;
+  //   }
+  //   _isResetDialogVisible = true;
+  //   try {
+  //     final result = await showDialog<bool>(
+  //       context: context,
+  //       barrierDismissible: false,
+  //       builder: (dialogContext) {
+  //         _resetDialogContext = dialogContext;
+  //         return _Plc38ResetDialog(controller: controller);
+  //       },
+  //     );
+  //     return result ?? false;
+  //   } finally {
+  //     _isResetDialogVisible = false;
+  //     _isDismissingResetDialog = false;
+  //     _resetDialogContext = null;
+  //   }
+  // }
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
@@ -179,10 +182,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       builder: (ctx, controller, layoutCtrl, _) {
         final sizing = layoutCtrl.config.sizeConfig;
         final metrics = ControlLayoutMetrics.compute(
-          MediaQuery.of(ctx).size.height
-              - kToolbarHeight
-              - MediaQuery.of(ctx).padding.top
-              - MediaQuery.of(ctx).padding.bottom,
+          MediaQuery.of(ctx).size.height -
+              kToolbarHeight -
+              MediaQuery.of(ctx).padding.top -
+              MediaQuery.of(ctx).padding.bottom,
           baseEstopHeight: sizing.resolvedEstopHeight,
           preferShowSensor: true,
           preferShowLEDs: true,
@@ -248,14 +251,11 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               child: Column(
                 children: [
                   // ── E-Stop / Reset ──────────────────────────────────────
-                  controller.estopLatched
-                      ? _buildResetSection(compact: metrics.isCompact)
-                      : EStopSwipeButton(
-                          onActivated: _onEStopTap,
-                          buttonHeight: metrics.estopHeight,
-                          instructionLabel: layoutCtrl
-                              .config.labelConfig.estopSwipeInstruction,
-                        ),
+                  _buildSafetyActionPanel(
+                    controller: controller,
+                    compact: metrics.isCompact,
+                    height: metrics.estopHeight,
+                  ),
                   SizedBox(height: metrics.itemSpacing),
 
                   // ── Sensor row ────────────────────────────────────────────────
@@ -285,7 +285,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                 label: 'UP',
                                 icon: Icons.arrow_upward_rounded,
                                 isUp: true,
-                                isDisabled: controller.estopLatched ||
+                                isDisabled:
+                                    controller.estopLatched ||
                                     !controller.isConnected ||
                                     _vertDownActive,
                                 onCommandChanged: (state) {
@@ -298,7 +299,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   );
                                 },
                                 externalState: _externalVertState(
-                                    controller, isUp: true),
+                                  controller,
+                                  isUp: true,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -307,7 +310,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                 label: 'DOWN',
                                 icon: Icons.arrow_downward_rounded,
                                 isUp: false,
-                                isDisabled: controller.estopLatched ||
+                                isDisabled:
+                                    controller.estopLatched ||
                                     !controller.isConnected ||
                                     _vertUpActive,
                                 onCommandChanged: (state) {
@@ -321,7 +325,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   );
                                 },
                                 externalState: _externalVertState(
-                                    controller, isUp: false),
+                                  controller,
+                                  isUp: false,
+                                ),
                               ),
                             ),
                           ],
@@ -336,23 +342,27 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                           children: [
                             Expanded(
                               child: CrossTravelSlider(
-                                isDisabled: controller.estopLatched ||
+                                isDisabled:
+                                    controller.estopLatched ||
                                     !controller.isConnected,
-                                onCommandChanged: ({
-                                  required bool isLeft,
-                                  required ControlState state,
-                                }) {
-                                  setState(() {
-                                    _travLeftActive =
-                                        isLeft && state != ControlState.idle;
-                                    _travRightActive =
-                                        !isLeft && state != ControlState.idle;
-                                  });
-                                  controller.setTraverseCommand(
-                                    isLeft: isLeft,
-                                    state: state,
-                                  );
-                                },
+                                onCommandChanged:
+                                    ({
+                                      required bool isLeft,
+                                      required ControlState state,
+                                    }) {
+                                      setState(() {
+                                        _travLeftActive =
+                                            isLeft &&
+                                            state != ControlState.idle;
+                                        _travRightActive =
+                                            !isLeft &&
+                                            state != ControlState.idle;
+                                      });
+                                      controller.setTraverseCommand(
+                                        isLeft: isLeft,
+                                        state: state,
+                                      );
+                                    },
                               ),
                             ),
                           ],
@@ -371,13 +381,13 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                 icon: Icons.north_rounded,
                                 isUp: true,
                                 axisColor: AppColors.travelColor,
-                                isDisabled: controller.estopLatched ||
+                                isDisabled:
+                                    controller.estopLatched ||
                                     !controller.isConnected ||
                                     _tripRevActive,
                                 onCommandChanged: (state) {
                                   setState(() {
-                                    _tripFwdActive =
-                                        state != ControlState.idle;
+                                    _tripFwdActive = state != ControlState.idle;
                                   });
                                   controller.setTravelCommand(
                                     isForward: true,
@@ -385,7 +395,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   );
                                 },
                                 externalState: _externalTripState(
-                                    controller, isForward: true),
+                                  controller,
+                                  isForward: true,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -395,13 +407,13 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                 icon: Icons.south_rounded,
                                 isUp: false,
                                 axisColor: AppColors.travelColor,
-                                isDisabled: controller.estopLatched ||
+                                isDisabled:
+                                    controller.estopLatched ||
                                     !controller.isConnected ||
                                     _tripFwdActive,
                                 onCommandChanged: (state) {
                                   setState(() {
-                                    _tripRevActive =
-                                        state != ControlState.idle;
+                                    _tripRevActive = state != ControlState.idle;
                                   });
                                   controller.setTravelCommand(
                                     isForward: false,
@@ -409,7 +421,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   );
                                 },
                                 externalState: _externalTripState(
-                                    controller, isForward: false),
+                                  controller,
+                                  isForward: false,
+                                ),
                               ),
                             ),
                           ],
@@ -437,8 +451,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   ControlState _externalVertState(CraneController c, {required bool isUp}) {
     if (c.estopLatched) return ControlState.idle;
     final cmd = c.activeCommand;
-    if (isUp && cmd.up) return cmd.fastUd ? ControlState.fast : ControlState.slow;
-    if (!isUp && cmd.down) return cmd.fastUd ? ControlState.fast : ControlState.slow;
+    if (isUp && cmd.up)
+      return cmd.fastUd ? ControlState.fast : ControlState.slow;
+    if (!isUp && cmd.down)
+      return cmd.fastUd ? ControlState.fast : ControlState.slow;
     return ControlState.idle;
   }
 
@@ -454,7 +470,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     return ControlState.idle;
   }
 
-  ControlState _externalTripState(CraneController c, {required bool isForward}) {
+  ControlState _externalTripState(
+    CraneController c, {
+    required bool isForward,
+  }) {
     if (c.estopLatched) return ControlState.idle;
     final cmd = c.activeCommand;
     if (isForward && cmd.forward) {
@@ -500,10 +519,106 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               ],
             ),
             const SizedBox(height: 2),
-            Expanded(
-              child: Row(children: children),
-            ),
+            Expanded(child: Row(children: children)),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSafetyActionPanel({
+    required CraneController controller,
+    required bool compact,
+    required double height,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      width: double.infinity,
+      child: controller.estopLatched
+          ? _buildResetSection(compact: compact)
+          : _buildEStopButton(compact: compact, height: height),
+    );
+  }
+
+  Widget _buildEStopButton({required double height, required bool compact}) {
+    return Material(
+      // Wrap with Material for ripple effect
+      color: Colors.transparent,
+      child: InkWell(
+        // Use InkWell instead of GestureDetector
+        onTap: _onEStopTap,
+        borderRadius: BorderRadius.circular(14),
+        splashColor: Colors.white.withAlpha(50),
+        highlightColor: Colors.white.withAlpha(20),
+        child: Container(
+          width: double.infinity,
+          constraints: BoxConstraints(minHeight: compact ? 100 : 100),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF6B0000), AppColors.eStopColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.eStopColor.withAlpha(100),
+                blurRadius: 14,
+                spreadRadius: 2,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: compact ? 32 : 34,
+                height: compact ? 32 : 34,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(31),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withAlpha(64),
+                    width: 2,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.power_settings_new,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              SizedBox(width: compact ? 10 : 12),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'STOP',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  Text(
+                    'Tap to stop all crane operations',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: compact ? 9 : 10,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -591,14 +706,20 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       children: [
         Expanded(
           child: _sensorCard(
-              label: 'Load 1', tag: 'A1', value: controller.a1,
-              color: AppColors.upColor),
+            label: 'Load 1',
+            tag: 'A1',
+            value: controller.a1,
+            color: AppColors.upColor,
+          ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _sensorCard(
-              label: 'Load 2', tag: 'A2', value: controller.a2,
-              color: AppColors.downColor),
+            label: 'Load 2',
+            tag: 'A2',
+            value: controller.a2,
+            color: AppColors.downColor,
+          ),
         ),
       ],
     );
@@ -671,8 +792,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     final Color c = controller.estopLatched
         ? AppColors.eStopColor
         : controller.activeCommand.isIdle
-            ? AppColors.idleColor
-            : AppColors.upColorLight;
+        ? AppColors.idleColor
+        : AppColors.upColorLight;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -767,161 +888,149 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
           ),
         ),
         SizedBox(height: compact ? 6 : 8),
-        SizedBox(
-          width: double.infinity,
-          height: compact ? 38 : 44,
-          child: OutlinedButton.icon(
-            onPressed: _onResetEStopTap,
-            icon: Icon(Icons.lock_open_rounded, size: compact ? 14 : 16),
-            label: Text(
-              'RESET E-STOP — Password Required',
-              style: TextStyle(fontSize: compact ? 11 : 12, letterSpacing: 0.5),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.eStopColorLight,
-              side: const BorderSide(color: AppColors.eStopColorLight),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Reset E-Stop dialog ─────────────────────────────────────────────────────
-
-class _Plc38ResetDialog extends StatefulWidget {
-  final CraneController controller;
-
-  const _Plc38ResetDialog({required this.controller});
-
-  @override
-  State<_Plc38ResetDialog> createState() => _Plc38ResetDialogState();
-}
-
-class _Plc38ResetDialogState extends State<_Plc38ResetDialog> {
-  final TextEditingController _pwCtrl = TextEditingController();
-  bool _obscure = true;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _pwCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      backgroundColor: AppColors.panel,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
-          SizedBox(width: 10),
-          Text(
-            'Reset Emergency Stop',
-            style: TextStyle(color: AppColors.darkText, fontSize: 17),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Enter your password to unlock crane controls.',
-            style: TextStyle(color: AppColors.darkTextSub, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          if (_errorMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.eStopColor.withAlpha(31),
-                borderRadius: BorderRadius.circular(8),
-                border:
-                    Border.all(color: AppColors.eStopColor.withAlpha(102)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline,
-                      color: AppColors.eStopColorLight, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(
-                          color: AppColors.eStopColorLight, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          TextField(
-            controller: _pwCtrl,
-            obscureText: _obscure,
-            autofocus: true,
-            style: const TextStyle(color: AppColors.darkText),
-            decoration: InputDecoration(
-              labelText: 'Password',
-              labelStyle: const TextStyle(color: AppColors.darkTextSub),
-              filled: true,
-              fillColor: AppColors.panelAlt,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide:
-                    const BorderSide(color: AppColors.darkBorder),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide:
-                    const BorderSide(color: AppColors.darkBorder),
-              ),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscure ? Icons.visibility_off : Icons.visibility,
-                  color: AppColors.darkTextSub,
-                  size: 18,
-                ),
-                onPressed: () => setState(() => _obscure = !_obscure),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel',
-              style: TextStyle(color: AppColors.darkTextSub)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            final ok =
-                widget.controller.verifyLocalPassword(_pwCtrl.text);
-            if (ok) {
-              Navigator.of(context).pop(true);
-            } else {
-              setState(
-                  () => _errorMessage = 'Incorrect password. Try again.');
-            }
+        EStopSwipeButton(
+          onActivated: () {
+            _onResetEStopTap();
           },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.eStopColorLight,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
-          ),
-          child: const Text('Unlock'),
+          instructionLabel: 'SWIPE TO RESET E-STOP',
+          instructionSubtitle: 'Slide right to clear emergency lockout',
         ),
       ],
     );
   }
 }
+
+// // ── Reset E-Stop dialog ─────────────────────────────────────────────────────
+
+// class _Plc38ResetDialog extends StatefulWidget {
+//   final CraneController controller;
+
+//   const _Plc38ResetDialog({required this.controller});
+
+//   @override
+//   State<_Plc38ResetDialog> createState() => _Plc38ResetDialogState();
+// }
+
+// class _Plc38ResetDialogState extends State<_Plc38ResetDialog> {
+//   final TextEditingController _pwCtrl = TextEditingController();
+//   bool _obscure = true;
+//   String? _errorMessage;
+
+//   @override
+//   void dispose() {
+//     _pwCtrl.dispose();
+//     super.dispose();
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return AlertDialog(
+//       scrollable: true,
+//       backgroundColor: AppColors.panel,
+//       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+//       title: const Row(
+//         children: [
+//           Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
+//           SizedBox(width: 10),
+//           Text(
+//             'Reset Emergency Stop',
+//             style: TextStyle(color: AppColors.darkText, fontSize: 17),
+//           ),
+//         ],
+//       ),
+//       content: Column(
+//         mainAxisSize: MainAxisSize.min,
+//         crossAxisAlignment: CrossAxisAlignment.start,
+//         children: [
+//           const Text(
+//             'Enter your password to unlock crane controls.',
+//             style: TextStyle(color: AppColors.darkTextSub, fontSize: 13),
+//           ),
+//           const SizedBox(height: 16),
+//           if (_errorMessage != null) ...[
+//             Container(
+//               padding: const EdgeInsets.all(10),
+//               decoration: BoxDecoration(
+//                 color: AppColors.eStopColor.withAlpha(31),
+//                 borderRadius: BorderRadius.circular(8),
+//                 border:
+//                     Border.all(color: AppColors.eStopColor.withAlpha(102)),
+//               ),
+//               child: Row(
+//                 children: [
+//                   const Icon(Icons.error_outline,
+//                       color: AppColors.eStopColorLight, size: 16),
+//                   const SizedBox(width: 8),
+//                   Expanded(
+//                     child: Text(
+//                       _errorMessage!,
+//                       style: const TextStyle(
+//                           color: AppColors.eStopColorLight, fontSize: 12),
+//                     ),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//             const SizedBox(height: 12),
+//           ],
+//           TextField(
+//             controller: _pwCtrl,
+//             obscureText: _obscure,
+//             autofocus: true,
+//             style: const TextStyle(color: AppColors.darkText),
+//             decoration: InputDecoration(
+//               labelText: 'Password',
+//               labelStyle: const TextStyle(color: AppColors.darkTextSub),
+//               filled: true,
+//               fillColor: AppColors.panelAlt,
+//               border: OutlineInputBorder(
+//                 borderRadius: BorderRadius.circular(10),
+//                 borderSide:
+//                     const BorderSide(color: AppColors.darkBorder),
+//               ),
+//               enabledBorder: OutlineInputBorder(
+//                 borderRadius: BorderRadius.circular(10),
+//                 borderSide:
+//                     const BorderSide(color: AppColors.darkBorder),
+//               ),
+//               suffixIcon: IconButton(
+//                 icon: Icon(
+//                   _obscure ? Icons.visibility_off : Icons.visibility,
+//                   color: AppColors.darkTextSub,
+//                   size: 18,
+//                 ),
+//                 onPressed: () => setState(() => _obscure = !_obscure),
+//               ),
+//             ),
+//           ),
+//         ],
+//       ),
+//       actions: [
+//         TextButton(
+//           onPressed: () => Navigator.of(context).pop(false),
+//           child: const Text('Cancel',
+//               style: TextStyle(color: AppColors.darkTextSub)),
+//         ),
+//         ElevatedButton(
+//           onPressed: () {
+//             final ok =
+//                 widget.controller.verifyLocalPassword(_pwCtrl.text);
+//             if (ok) {
+//               Navigator.of(context).pop(true);
+//             } else {
+//               setState(
+//                   () => _errorMessage = 'Incorrect password. Try again.');
+//             }
+//           },
+//           style: ElevatedButton.styleFrom(
+//             backgroundColor: AppColors.eStopColorLight,
+//             foregroundColor: Colors.white,
+//             shape: RoundedRectangleBorder(
+//                 borderRadius: BorderRadius.circular(10)),
+//           ),
+//           child: const Text('Unlock'),
+//         ),
+//       ],
+//     );
+//   }
+// }
