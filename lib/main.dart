@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/app_theme.dart';
+import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
@@ -16,9 +18,28 @@ import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _applyOrientationPolicy();
   runApp(const IntelliHMIApp());
+}
+
+/// Locks phones to portrait; tablets are left free to follow the sensor.
+Future<void> _applyOrientationPolicy() async {
+  final orientations =
+      DeviceType.isTablet
+          ? [
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.portraitDown,
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+          : [
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.portraitDown,
+          ];
+
+  await SystemChrome.setPreferredOrientations(orientations);
 }
 
 class IntelliHMIApp extends StatelessWidget {
