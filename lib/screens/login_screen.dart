@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
-import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
+import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -22,6 +23,8 @@ class _LoginScreenState extends State<LoginScreen>
 
   bool _seeded = false;
   bool _obscurePassword = true;
+    bool _biometricLoading = false;
+    BiometricAuthResult? _lastBiometricResult;
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
   // Tracks the last error message to avoid showing duplicate snackbars.

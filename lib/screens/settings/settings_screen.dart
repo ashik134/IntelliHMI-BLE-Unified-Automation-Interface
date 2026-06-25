@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
@@ -38,59 +39,65 @@ class SettingsScreen extends StatelessWidget {
           child: Divider(height: 1, color: AppColors.divider),
         ),
       ),
-      body: ListView(
-        children: [
-          // ── Device Identity Section ──────────────────────────────────────
-          const _SectionHeader(label: 'DEVICE IDENTITY'),
-          _DeviceIdentityCard(),
-          
-          // ── Security Section ─────────────────────────────────────────────
-          const _SectionHeader(label: 'SECURITY'),
-          _BiometricCard(),
-          
-          // ── Control Screen Section ──────────────────────────────────────
-          const _SectionHeader(label: 'CONTROL SCREEN'),
-          _SettingsTile(
-            icon: Icons.tune_rounded,
-            iconColor: AppColors.connPrimary,
-            title: 'Control Screen Customisation',
-            subtitle: 'Resize buttons, rename labels, configure layout sections',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const ControlCustomizationScreen(),
+      body: Consumer<CraneController>(
+        builder: (context, controller, _) {
+          return ListView(
+            children: [
+              // ── Device Identity Section ──────────────────────────────────────
+              const _SectionHeader(label: 'DEVICE IDENTITY'),
+              _DeviceIdentityCard(controller: controller),
+
+              // ── Security Section ─────────────────────────────────────────────
+              const _SectionHeader(label: 'SECURITY'),
+              _BiometricCard(),
+
+              // ── Control Screen Section ──────────────────────────────────────
+              const _SectionHeader(label: 'CONTROL SCREEN'),
+              _SettingsTile(
+                icon: Icons.tune_rounded,
+                iconColor: AppColors.connPrimary,
+                title: 'Control Screen Customisation',
+                subtitle:
+                    'Resize buttons, rename labels, configure layout sections',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ControlCustomizationScreen(),
+                  ),
+                ),
               ),
-            ),
-          ),
 
-          // ── Security Information Section ────────────────────────────────
-          const _SectionHeader(label: 'SECURITY INFORMATION'),
-          const _SecurityInfoCard(),
+              // ── Security Information Section ────────────────────────────────
+              const _SectionHeader(label: 'SECURITY INFORMATION'),
+              const _SecurityInfoCard(),
 
-          // ── Active Session Section ──────────────────────────────────────
-          if (_isAuthenticated) ...[
-            const _SectionHeader(label: 'ACTIVE SESSION'),
-            _ActiveSessionCard(),
-          ],
+              // ── Active Session Section ──────────────────────────────────────
+              if (_isAuthenticated) ...[
+                const _SectionHeader(label: 'ACTIVE SESSION'),
+                _ActiveSessionCard(),
+              ],
 
-          // ── Application Section ─────────────────────────────────────────
-          const _SectionHeader(label: 'APPLICATION'),
-          _SettingsTile(
-            icon: Icons.info_outline_rounded,
-            iconColor: AppColors.neutral,
-            title: 'About',
-            subtitle: '${AppConstants.appTitle}  ·  v${AppConstants.appVersion}',
-            onTap: () => _showAboutDialog(context),
-          ),
-          _SettingsTile(
-            icon: Icons.restore_rounded,
-            iconColor: AppColors.connWarning,
-            title: 'Reset All Settings',
-            subtitle: 'Restore all customisations to factory defaults',
-            onTap: () => _confirmReset(context),
-          ),
+              // ── Application Section ─────────────────────────────────────────
+              const _SectionHeader(label: 'APPLICATION'),
+              _SettingsTile(
+                icon: Icons.info_outline_rounded,
+                iconColor: AppColors.neutral,
+                title: 'About',
+                subtitle:
+                    '${AppConstants.appTitle}  ·  v${AppConstants.appVersion}',
+                onTap: () => _showAboutDialog(context),
+              ),
+              _SettingsTile(
+                icon: Icons.restore_rounded,
+                iconColor: AppColors.connWarning,
+                title: 'Reset All Settings',
+                subtitle: 'Restore all customisations to factory defaults',
+                onTap: () => _confirmReset(context),
+              ),
 
-          const SizedBox(height: 32),
-        ],
+              const SizedBox(height: 32),
+            ],
+          );
+        },
       ),
     );
   }
@@ -117,9 +124,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.error,
-            ),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
             child: const Text('Reset'),
           ),
         ],
@@ -197,9 +202,7 @@ class _SettingsTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: const BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: AppColors.divider),
-            ),
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
           ),
           child: Row(
             children: [
@@ -254,7 +257,9 @@ class _SettingsTile extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DeviceIdentityCard extends StatefulWidget {
-  const _DeviceIdentityCard();
+  const _DeviceIdentityCard({required this.controller});
+
+  final CraneController controller;
 
   @override
   State<_DeviceIdentityCard> createState() => _DeviceIdentityCardState();
@@ -264,25 +269,18 @@ class _DeviceIdentityCardState extends State<_DeviceIdentityCard> {
   bool _copied = false;
 
   void _copyDeviceId() {
-    // Replace with your actual device ID retrieval
-    final deviceId = _getDeviceId();
-    if (deviceId.isEmpty) return;
-    Clipboard.setData(ClipboardData(text: deviceId));
+    final id = widget.controller.deviceId;
+    if (id.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: id));
     setState(() => _copied = true);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _copied = false);
     });
   }
 
-  String _getDeviceId() {
-    // TODO: Replace with your actual device ID retrieval
-    // Example: return context.read<BleController>().deviceId;
-    return 'RRC-PLC-XXXX-YYYY-ZZZZ'; // Placeholder
-  }
-
   @override
   Widget build(BuildContext context) {
-    final id = _getDeviceId();
+    final id = widget.controller.deviceId;
     final displayId = id.isEmpty ? 'Initializing…' : id;
 
     return _IndustrialCard(
@@ -378,7 +376,9 @@ class _DeviceIdentityCardState extends State<_DeviceIdentityCard> {
                 child: _ActionButton(
                   icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
                   label: _copied ? 'Copied' : 'Copy Device ID',
-                  color: _copied ? AppColors.homeSuccess : AppColors.connPrimary,
+                  color: _copied
+                      ? AppColors.homeSuccess
+                      : AppColors.connPrimary,
                   onTap: id.isEmpty ? null : _copyDeviceId,
                 ),
               ),
@@ -452,7 +452,9 @@ class _BiometricCard extends StatelessWidget {
                 child: Text(
                   isBiometricEnrolled! ? 'ON' : 'OFF',
                   style: TextStyle(
-                    color: isBiometricEnrolled! ? AppColors.connSuccess : AppColors.connTextMuted,
+                    color: isBiometricEnrolled!
+                        ? AppColors.connSuccess
+                        : AppColors.connTextMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.8,
@@ -555,10 +557,7 @@ class _SecurityInfoCard extends StatelessWidget {
             label: 'Device Identity — Android Keystore',
           ),
           SizedBox(height: 12),
-          _SecurityFact(
-            icon: Icons.shield_rounded,
-            label: 'Fail-Safe Default',
-          ),
+          _SecurityFact(icon: Icons.shield_rounded, label: 'Fail-Safe Default'),
         ],
       ),
     );
@@ -566,10 +565,7 @@ class _SecurityInfoCard extends StatelessWidget {
 }
 
 class _SecurityFact extends StatelessWidget {
-  const _SecurityFact({
-    required this.icon,
-    required this.label,
-  });
+  const _SecurityFact({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -639,10 +635,7 @@ class _ActiveSessionCard extends StatelessWidget {
             value: '-62 dBm', // TODO: Get from controller
           ),
           const SizedBox(height: 8),
-          const _InfoRow(
-            label: 'Encryption',
-            value: 'AES-128-GCM Active',
-          ),
+          const _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
         ],
       ),
     );
@@ -650,11 +643,7 @@ class _ActiveSessionCard extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
+  const _InfoRow({required this.label, required this.value, this.valueColor});
 
   final String label;
   final String value;
