@@ -280,7 +280,7 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
         decoration: BoxDecoration(
           color: backgroundColor ?? AppColors.surface,
           border: const Border(
-            bottom: BorderSide(color: AppColors.darkInfo, width: 1),
+            bottom: BorderSide(color: AppColors.borderStrong, width: 1),
           ),
           boxShadow: [
             BoxShadow(
@@ -303,7 +303,7 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
             if (onScanPressed != null) _buildScanButton(context),
 
             // Settings Button
-            if (onSettingsPressed != null) _buildSettingsButton(context),
+            // if (onSettingsPressed != null) _buildSettingsButton(context),
           ],
         ),
       ),
@@ -347,8 +347,8 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
               border: Border.all(color: AppColors.connBorder, width: 1),
             ),
             child: Icon(
-              Icons.arrow_back_ios_outlined,
-              size: 22,
+              Icons.arrow_back_sharp,
+              size: 20,
               color: canPop ? AppColors.lightText : AppColors.lightTextMuted,
             ),
           ),
@@ -422,17 +422,18 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
             : FilledButton(
                 onPressed: canScan ? onScanPressed : null,
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(223, 0, 170, 255),
-                  foregroundColor: Colors.white,
+                  // backgroundColor: AppColors.divider,
+                  foregroundColor: AppColors.darkBg,
                   disabledBackgroundColor: AppColors.neutral.withAlpha(115),
                   disabledForegroundColor: AppColors.lightText.withAlpha(115),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: AppColors.darkBorder)
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   minimumSize: const Size(80, 40),
                   elevation: 2,
-                  shadowColor: AppColors.accent.withAlpha(115),
+                  shadowColor: AppColors.divider.withAlpha(115),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,

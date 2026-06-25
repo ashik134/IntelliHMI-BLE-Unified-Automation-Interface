@@ -100,4 +100,6 @@ class AppColors {
   static const Color connTextMuted = Color(0xFF68778A);
   static const Color connBorder = Color(0xFFD0D9E4);
   static const Color divider = Color(0xFFE8ECF2);
+
+  static get connSuccess => null;
 }

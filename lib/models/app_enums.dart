@@ -10,6 +10,8 @@ enum TraverseDirection { idle, left, right }
 /// Longitudinal travel direction (PLC38 — Forward / Reverse axis).
 enum TravelDirection { idle, forward, reverse }
 
+enum HoistState { idle, upSlow, upFast, downSlow, downFast }
+
 enum PlcType {
   plc14('PLC14'),
   plc21('PLC21'),

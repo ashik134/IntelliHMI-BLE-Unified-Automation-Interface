@@ -137,7 +137,7 @@ class _ControlScreenState extends State<ControlScreen>
 
   Future<void> _onResetEStopTap() async {
     final controller = context.read<CraneController>();
-      if (controller.currentScreen != AppScreen.control ||
+    if (controller.currentScreen != AppScreen.control ||
         !controller.isConnected) {
       return;
     }
@@ -146,8 +146,6 @@ class _ControlScreenState extends State<ControlScreen>
       Vibration.vibrate(duration: 100);
     }
   }
-
- 
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
@@ -752,149 +750,6 @@ class _ControlScreenState extends State<ControlScreen>
           },
           instructionLabel: 'SWIPE TO RESET E-STOP',
           instructionSubtitle: 'Slide right to clear emergency lockout',
-        ),
-      ],
-    );
-  }
-}
-
-class _ResetEStopDialog extends StatefulWidget {
-  final CraneController controller;
-
-  const _ResetEStopDialog({required this.controller});
-
-  @override
-  State<_ResetEStopDialog> createState() => _ResetEStopDialogState();
-}
-
-class _ResetEStopDialogState extends State<_ResetEStopDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscure = true;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      backgroundColor: AppColors.panel,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
-          SizedBox(width: 10),
-          Text(
-            'Reset Emergency Stop',
-            style: TextStyle(color: AppColors.darkText, fontSize: 17),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Enter your password to unlock crane controls.',
-            style: TextStyle(color: AppColors.darkTextSub, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          if (_errorMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.eStopColor.withAlpha(31),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.eStopColor.withAlpha(102)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    color: AppColors.eStopColorLight,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.panelAlt,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.darkBorder),
-            ),
-            child: TextField(
-              controller: _passwordController,
-              obscureText: _obscure,
-              autofocus: true,
-              style: const TextStyle(color: AppColors.darkText),
-              decoration: InputDecoration(
-                hintText: 'Password',
-                hintStyle: const TextStyle(color: AppColors.darkTextSub),
-                prefixIcon: const Icon(
-                  Icons.lock_outlined,
-                  color: AppColors.darkTextSub,
-                  size: 20,
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscure
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    color: AppColors.darkTextSub,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text(
-            'Cancel',
-            style: TextStyle(color: AppColors.darkTextSub),
-          ),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (widget.controller.verifyLocalPassword(
-              _passwordController.text,
-            )) {
-              Navigator.pop(context, true);
-              return;
-            }
-            setState(() => _errorMessage = 'Incorrect password.');
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.upColor,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('UNLOCK'),
         ),
       ],
     );
