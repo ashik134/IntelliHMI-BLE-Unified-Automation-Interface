@@ -948,24 +948,36 @@ class BleService {
 
   // ── Autheticate the device ─────────────────────────────────────────────────
 
-   Future<BleAuthOutcome> authenticate({
+  Future<BleAuthOutcome> authenticate({
     required String email,
     required String password,
-}) async {
+    required String deviceId,
+  }) async {
     if (_authChar == null) {
       throw StateError('Authentication characteristic is not ready.');
     }
 
     _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
     _pendingAuthCompleter = Completer<BleAuthOutcome>();
- final authFuture = _pendingAuthCompleter!.future;
+    final authFuture = _pendingAuthCompleter!.future;
     _emit(BleConnectionStatus.authenticating);
-await _authChar!.write(
-      utf8.encode('$email|$password'),
-      withoutResponse: false,
-    );
+    // await _authChar!.write(
+    //       utf8.encode('$email|$password'),
+    //       withoutResponse: false,
+    //     );
+    _cryptoSessionGeneration++;
+    _sessionAuthenticated = false;
+    _heartbeatWritePending = false;
+    _encryptedWriteLane = Future<void>.value();
+    BleCrypto.endSession();
+    await BleCrypto.beginSession();
 
-try {
+    final plaintext = utf8.encode('$email|$password|$deviceId');
+    final encryptedAuth = await BleCrypto.encrypt(plaintext);
+
+    await _authChar!.write(encryptedAuth, withoutResponse: false);
+
+    try {
       return await authFuture.timeout(
         SafetyConstants.authReplyTimeout,
         onTimeout: () {

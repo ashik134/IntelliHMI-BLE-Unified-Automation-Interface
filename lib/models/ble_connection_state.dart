@@ -16,7 +16,7 @@ enum BleConnectionStatus {
   error,
 }
 
-enum BleAuthOutcome { success, failed, timedOut }
+enum BleAuthOutcome { success, failed, timedOut, untrusted}
 
 class BleConnectionState {
   const BleConnectionState({

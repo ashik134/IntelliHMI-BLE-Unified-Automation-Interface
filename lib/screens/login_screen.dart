@@ -780,7 +780,7 @@ class _LoginScreenState extends State<LoginScreen>
       );
     }
 
-    if (raw == BLEConstants.authTimeout || normalized.contains('timed out')) {
+    if (raw == BLEConstants.authTimeout ) {
       return const _AuthErrorState(
         title: 'Authentication timeout',
         message:

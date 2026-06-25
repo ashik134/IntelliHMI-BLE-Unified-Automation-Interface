@@ -304,7 +304,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _streamsAttached = true;
-     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
 
     _connStateSubscription = _bleService.connectionStream.listen((snapshot) {
       final previousStatus = _lastConnectionStatus;
@@ -314,16 +314,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         _activeCommand = PlcOutputCommand.idle();
         _estopLatched = false;
         _sessionEmail = null;
-         _startupEmergencyArmedForConnection = false;
-         _pendingEnrollmentOffer = false;
+        _startupEmergencyArmedForConnection = false;
+        _pendingEnrollmentOffer = false;
         _deviceTrustRejected = false;
         _p38VertState = ControlState.idle;
         _p38TravState = ControlState.idle;
         _p38TripState = ControlState.idle;
-      }else if (snapshot.status == BleConnectionStatus.authenticated &&
+      } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
         unawaited(ensureControlEntryEmergencyLock());
-           if (_biometricAvailable && !_biometricEnrolled) {
+        if (_biometricAvailable && !_biometricEnrolled) {
           _pendingEnrollmentOffer = true;
         }
       }
@@ -331,16 +331,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     });
 
     _scanSubscription = _bleService.scanStream.listen((devices) {
-        if (isConnectionActive || isConnected) return;
+      if (isConnectionActive || isConnected) return;
       _devices = devices;
       notifyListeners();
     });
-     _statusSubscription = _bleService.statusStream.listen((command) {
+    _statusSubscription = _bleService.statusStream.listen((command) {
       _activeCommand = command;
       if (command.estop) _estopLatched = true;
       notifyListeners();
     });
-       _adapterSubscription = FlutterBluePlus.adapterState.listen((state) {
+    _adapterSubscription = FlutterBluePlus.adapterState.listen((state) {
       _bluetoothReady = state == BluetoothAdapterState.on;
       notifyListeners();
     });
@@ -349,10 +349,6 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _analogValues = values;
       notifyListeners();
     });
-
-    
-
-  
   }
 
   Future<void> _prepareRunTime() async {
@@ -387,7 +383,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-    Future<void> ensureControlEntryEmergencyLock() async {
+  Future<void> ensureControlEntryEmergencyLock() async {
     if (!isConnected || _startupEmergencyArmedForConnection) return;
     _startupEmergencyArmedForConnection = true;
     if (_activeCommand.estop || _estopLatched) return;
@@ -403,7 +399,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     await _bleService.resumeScan();
   }
 
-    @override
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
@@ -497,7 +493,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> disconnect() async {
     _errorMessage = null;
-    
+
     if (isConnected && !_estopLatched) {
       try {
         await _sendCommand(PlcOutputCommand.idle());
@@ -531,7 +527,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _commandInFlight = true;
     try {
       await _bleService.writeDigital(bytes);
-      // Drain at most one pending command queued while this write was in flight.
+
       final next = _pendingCommandBytes;
       _pendingCommandBytes = null;
       if (next != null) {
@@ -567,6 +563,21 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     }
     // If a write is in flight it will drain _pendingCommandBytes next,
     // ensuring the E-stop is the very next thing written.
+  }
+
+  Future<void> triggerSafeDisconnect() async {
+    if (!isConnected) return;
+
+    _estopLatched = true;
+    _p38VertState = ControlState.idle;
+    _p38TravState = ControlState.idle;
+    _p38TripState = ControlState.idle;
+    _activeCommand = PlcOutputCommand.emergencyStop();
+
+    _pendingCommandBytes = null;
+    notifyListeners();
+
+    await _bleService.disconnect();
   }
 
   Future<void> resetEStop() async {
@@ -674,11 +685,17 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     required String password,
   }) async {
     _errorMessage = null;
+    _deviceTrustRejected = false;
+
+    if (_deviceId.isEmpty) {
+      _deviceId = await DeviceIdentityService.getOrCreate();
+    }
 
     try {
       final outcome = await _bleService.authenticate(
         email: email.trim(),
         password: password,
+        deviceId: _deviceId,
       );
 
       if (outcome == BleAuthOutcome.success) {
@@ -696,6 +713,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         return true;
       }
 
+      if (outcome == BleAuthOutcome.untrusted) {
+        _deviceTrustRejected = true;
+        _errorMessage =
+            'DEVICE NOT AUTHORIZED\nThis device is not registered with PLC 14. '
+            'Provide your Device ID to an administrator for registration.';
+        notifyListeners();
+        return false;
+      }
+
       _errorMessage = outcome == BleAuthOutcome.timedOut
           ? 'PLC authentication timed out.'
           : 'Credentials were rejected by the PLC.';
@@ -708,6 +734,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // ── Biometric authentication ──────────────────────────────────────────────
+
   Future<void> checkBiometricStatus() async {
     _biometricAvailable = await BiometricService.isAvailableAndEnrolled();
     _biometricEnrolled =
@@ -715,8 +743,89 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<bool> enrollBiometrics({
+    required String email,
+    required String password,
+  }) async {
+    if (!_biometricAvailable) return false;
+    try {
+      await SecureCredentialStore.storeCredentials(
+        email: email,
+        password: password,
+      );
+      _biometricEnrolled = true;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<BiometricAuthResult> authenticateWithBiometrics() async {
+    if (!_biometricAvailable || !_biometricEnrolled) {
+      return const BiometricAuthResult(
+        status: BiometricAuthStatus.notAvailable,
+        message: 'Biometric authentication is not configured on this device.',
+      );
+    }
+
+    //  Local biometric verification (device biometric hardware gate).
+    final biometricResult = await BiometricService.authenticate();
+    if (!biometricResult.isSuccess) {
+      return biometricResult;
+    }
+
+    // Retrieve credentials from hardware-backed secure storage.
+
+    final credentials = await SecureCredentialStore.retrieveCredentials();
+    if (credentials == null) {
+      _biometricEnrolled = false;
+      notifyListeners();
+      return const BiometricAuthResult(
+        status: BiometricAuthStatus.credentialsMissing,
+        message:
+            'Stored operator credentials not found. Log in manually to re-enable biometric access.',
+      );
+    }
+
+    // PLC validates the operator, enforces single-operator policy,
+    // and returns AUTH_OK / AUTH_FAIL as normal.
+    _errorMessage = null;
+    final plcSuccess = await authenticate(
+      email: credentials.email,
+      password: credentials.password,
+    );
+
+    if (!plcSuccess) {
+      await SecureCredentialStore.clearCredentials();
+      _biometricEnrolled = false;
+      notifyListeners();
+      return BiometricAuthResult(
+        status: BiometricAuthStatus.failure,
+        message:
+            _errorMessage ??
+            'PLC rejected stored operator credentials. Please log in manually.',
+      );
+    }
+
+    return const BiometricAuthResult(status: BiometricAuthStatus.success);
+  }
+
+  Future<void> clearBiometricEnrollment() async {
+    await SecureCredentialStore.clearCredentials();
+    _biometricEnrolled = false;
+    notifyListeners();
+  }
+
+  void completePendingEnrollmentOffer() {
+    if (!_pendingEnrollmentOffer) return;
+    _pendingEnrollmentOffer = false;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connStateSubscription?.cancel();
     _scanSubscription?.cancel();
     _analogSubscription?.cancel();
