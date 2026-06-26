@@ -11,7 +11,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
 import 'package:rev_crane_control_ops/screens/splash_screen.dart';
-import 'package:rev_crane_control_ops/screens/control_screen.dart';
+import 'package:rev_crane_control_ops/screens/plc14_control_screen.dart';
 import 'package:rev_crane_control_ops/screens/connection_screen.dart';
 import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 
