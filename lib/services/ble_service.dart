@@ -1135,7 +1135,31 @@ class BleService {
 
   Future<void> writeDigital(List<int> bytes) async {
     if (_digitalChar == null) return;
-    await _digitalChar!.write(bytes, withoutResponse: false);
+    if (_sessionAuthenticated) {
+      try {
+        await _writeEncryptedCharacteristic(
+          characteristic: _digitalChar!,
+          plaintext: bytes,
+          withoutResponse: _digitalCharWriteNoResponse,
+          label: 'digital',
+        );
+        return;
+      } on BleCryptoException catch (e) {
+        _logger.e('Encryption failure on digital write: $e');
+        unawaited(
+          _cryptoSafeState('BleCryptoException during encrypt: $e'),
+        );
+        return;
+      } on StateError catch (e) {
+        _logger.e('Crypto session state error on digital write: $e');
+        unawaited(_cryptoSafeState('StateError during encrypt: $e'));
+        return;
+      }
+    }
+    await _digitalChar!.write(
+      bytes,
+      withoutResponse: _digitalCharWriteNoResponse,
+    );
   }
 
   Future<void> writeAuth(List<int> bytes) async {

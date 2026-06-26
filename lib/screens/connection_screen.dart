@@ -455,22 +455,22 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  Widget _buildSettingsButton(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onSettingsPressed,
-        borderRadius: BorderRadius.circular(10),
-        customBorder: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(
-          Icons.settings_rounded,
-          color: AppColors.lightText,
-          size: 26,
-        ),
-      ),
-    );
-  }
+  // Widget _buildSettingsButton(BuildContext context) {
+  //   return Material(
+  //     color: Colors.transparent,
+  //     borderRadius: BorderRadius.circular(10),
+  //     child: InkWell(
+  //       onTap: onSettingsPressed,
+  //       borderRadius: BorderRadius.circular(10),
+  //       customBorder: RoundedRectangleBorder(
+  //         borderRadius: BorderRadius.circular(10),
+  //       ),
+  //       child: const Icon(
+  //         Icons.settings_rounded,
+  //         color: AppColors.lightText,
+  //         size: 26,
+  //       ),
+  //     ),
+  //   );
+  // }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
@@ -16,6 +17,7 @@ import 'package:rev_crane_control_ops/utils/preferences.dart';
 
 class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   final BleService _bleService = BleService();
+  final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
   final PermissionService _permissionService = PermissionService();
   final AppPreferences _preferences = AppPreferences();
 
@@ -199,7 +201,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   AppScreen get currentScreen => switch (_transportConnState.status) {
     BleConnectionStatus.authenticated =>
-      _pendingEnrollmentOffer ? AppScreen.authentication : AppScreen.control,
+      _pendingEnrollmentOffer ? AppScreen.authentication : _getControlScreenForPlcType(),
 
     BleConnectionStatus.awaitingAuthentication ||
     BleConnectionStatus.authenticating => AppScreen.authentication,
@@ -208,6 +210,26 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       AppScreen.authentication,
     _ => AppScreen.connection,
   };
+
+  AppScreen _getControlScreenForPlcType() {
+  final plcType = connectedPlcType;
+  
+  // If PLC type is unknown, default to generic control
+  if (plcType == PlcType.unknown) {
+    _logger.w('⚠️ Unknown PLC type detected, defaulting to generic control screen');
+    return AppScreen.control;
+  }
+  
+  // Navigate to PLC38-specific screen for PLC38
+  if (plcType == PlcType.plc38) {
+    _logger.i('✅ PLC38 detected - navigating to PLC38 control screen');
+    return AppScreen.plc38Control;
+  }
+  
+  // PLC14 and PLC21 use generic control screen
+  _logger.i('✅ ${plcType.displayName} detected - navigating to generic control screen');
+  return AppScreen.control;
+}
 
   // Future<void> sendCommand({
   //   required bool estop,

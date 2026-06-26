@@ -17,6 +17,7 @@ class BLEConstants {
   static const String authSuccess = 'AUTH_OK';
   static const String authFailed = 'AUTH_FAIL';
   static const String authTimeout = 'AUTH_TIMEOUT';
+  static const String authUntrusted = 'AUTH_UNTRUSTED';
   // static const String authUntrusted = 'AUTH_UNTRUSTED';
 
   static const String heartbeatPayload = 'HB';
