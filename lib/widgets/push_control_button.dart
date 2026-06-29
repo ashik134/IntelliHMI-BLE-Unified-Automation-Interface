@@ -5,23 +5,13 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/industrial_spring_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ToggleControlGroup
-//
-// A pair of industrial toggle buttons (UP / DOWN) that replaces the slider
-// button row on the control screen when widgetType == ControlWidgetType.toggle.
-//
-// Behaviour is governed by the [ToggleWiringConfig] in [ToggleControlConfig]:
-//   • Spring-return  → active only while the button is held (Listener)
-//   • Latched        → tap once to activate, tap again to deactivate
-//   • Mutual exclusion enforced for latchedOffLatched config
-//
-// Sends [ControlState.slow] (no fast-ramp; use slider buttons for fast mode).
+// PushControlGroup
 // ─────────────────────────────────────────────────────────────────────────────
 
-class ToggleControlGroup extends StatefulWidget {
-  const ToggleControlGroup({
+class PushControlGroup extends StatefulWidget {
+  const PushControlGroup({
     super.key,
-    required this.toggleConfig,
+    required this.pushConfig,
     required this.upLabel,
     required this.downLabel,
     required this.isDisabled,
@@ -32,7 +22,7 @@ class ToggleControlGroup extends StatefulWidget {
     this.height,
   });
 
-  final ToggleControlConfig toggleConfig;
+  final PushControlConfig pushConfig;
   final String upLabel;
   final String downLabel;
   final bool isDisabled;
@@ -45,26 +35,26 @@ class ToggleControlGroup extends StatefulWidget {
   final double? height;
 
   @override
-  State<ToggleControlGroup> createState() => _ToggleControlGroupState();
+  State<PushControlGroup> createState() => _PushControlGroupState();
 }
 
-class _ToggleControlGroupState extends State<ToggleControlGroup> {
+class _PushControlGroupState extends State<PushControlGroup> {
   // Local UI latch states (for latched configs before PLC confirmation)
   bool _upLatched = false;
   bool _downLatched = false;
 
   bool get _upIsSpringReturn =>
-      widget.toggleConfig.wiringConfig.upIsSpringReturn;
+      widget.pushConfig.wiringConfig.upIsSpringReturn;
   bool get _downIsSpringReturn =>
-      widget.toggleConfig.wiringConfig.downIsSpringReturn;
-  bool get _mutuallyExclusive =>
-      widget.toggleConfig.wiringConfig.isMutuallyExclusive;
+      widget.pushConfig.wiringConfig.downIsSpringReturn;
+  // bool get _mutuallyExclusive =>
+  //     widget.pushConfig.wiringConfig.isMutuallyExclusive;
 
   // ── Spring-return (pointer events) ───────────────────────────────────────
 
   void _onUpPointerDown() {
     if (widget.isDisabled || !_upIsSpringReturn) return;
-    if (_mutuallyExclusive && _downLatched) _releaseDown();
+    // if (_mutuallyExclusive && _downLatched) _releaseDown();
     widget.onUpChanged(ControlState.slow);
   }
 
@@ -74,7 +64,7 @@ class _ToggleControlGroupState extends State<ToggleControlGroup> {
 
   void _onDownPointerDown() {
     if (widget.isDisabled || !_downIsSpringReturn) return;
-    if (_mutuallyExclusive && _upLatched) _releaseUp();
+    // if (_mutuallyExclusive && _upLatched) _releaseUp();
     widget.onDownChanged(ControlState.slow);
   }
 
@@ -89,7 +79,7 @@ class _ToggleControlGroupState extends State<ToggleControlGroup> {
     if (_upLatched) {
       _releaseUp();
     } else {
-      if (_mutuallyExclusive && _downLatched) _releaseDown();
+      // if (_mutuallyExclusive && _downLatched) _releaseDown();
       setState(() => _upLatched = true);
       widget.onUpChanged(ControlState.slow);
     }
@@ -100,7 +90,7 @@ class _ToggleControlGroupState extends State<ToggleControlGroup> {
     if (_downLatched) {
       _releaseDown();
     } else {
-      if (_mutuallyExclusive && _upLatched) _releaseUp();
+      // if (_mutuallyExclusive && _upLatched) _releaseUp();
       setState(() => _downLatched = true);
       widget.onDownChanged(ControlState.slow);
     }
@@ -217,8 +207,8 @@ class _ToggleButton extends StatelessWidget {
   }
 }
 
-class ToggleButtonPreview extends StatelessWidget {
-  const ToggleButtonPreview({
+class PushButtonPreview extends StatelessWidget {
+  const PushButtonPreview({
     super.key,
     required this.wiringConfig,
     this.upLabel = 'UP',
@@ -226,7 +216,7 @@ class ToggleButtonPreview extends StatelessWidget {
     this.scale = 1.0,
   });
 
-  final ToggleWiringConfig wiringConfig;
+  final PushButtonWiringConfig wiringConfig;
   final String upLabel;
   final String downLabel;
   final double scale;

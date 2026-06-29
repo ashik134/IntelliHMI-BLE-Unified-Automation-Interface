@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/toggle_control_button.dart';
+import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlTypePage
@@ -42,7 +42,7 @@ class _ControlTypeBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<LayoutSettingsController>();
-    final isToggle = ctrl.config.widgetType == ControlWidgetType.toggle;
+    final isPush = ctrl.config.widgetType == ControlWidgetType.pushButton;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
@@ -67,7 +67,7 @@ class _ControlTypeBody extends StatelessWidget {
         ),
 
         // ── Toggle configuration (only shown when toggle is selected)
-        if (isToggle) ...[
+        if (isPush) ...[
           _PageCard(
             title: 'TOGGLE WIRING CONFIGURATION',
             icon: Icons.cable_rounded,
@@ -81,7 +81,7 @@ class _ControlTypeBody extends StatelessWidget {
                       'buttons are spring-return (hold) or latched (tap).',
                 ),
                 const SizedBox(height: 12),
-                for (final cfg in ToggleWiringConfig.values)
+                for (final cfg in PushButtonWiringConfig.values)
                   _WiringConfigTile(config: cfg),
               ],
             ),
@@ -128,7 +128,7 @@ class _ControlTypeBody extends StatelessWidget {
           icon: Icons.preview_rounded,
           child: _ControlTypePreview(
             widgetType: ctrl.config.widgetType,
-            toggleConfig: ctrl.config.toggleConfig,
+            pushConfig: ctrl.config.pushConfig,
             upLabel: ctrl.config.labelConfig.upLabel,
             downLabel: ctrl.config.labelConfig.downLabel,
           ),
@@ -148,21 +148,23 @@ const _widgetTypeEntries = [
     label: 'Slider Button',
     icon: Icons.linear_scale_rounded,
     available: true,
-    description: 'Drag up for slow lift, drag further for fast. Full speed ramp.',
+    description:
+        'Drag up for slow lift, drag further for fast. Full speed ramp.',
   ),
   _WidgetTypeEntry(
     type: ControlWidgetType.toggle,
     label: 'Toggle Control',
     icon: Icons.toggle_on_rounded,
     available: true,
-    description: 'Configurable spring-return or latched buttons. Slow speed only.',
+    description:
+        'Configurable spring-return or latched buttons. Slow speed only.',
   ),
   _WidgetTypeEntry(
-    type: ControlWidgetType.pressAndHold,
-    label: 'Press and Hold',
+    type: ControlWidgetType.pushButton,
+    label: 'Push Button',
     icon: Icons.touch_app_rounded,
-    available: false,
-    description: 'Hold to activate; release to stop. Coming soon.',
+    available: true,
+    description: 'Hold/Tap to activate; release/Tap to stop.',
   ),
   _WidgetTypeEntry(
     type: ControlWidgetType.joystick,
@@ -205,7 +207,9 @@ class _TypeOptionTile extends StatelessWidget {
     return Opacity(
       opacity: entry.available ? 1.0 : 0.45,
       child: Material(
-        color: isSelected ? AppColors.connPrimary.withAlpha(18) : Colors.transparent,
+        color: isSelected
+            ? AppColors.connPrimary.withAlpha(18)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: entry.available
@@ -296,21 +300,23 @@ class _TypeOptionTile extends StatelessWidget {
 
 class _WiringConfigTile extends StatelessWidget {
   const _WiringConfigTile({required this.config});
-  final ToggleWiringConfig config;
+  final PushButtonWiringConfig config;
 
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<LayoutSettingsController>();
-    final isSelected = ctrl.config.toggleConfig.wiringConfig == config;
+    final isSelected = ctrl.config.pushConfig.wiringConfig == config;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: isSelected ? AppColors.connPrimary.withAlpha(18) : AppColors.connBg,
+        color: isSelected
+            ? AppColors.connPrimary.withAlpha(18)
+            : AppColors.connBg,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          onTap: () => ctrl.updateToggleConfig(
-            ctrl.config.toggleConfig.copyWith(wiringConfig: config),
+          onTap: () => ctrl.updatepushConfig(
+            ctrl.config.pushConfig.copyWith(wiringConfig: config),
           ),
           borderRadius: BorderRadius.circular(10),
           child: Container(
@@ -369,21 +375,23 @@ class _WiringConfigTile extends StatelessWidget {
                       Row(
                         children: [
                           _BehaviorChip(
-                            label: 'UP: ${config.upIsSpringReturn ? "HOLD" : "TAP"}',
+                            label:
+                                'UP: ${config.upIsSpringReturn ? "HOLD" : "TAP"}',
                             color: AppColors.upColor,
                           ),
                           const SizedBox(width: 6),
                           _BehaviorChip(
-                            label: 'DOWN: ${config.downIsSpringReturn ? "HOLD" : "TAP"}',
+                            label:
+                                'DOWN: ${config.downIsSpringReturn ? "HOLD" : "TAP"}',
                             color: AppColors.downColor,
                           ),
-                          if (config.isMutuallyExclusive) ...[
-                            const SizedBox(width: 6),
-                            const _BehaviorChip(
-                              label: 'EXCLUSIVE',
-                              color: AppColors.homeSuccess,
-                            ),
-                          ],
+                          // if (config.isMutuallyExclusive) ...[
+                          //   const SizedBox(width: 6),
+                          //   const _BehaviorChip(
+                          //     label: 'EXCLUSIVE',
+                          //     color: AppColors.homeSuccess,
+                          //   ),
+                          // ],
                         ],
                       ),
                     ],
@@ -488,12 +496,12 @@ class _BehaviorRefTile extends StatelessWidget {
 class _ControlTypePreview extends StatefulWidget {
   const _ControlTypePreview({
     required this.widgetType,
-    required this.toggleConfig,
+    required this.pushConfig,
     required this.upLabel,
     required this.downLabel,
   });
   final ControlWidgetType widgetType;
-  final ToggleControlConfig toggleConfig;
+  final PushControlConfig pushConfig;
   final String upLabel;
   final String downLabel;
 
@@ -554,9 +562,9 @@ class _ControlTypePreviewState extends State<_ControlTypePreview> {
               // Hoist controls preview
               SizedBox(
                 height: 140,
-                child: widget.widgetType == ControlWidgetType.toggle
-                    ? ToggleButtonPreview(
-                        wiringConfig: widget.toggleConfig.wiringConfig,
+                child: widget.widgetType == ControlWidgetType.pushButton
+                    ? PushButtonPreview(
+                        wiringConfig: widget.pushConfig.wiringConfig,
                         upLabel: widget.upLabel,
                         downLabel: widget.downLabel,
                       )
@@ -581,8 +589,11 @@ class _ControlTypePreviewState extends State<_ControlTypePreview> {
             ),
             child: const Row(
               children: [
-                Icon(Icons.info_outline_rounded,
-                    size: 13, color: AppColors.connWarning),
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 13,
+                  color: AppColors.connWarning,
+                ),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -620,9 +631,17 @@ class _SliderPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _SliderMock(label: upLabel, isUp: true, isActive: upActive)),
+        Expanded(
+          child: _SliderMock(label: upLabel, isUp: true, isActive: upActive),
+        ),
         const SizedBox(width: 8),
-        Expanded(child: _SliderMock(label: downLabel, isUp: false, isActive: downActive)),
+        Expanded(
+          child: _SliderMock(
+            label: downLabel,
+            isUp: false,
+            isActive: downActive,
+          ),
+        ),
       ],
     );
   }
@@ -772,8 +791,11 @@ class _InfoBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded,
-              size: 14, color: AppColors.scanning),
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 14,
+            color: AppColors.scanning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

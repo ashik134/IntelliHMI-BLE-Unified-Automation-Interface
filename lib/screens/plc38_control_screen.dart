@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/models/app_enums.dart';
+
+import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
+
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
-import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
-import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
+
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
+import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
+import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
-//
-// 6-axis crane control screen for PLC38-compatible firmware.
-// Axes: Vertical (UP/DOWN), Horizontal Traverse (LEFT/RIGHT),
-//       Longitudinal Travel (FORWARD/REVERSE).
-// Each axis supports SLOW and FAST speed via the slider widget.
-// All three axes may be active simultaneously (firmware-safe).
 // ═══════════════════════════════════════════════════════════════
 
 class Plc38ControlScreen extends StatefulWidget {
@@ -180,18 +179,21 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   Widget build(BuildContext context) {
     return Consumer2<CraneController, LayoutSettingsController>(
       builder: (ctx, controller, layoutCtrl, _) {
-        final sizing = layoutCtrl.config.sizeConfig;
+        final layoutCfg = layoutCtrl.config;
+        final labels = layoutCfg.labelConfig;
+        final sizing = layoutCfg.sizeConfig;
+        final arrangement = layoutCfg.arrangementConfig;
         final metrics = ControlLayoutMetrics.compute(
           MediaQuery.of(ctx).size.height -
               kToolbarHeight -
               MediaQuery.of(ctx).padding.top -
               MediaQuery.of(ctx).padding.bottom,
           baseEstopHeight: sizing.resolvedEstopHeight,
-          preferShowSensor: true,
-          preferShowLEDs: true,
+          preferShowSensor: arrangement.showSensorRow,
+          preferShowLEDs: arrangement.showLiveLEDs,
         );
-        final screenTitle = layoutCtrl.config.labelConfig.screenTitle.isNotEmpty
-            ? layoutCtrl.config.labelConfig.screenTitle
+        final screenTitle = labels.screenTitle.isNotEmpty
+            ? labels.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
 
         return Scaffold(
@@ -255,6 +257,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                     controller: controller,
                     compact: metrics.isCompact,
                     height: metrics.estopHeight,
+                    labels: labels,
                   ),
                   SizedBox(height: metrics.itemSpacing),
 
@@ -272,7 +275,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
                   // ── Axis controls (3 rows) ──────────────────────────────
                   Expanded(
-                    child: Column(
+                    child: layoutCfg.widgetType==ControlWidgetType.pushButton?: Column(
                       children: [
                         // Row 1: Vertical hoist
                         _axisRow(
@@ -530,18 +533,27 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     required CraneController controller,
     required bool compact,
     required double height,
+    required ControlLabelConfig labels,
   }) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
       width: double.infinity,
       child: controller.estopLatched
-          ? _buildResetSection(compact: compact)
-          : _buildEStopButton(compact: compact, height: height),
+          ? _buildResetSection(labels.resetEstopLabel, compact: compact)
+          : _buildEStopButton(
+              compact: compact,
+              height: height,
+              instructionLabel: labels.estopSwipeInstruction,
+            ),
     );
   }
 
-  Widget _buildEStopButton({required double height, required bool compact}) {
+  Widget _buildEStopButton({
+    required double height,
+    required bool compact,
+    required String instructionLabel,
+  }) {
     return Material(
       // Wrap with Material for ripple effect
       color: Colors.transparent,
@@ -835,7 +847,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
   // ── Reset section ───────────────────────────────────────────────────────────
 
-  Widget _buildResetSection({bool compact = false}) {
+  Widget _buildResetSection(String resetLabel, {bool compact = false}) {
     return Column(
       children: [
         Container(

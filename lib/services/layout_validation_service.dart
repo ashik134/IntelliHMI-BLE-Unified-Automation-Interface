@@ -14,17 +14,11 @@ class ValidationResult {
   final bool isValid;
   final List<String> errors;
 
-  /// Convenience: single error message or empty string.
   String get firstError => errors.isNotEmpty ? errors.first : '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutValidationService
-//
-// Stateless service that validates [ControlLayoutConfig] sub-trees for:
-//   • Scale bounds (prevents widgets that are too small / too large)
-//   • Minimum industrial touch-target size
-//   • Label length constraints
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LayoutValidationService {
@@ -70,7 +64,7 @@ class LayoutValidationService {
     _checkLabel('E-Stop instruction', config.estopSwipeInstruction, errors);
     _checkLabel('Reset E-Stop label', config.resetEstopLabel, errors);
 
-    // Screen title is optional; skip min-length check when empty.
+    
     if (config.screenTitle.isNotEmpty) {
       _checkLabelMaxOnly('Screen title', config.screenTitle, errors);
     }

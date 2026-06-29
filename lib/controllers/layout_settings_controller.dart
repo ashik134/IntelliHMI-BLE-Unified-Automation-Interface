@@ -6,10 +6,6 @@ import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutSettingsController
-//
-// Holds and persists the operator's [ControlLayoutConfig].
-// All mutation methods validate the proposed change before applying it,
-// making this the single authority on layout safety.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LayoutSettingsController extends ChangeNotifier {
@@ -99,8 +95,8 @@ class LayoutSettingsController extends ChangeNotifier {
   }
 
   /// Updates the toggle-control wiring configuration.
-  void updateToggleConfig(ToggleControlConfig toggleConfig) {
-    _config = _config.copyWith(toggleConfig: toggleConfig);
+  void updatepushConfig(PushControlConfig pushConfig) {
+    _config = _config.copyWith(pushConfig: pushConfig);
     notifyListeners();
     _persist();
   }

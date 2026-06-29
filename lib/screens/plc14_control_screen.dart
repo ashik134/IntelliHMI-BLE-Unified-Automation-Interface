@@ -14,7 +14,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
-import 'package:rev_crane_control_ops/widgets/toggle_control_button.dart';
+import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -244,9 +244,9 @@ class _ControlScreenState extends State<ControlScreen>
                   // ── Hoist controls – Expanded fills all remaining space
                   // (prevents overflow on compact / landscape screens).
                   Expanded(
-                    child: layoutCfg.widgetType == ControlWidgetType.toggle
-                        ? ToggleControlGroup(
-                            toggleConfig: layoutCfg.toggleConfig,
+                    child: layoutCfg.widgetType == ControlWidgetType.pushButton
+                        ? PushControlGroup(
+                            pushConfig: layoutCfg.pushConfig,
                             upLabel: labels.upLabel,
                             downLabel: labels.downLabel,
                             isDisabled:
