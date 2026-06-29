@@ -15,6 +15,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
@@ -183,6 +184,30 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
+        final usePushButtons =
+            layoutCfg.widgetType == ControlWidgetType.pushButton;
+        final controlsDisabled =
+            controller.estopLatched || !controller.isConnected;
+        final vertUpActive =
+            _vertUpActive ||
+            _externalVertState(controller, isUp: true) != ControlState.idle;
+        final vertDownActive =
+            _vertDownActive ||
+            _externalVertState(controller, isUp: false) != ControlState.idle;
+        final travLeftActive =
+            _travLeftActive ||
+            _externalTravState(controller, isLeft: true) != ControlState.idle;
+        final travRightActive =
+            _travRightActive ||
+            _externalTravState(controller, isLeft: false) != ControlState.idle;
+        final tripFwdActive =
+            _tripFwdActive ||
+            _externalTripState(controller, isForward: true) !=
+                ControlState.idle;
+        final tripRevActive =
+            _tripRevActive ||
+            _externalTripState(controller, isForward: false) !=
+                ControlState.idle;
         final metrics = ControlLayoutMetrics.compute(
           MediaQuery.of(ctx).size.height -
               kToolbarHeight -
@@ -275,160 +300,103 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
                   // ── Axis controls (3 rows) ──────────────────────────────
                   Expanded(
-                    child: layoutCfg.widgetType==ControlWidgetType.pushButton?: Column(
+                    child: Column(
                       children: [
-                        // Row 1: Vertical hoist
                         _axisRow(
                           label: 'HOIST',
                           icon: Icons.swap_vert_rounded,
                           color: AppColors.upColor,
                           children: [
-                            Expanded(
-                              child: CraneSliderButton(
-                                label: 'UP',
-                                icon: Icons.arrow_upward_rounded,
-                                isUp: true,
-                                isDisabled:
-                                    controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _vertDownActive,
-                                onCommandChanged: (state) {
-                                  setState(() {
-                                    _vertUpActive = state != ControlState.idle;
-                                  });
-                                  controller.setHoistCommand(
-                                    isUp: true,
-                                    state: state,
-                                  );
-                                },
-                                externalState: _externalVertState(
-                                  controller,
-                                  isUp: true,
-                                ),
+                            if (usePushButtons)
+                              ..._verticalPushButtons(
+                                controller: controller,
+                                labels: labels,
+                                pushConfig: layoutCfg.pushConfig,
+                                controlsDisabled: controlsDisabled,
+                                buttonHeight: sizing.resolvedHoistHeight,
+                                upActive: vertUpActive,
+                                downActive: vertDownActive,
+                              )
+                            else
+                              ..._verticalSliders(
+                                controller: controller,
+                                labels: labels,
+                                controlsDisabled: controlsDisabled,
+                                upActive: vertUpActive,
+                                downActive: vertDownActive,
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: CraneSliderButton(
-                                label: 'DOWN',
-                                icon: Icons.arrow_downward_rounded,
-                                isUp: false,
-                                isDisabled:
-                                    controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _vertUpActive,
-                                onCommandChanged: (state) {
-                                  setState(() {
-                                    _vertDownActive =
-                                        state != ControlState.idle;
-                                  });
-                                  controller.setHoistCommand(
-                                    isUp: false,
-                                    state: state,
-                                  );
-                                },
-                                externalState: _externalVertState(
-                                  controller,
-                                  isUp: false,
-                                ),
-                              ),
-                            ),
                           ],
                         ),
                         SizedBox(height: metrics.itemSpacing),
 
-                        // Row 2: Horizontal traverse (spring-return slider)
                         _axisRow(
                           label: 'TRAVERSE',
                           icon: Icons.swap_horiz_rounded,
                           color: AppColors.traverseColor,
                           children: [
-                            Expanded(
-                              child: CrossTravelSlider(
-                                isDisabled:
-                                    controller.estopLatched ||
-                                    !controller.isConnected,
-                                onCommandChanged:
-                                    ({
-                                      required bool isLeft,
-                                      required ControlState state,
-                                    }) {
-                                      setState(() {
-                                        _travLeftActive =
-                                            isLeft &&
-                                            state != ControlState.idle;
-                                        _travRightActive =
-                                            !isLeft &&
-                                            state != ControlState.idle;
-                                      });
-                                      controller.setTraverseCommand(
-                                        isLeft: isLeft,
-                                        state: state,
-                                      );
-                                    },
+                            if (usePushButtons)
+                              ..._traversePushButtons(
+                                controller: controller,
+                                labels: labels,
+                                pushConfig: layoutCfg.pushConfig,
+                                controlsDisabled: controlsDisabled,
+                                buttonHeight: sizing.resolvedHoistHeight,
+                                leftActive: travLeftActive,
+                                rightActive: travRightActive,
+                              )
+                            else
+                              Expanded(
+                                child: CrossTravelSlider(
+                                  leftLabel: labels.leftLabel,
+                                  rightLabel: labels.rightLabel,
+                                  isDisabled: controlsDisabled,
+                                  onCommandChanged:
+                                      ({
+                                        required bool isLeft,
+                                        required ControlState state,
+                                      }) {
+                                        setState(() {
+                                          _travLeftActive =
+                                              isLeft &&
+                                              state != ControlState.idle;
+                                          _travRightActive =
+                                              !isLeft &&
+                                              state != ControlState.idle;
+                                        });
+                                        controller.setTraverseCommand(
+                                          isLeft: isLeft,
+                                          state: state,
+                                        );
+                                      },
+                                ),
                               ),
-                            ),
                           ],
                         ),
                         SizedBox(height: metrics.itemSpacing),
 
-                        // Row 3: Longitudinal travel
                         _axisRow(
                           label: 'TRAVEL',
                           icon: Icons.open_in_full_rounded,
                           color: AppColors.travelColor,
                           children: [
-                            Expanded(
-                              child: CraneSliderButton(
-                                label: 'FWD',
-                                icon: Icons.north_rounded,
-                                isUp: true,
-                                axisColor: AppColors.travelColor,
-                                isDisabled:
-                                    controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _tripRevActive,
-                                onCommandChanged: (state) {
-                                  setState(() {
-                                    _tripFwdActive = state != ControlState.idle;
-                                  });
-                                  controller.setTravelCommand(
-                                    isForward: true,
-                                    state: state,
-                                  );
-                                },
-                                externalState: _externalTripState(
-                                  controller,
-                                  isForward: true,
-                                ),
+                            if (usePushButtons)
+                              ..._travelPushButtons(
+                                controller: controller,
+                                labels: labels,
+                                pushConfig: layoutCfg.pushConfig,
+                                controlsDisabled: controlsDisabled,
+                                buttonHeight: sizing.resolvedHoistHeight,
+                                forwardActive: tripFwdActive,
+                                reverseActive: tripRevActive,
+                              )
+                            else
+                              ..._travelSliders(
+                                controller: controller,
+                                labels: labels,
+                                controlsDisabled: controlsDisabled,
+                                forwardActive: tripFwdActive,
+                                reverseActive: tripRevActive,
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: CraneSliderButton(
-                                label: 'REV',
-                                icon: Icons.south_rounded,
-                                isUp: false,
-                                axisColor: AppColors.travelColor,
-                                isDisabled:
-                                    controller.estopLatched ||
-                                    !controller.isConnected ||
-                                    _tripFwdActive,
-                                onCommandChanged: (state) {
-                                  setState(() {
-                                    _tripRevActive = state != ControlState.idle;
-                                  });
-                                  controller.setTravelCommand(
-                                    isForward: false,
-                                    state: state,
-                                  );
-                                },
-                                externalState: _externalTripState(
-                                  controller,
-                                  isForward: false,
-                                ),
-                              ),
-                            ),
                           ],
                         ),
                       ],
@@ -451,13 +419,245 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
   // ── External state helpers ─────────────────────────────────────────────────
 
+  List<Widget> _verticalSliders({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required bool controlsDisabled,
+    required bool upActive,
+    required bool downActive,
+  }) {
+    return [
+      Expanded(
+        child: CraneSliderButton(
+          label: labels.upLabel,
+          icon: Icons.arrow_upward_rounded,
+          isUp: true,
+          isDisabled: controlsDisabled || downActive,
+          onCommandChanged: (state) {
+            setState(() => _vertUpActive = state != ControlState.idle);
+            controller.setHoistCommand(isUp: true, state: state);
+          },
+          externalState: _externalVertState(controller, isUp: true),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: CraneSliderButton(
+          label: labels.downLabel,
+          icon: Icons.arrow_downward_rounded,
+          isUp: false,
+          isDisabled: controlsDisabled || upActive,
+          onCommandChanged: (state) {
+            setState(() => _vertDownActive = state != ControlState.idle);
+            controller.setHoistCommand(isUp: false, state: state);
+          },
+          externalState: _externalVertState(controller, isUp: false),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _verticalPushButtons({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required PushControlConfig pushConfig,
+    required bool controlsDisabled,
+    required double buttonHeight,
+    required bool upActive,
+    required bool downActive,
+  }) {
+    return [
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: UpPushControlButton(
+            label: labels.upLabel,
+            isActive: upActive,
+            isDisabled: controlsDisabled || downActive,
+            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _vertUpActive = state != ControlState.idle);
+              controller.setHoistCommand(isUp: true, state: state);
+            },
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: DownPushControlButton(
+            label: labels.downLabel,
+            isActive: downActive,
+            isDisabled: controlsDisabled || upActive,
+            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _vertDownActive = state != ControlState.idle);
+              controller.setHoistCommand(isUp: false, state: state);
+            },
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _traversePushButtons({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required PushControlConfig pushConfig,
+    required bool controlsDisabled,
+    required double buttonHeight,
+    required bool leftActive,
+    required bool rightActive,
+  }) {
+    return [
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: LeftPushControlButton(
+            label: labels.leftLabel,
+            isActive: leftActive,
+            isDisabled: controlsDisabled || rightActive,
+            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _travLeftActive = state != ControlState.idle);
+              controller.setTraverseCommand(isLeft: true, state: state);
+            },
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: RightPushControlButton(
+            label: labels.rightLabel,
+            isActive: rightActive,
+            isDisabled: controlsDisabled || leftActive,
+            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _travRightActive = state != ControlState.idle);
+              controller.setTraverseCommand(isLeft: false, state: state);
+            },
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _travelSliders({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required bool controlsDisabled,
+    required bool forwardActive,
+    required bool reverseActive,
+  }) {
+    return [
+      Expanded(
+        child: CraneSliderButton(
+          label: labels.forwardLabel,
+          icon: Icons.north_rounded,
+          isUp: true,
+          axisColor: AppColors.travelColor,
+          isDisabled: controlsDisabled || reverseActive,
+          onCommandChanged: (state) {
+            setState(() => _tripFwdActive = state != ControlState.idle);
+            controller.setTravelCommand(isForward: true, state: state);
+          },
+          externalState: _externalTripState(controller, isForward: true),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: CraneSliderButton(
+          label: labels.reverseLabel,
+          icon: Icons.south_rounded,
+          isUp: false,
+          axisColor: AppColors.travelColor,
+          isDisabled: controlsDisabled || forwardActive,
+          onCommandChanged: (state) {
+            setState(() => _tripRevActive = state != ControlState.idle);
+            controller.setTravelCommand(isForward: false, state: state);
+          },
+          externalState: _externalTripState(controller, isForward: false),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _travelPushButtons({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required PushControlConfig pushConfig,
+    required bool controlsDisabled,
+    required double buttonHeight,
+    required bool forwardActive,
+    required bool reverseActive,
+  }) {
+    return [
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: ForwardPushControlButton(
+            label: labels.forwardLabel,
+            isActive: forwardActive,
+            isDisabled: controlsDisabled || reverseActive,
+            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _tripFwdActive = state != ControlState.idle);
+              controller.setTravelCommand(isForward: true, state: state);
+            },
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _pushButtonFrame(
+          buttonHeight: buttonHeight,
+          child: ReversePushControlButton(
+            label: labels.reverseLabel,
+            isActive: reverseActive,
+            isDisabled: controlsDisabled || forwardActive,
+            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
+            onCommandChanged: (state) {
+              setState(() => _tripRevActive = state != ControlState.idle);
+              controller.setTravelCommand(isForward: false, state: state);
+            },
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _pushButtonFrame({
+    required double buttonHeight,
+    required Widget child,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final boundedHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : buttonHeight;
+        final resolvedHeight = buttonHeight > boundedHeight
+            ? boundedHeight
+            : buttonHeight;
+        return Center(
+          child: SizedBox(height: resolvedHeight, child: child),
+        );
+      },
+    );
+  }
+
   ControlState _externalVertState(CraneController c, {required bool isUp}) {
     if (c.estopLatched) return ControlState.idle;
     final cmd = c.activeCommand;
-    if (isUp && cmd.up)
+    if (isUp && cmd.up) {
       return cmd.fastUd ? ControlState.fast : ControlState.slow;
-    if (!isUp && cmd.down)
+    }
+    if (!isUp && cmd.down) {
       return cmd.fastUd ? ControlState.fast : ControlState.slow;
+    }
     return ControlState.idle;
   }
 

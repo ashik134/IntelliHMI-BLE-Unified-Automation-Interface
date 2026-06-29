@@ -33,6 +33,10 @@ class CrossTravelSlider extends StatefulWidget {
   /// is latched or the BLE link is down).
   final bool isDisabled;
 
+  /// Custom labels for the left/right direction text.
+  final String leftLabel;
+  final String rightLabel;
+
   /// Fired on every zone transition.  [isLeft] selects the output direction;
   /// [state] encodes speed (idle / slow / fast).
   final void Function({required bool isLeft, required ControlState state})
@@ -41,6 +45,8 @@ class CrossTravelSlider extends StatefulWidget {
   const CrossTravelSlider({
     super.key,
     this.isDisabled = false,
+    this.leftLabel = 'LEFT',
+    this.rightLabel = 'RIGHT',
     required this.onCommandChanged,
   });
 
@@ -220,7 +226,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                 child: Row(
                   children: [
                     _zoneLabel(
-                      '< FAST',
+                      '< ${widget.leftLabel} FAST',
                       zone == _TravZone.leftFast,
                       AppColors.fastColor,
                     ),
@@ -238,7 +244,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                     ),
                     const Spacer(),
                     _zoneLabel(
-                      'FAST >',
+                      'FAST ${widget.rightLabel} >',
                       zone == _TravZone.rightFast,
                       AppColors.fastColor,
                     ),
@@ -290,11 +296,11 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Row(
                   children: [
-                    _dirLabel('LEFT', isLeft),
+                    _dirLabel(widget.leftLabel, isLeft),
                     const Spacer(),
                     _statusDot(zone, trackColor),
                     const Spacer(),
-                    _dirLabel('RIGHT', isRight),
+                    _dirLabel(widget.rightLabel, isRight),
                   ],
                 ),
               ),

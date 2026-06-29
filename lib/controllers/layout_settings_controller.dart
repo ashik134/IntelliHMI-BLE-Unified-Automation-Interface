@@ -95,10 +95,15 @@ class LayoutSettingsController extends ChangeNotifier {
   }
 
   /// Updates the toggle-control wiring configuration.
-  void updatepushConfig(PushControlConfig pushConfig) {
+  void updatePushConfig(PushControlConfig pushConfig) {
     _config = _config.copyWith(pushConfig: pushConfig);
     notifyListeners();
     _persist();
+  }
+
+  @Deprecated('Use updatePushConfig instead.')
+  void updatepushConfig(PushControlConfig pushConfig) {
+    updatePushConfig(pushConfig);
   }
 
   /// Resets every sub-configuration to factory defaults.

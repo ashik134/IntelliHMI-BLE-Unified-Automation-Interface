@@ -61,6 +61,10 @@ class LayoutValidationService {
 
     _checkLabel('UP button label', config.upLabel, errors);
     _checkLabel('DOWN button label', config.downLabel, errors);
+    _checkLabel('LEFT button label', config.leftLabel, errors);
+    _checkLabel('RIGHT button label', config.rightLabel, errors);
+    _checkLabel('FORWARD button label', config.forwardLabel, errors);
+    _checkLabel('REVERSE button label', config.reverseLabel, errors);
     _checkLabel('E-Stop instruction', config.estopSwipeInstruction, errors);
     _checkLabel('Reset E-Stop label', config.resetEstopLabel, errors);
 

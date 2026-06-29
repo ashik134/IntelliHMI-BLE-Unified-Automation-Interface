@@ -4,11 +4,246 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/industrial_spring_button.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PushControlGroup
-// ─────────────────────────────────────────────────────────────────────────────
+class DirectionalPushControlButton extends StatelessWidget {
+  const DirectionalPushControlButton({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.activeColor,
+    required this.activeColorLight,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
 
-class PushControlGroup extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final Color activeColor;
+  final Color activeColorLight;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = !isDisabled;
+    final latched = !isSpringReturn && isActive;
+
+    return SizedBox.expand(
+      child: IndustrialSpringButton(
+        label: label,
+        icon: icon,
+        activeColor: activeColor,
+        activeColorLight: activeColorLight,
+        isActive: isActive && enabled,
+        isSpringReturn: isSpringReturn,
+        isLatched: latched,
+        enabled: enabled,
+        onPressed: isSpringReturn
+            ? () => onCommandChanged(ControlState.slow)
+            : null,
+        onReleased: isSpringReturn
+            ? () => onCommandChanged(ControlState.idle)
+            : null,
+        onTap: isSpringReturn
+            ? null
+            : () => onCommandChanged(
+                isActive ? ControlState.idle : ControlState.slow,
+              ),
+      ),
+    );
+  }
+}
+
+class UpPushControlButton extends StatelessWidget {
+  const UpPushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.arrow_upward_rounded,
+      activeColor: AppColors.upColor,
+      activeColorLight: AppColors.upColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class DownPushControlButton extends StatelessWidget {
+  const DownPushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.arrow_downward_rounded,
+      activeColor: AppColors.downColor,
+      activeColorLight: AppColors.downColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class LeftPushControlButton extends StatelessWidget {
+  const LeftPushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.arrow_back_rounded,
+      activeColor: AppColors.traverseColor,
+      activeColorLight: AppColors.traverseColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class RightPushControlButton extends StatelessWidget {
+  const RightPushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.arrow_forward_rounded,
+      activeColor: AppColors.traverseColor,
+      activeColorLight: AppColors.traverseColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class ForwardPushControlButton extends StatelessWidget {
+  const ForwardPushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.north_rounded,
+      activeColor: AppColors.travelColor,
+      activeColorLight: AppColors.travelColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class ReversePushControlButton extends StatelessWidget {
+  const ReversePushControlButton({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.isDisabled,
+    required this.isSpringReturn,
+    required this.onCommandChanged,
+  });
+
+  final String label;
+  final bool isActive;
+  final bool isDisabled;
+  final bool isSpringReturn;
+  final ValueChanged<ControlState> onCommandChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DirectionalPushControlButton(
+      label: label,
+      icon: Icons.south_rounded,
+      activeColor: AppColors.travelColor,
+      activeColorLight: AppColors.travelColorLight,
+      isActive: isActive,
+      isDisabled: isDisabled,
+      isSpringReturn: isSpringReturn,
+      onCommandChanged: onCommandChanged,
+    );
+  }
+}
+
+class PushControlGroup extends StatelessWidget {
   const PushControlGroup({
     super.key,
     required this.pushConfig,
@@ -28,182 +263,38 @@ class PushControlGroup extends StatefulWidget {
   final bool isDisabled;
   final ValueChanged<ControlState> onUpChanged;
   final ValueChanged<ControlState> onDownChanged;
-
-  /// Reflects the live PLC-confirmed state (used for visual sync).
   final bool upActive;
   final bool downActive;
   final double? height;
 
   @override
-  State<PushControlGroup> createState() => _PushControlGroupState();
-}
-
-class _PushControlGroupState extends State<PushControlGroup> {
-  // Local UI latch states (for latched configs before PLC confirmation)
-  bool _upLatched = false;
-  bool _downLatched = false;
-
-  bool get _upIsSpringReturn =>
-      widget.pushConfig.wiringConfig.upIsSpringReturn;
-  bool get _downIsSpringReturn =>
-      widget.pushConfig.wiringConfig.downIsSpringReturn;
-  // bool get _mutuallyExclusive =>
-  //     widget.pushConfig.wiringConfig.isMutuallyExclusive;
-
-  // ── Spring-return (pointer events) ───────────────────────────────────────
-
-  void _onUpPointerDown() {
-    if (widget.isDisabled || !_upIsSpringReturn) return;
-    // if (_mutuallyExclusive && _downLatched) _releaseDown();
-    widget.onUpChanged(ControlState.slow);
-  }
-
-  void _onUpPointerUp() {
-    if (_upIsSpringReturn) widget.onUpChanged(ControlState.idle);
-  }
-
-  void _onDownPointerDown() {
-    if (widget.isDisabled || !_downIsSpringReturn) return;
-    // if (_mutuallyExclusive && _upLatched) _releaseUp();
-    widget.onDownChanged(ControlState.slow);
-  }
-
-  void _onDownPointerUp() {
-    if (_downIsSpringReturn) widget.onDownChanged(ControlState.idle);
-  }
-
-  // ── Latched (tap events) ──────────────────────────────────────────────────
-
-  void _onUpTap() {
-    if (widget.isDisabled || _upIsSpringReturn) return;
-    if (_upLatched) {
-      _releaseUp();
-    } else {
-      // if (_mutuallyExclusive && _downLatched) _releaseDown();
-      setState(() => _upLatched = true);
-      widget.onUpChanged(ControlState.slow);
-    }
-  }
-
-  void _onDownTap() {
-    if (widget.isDisabled || _downIsSpringReturn) return;
-    if (_downLatched) {
-      _releaseDown();
-    } else {
-      // if (_mutuallyExclusive && _upLatched) _releaseUp();
-      setState(() => _downLatched = true);
-      widget.onDownChanged(ControlState.slow);
-    }
-  }
-
-  void _releaseUp() {
-    setState(() => _upLatched = false);
-    widget.onUpChanged(ControlState.idle);
-  }
-
-  void _releaseDown() {
-    setState(() => _downLatched = false);
-    widget.onDownChanged(ControlState.idle);
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
-
-  @override
   Widget build(BuildContext context) {
-    // Visual active state: use PLC-confirmed state when available
-    final upVisuallyActive =
-        widget.upActive || (!_upIsSpringReturn && _upLatched);
-    final downVisuallyActive =
-        widget.downActive || (!_downIsSpringReturn && _downLatched);
-
-    return Row(
+    final row = Row(
       children: [
         Expanded(
-          child: _ToggleButton(
-            label: widget.upLabel,
-            icon: Icons.arrow_upward_rounded,
-            activeColor: AppColors.upColor,
-            activeColorLight: AppColors.upColorLight,
-            isActive: upVisuallyActive,
-            isDisabled: widget.isDisabled,
-            isSpringReturn: _upIsSpringReturn,
-            isLatched: _upLatched,
-            onPointerDown: _onUpPointerDown,
-            onPointerUp: _onUpPointerUp,
-            onTap: _onUpTap,
+          child: UpPushControlButton(
+            label: upLabel,
+            isActive: upActive,
+            isDisabled: isDisabled,
+            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
+            onCommandChanged: onUpChanged,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _ToggleButton(
-            label: widget.downLabel,
-            icon: Icons.arrow_downward_rounded,
-            activeColor: AppColors.downColor,
-            activeColorLight: AppColors.downColorLight,
-            isActive: downVisuallyActive,
-            isDisabled: widget.isDisabled,
-            isSpringReturn: _downIsSpringReturn,
-            isLatched: _downLatched,
-            onPointerDown: _onDownPointerDown,
-            onPointerUp: _onDownPointerUp,
-            onTap: _onDownTap,
+          child: DownPushControlButton(
+            label: downLabel,
+            isActive: downActive,
+            isDisabled: isDisabled,
+            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
+            onCommandChanged: onDownChanged,
           ),
         ),
       ],
     );
-  }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// _ToggleButton  (single directional toggle)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _ToggleButton extends StatelessWidget {
-  const _ToggleButton({
-    required this.label,
-    required this.icon,
-    required this.activeColor,
-    required this.activeColorLight,
-    required this.isActive,
-    required this.isDisabled,
-    required this.isSpringReturn,
-    required this.isLatched,
-    required this.onPointerDown,
-    required this.onPointerUp,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color activeColor;
-  final Color activeColorLight;
-  final bool isActive;
-  final bool isDisabled;
-  final bool isSpringReturn;
-  final bool isLatched;
-  final VoidCallback onPointerDown;
-  final VoidCallback onPointerUp;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = !isDisabled;
-
-    return SizedBox.expand(
-      child: IndustrialSpringButton(
-        label: label,
-        icon: icon,
-        activeColor: activeColor,
-        activeColorLight: activeColorLight,
-        isActive: isActive && enabled,
-        isSpringReturn: isSpringReturn,
-        isLatched: isLatched,
-        enabled: enabled,
-        onPressed: isSpringReturn ? onPointerDown : null,
-        onReleased: isSpringReturn ? onPointerUp : null,
-        onTap: isSpringReturn ? null : onTap,
-      ),
-    );
+    if (height == null) return row;
+    return SizedBox(height: height, child: row);
   }
 }
 
@@ -229,24 +320,22 @@ class PushButtonPreview extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: _PreviewToggle(
+            child: _PreviewButton(
               label: upLabel,
               icon: Icons.arrow_upward_rounded,
               activeColor: AppColors.upColor,
               activeColorLight: AppColors.upColorLight,
               isSpringReturn: wiringConfig.upIsSpringReturn,
-              isActive: false,
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _PreviewToggle(
+            child: _PreviewButton(
               label: downLabel,
               icon: Icons.arrow_downward_rounded,
               activeColor: AppColors.downColor,
               activeColorLight: AppColors.downColorLight,
               isSpringReturn: wiringConfig.downIsSpringReturn,
-              isActive: false,
             ),
           ),
         ],
@@ -255,14 +344,13 @@ class PushButtonPreview extends StatelessWidget {
   }
 }
 
-class _PreviewToggle extends StatelessWidget {
-  const _PreviewToggle({
+class _PreviewButton extends StatelessWidget {
+  const _PreviewButton({
     required this.label,
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
     required this.isSpringReturn,
-    required this.isActive,
   });
 
   final String label;
@@ -270,7 +358,6 @@ class _PreviewToggle extends StatelessWidget {
   final Color activeColor;
   final Color activeColorLight;
   final bool isSpringReturn;
-  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -282,7 +369,6 @@ class _PreviewToggle extends StatelessWidget {
           icon: icon,
           activeColor: activeColor,
           activeColorLight: activeColorLight,
-          isActive: isActive,
           isSpringReturn: isSpringReturn,
           hapticFeedback: false,
         ),

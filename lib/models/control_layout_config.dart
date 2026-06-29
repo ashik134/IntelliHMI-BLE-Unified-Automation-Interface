@@ -83,6 +83,10 @@ class ControlLabelConfig {
   const ControlLabelConfig({
     this.upLabel = 'UP',
     this.downLabel = 'DOWN',
+    this.leftLabel = 'LEFT',
+    this.rightLabel = 'RIGHT',
+    this.forwardLabel = 'FWD',
+    this.reverseLabel = 'REV',
     this.estopSwipeInstruction = 'SWIPE TO EMERGENCY STOP',
     this.resetEstopLabel = 'RESET E-STOP',
     this.screenTitle = '',
@@ -93,6 +97,10 @@ class ControlLabelConfig {
 
   final String upLabel;
   final String downLabel;
+  final String leftLabel;
+  final String rightLabel;
+  final String forwardLabel;
+  final String reverseLabel;
 
   final String estopSwipeInstruction;
 
@@ -103,6 +111,10 @@ class ControlLabelConfig {
   ControlLabelConfig copyWith({
     String? upLabel,
     String? downLabel,
+    String? leftLabel,
+    String? rightLabel,
+    String? forwardLabel,
+    String? reverseLabel,
     String? estopSwipeInstruction,
     String? resetEstopLabel,
     String? screenTitle,
@@ -110,6 +122,10 @@ class ControlLabelConfig {
     return ControlLabelConfig(
       upLabel: upLabel ?? this.upLabel,
       downLabel: downLabel ?? this.downLabel,
+      leftLabel: leftLabel ?? this.leftLabel,
+      rightLabel: rightLabel ?? this.rightLabel,
+      forwardLabel: forwardLabel ?? this.forwardLabel,
+      reverseLabel: reverseLabel ?? this.reverseLabel,
       estopSwipeInstruction:
           estopSwipeInstruction ?? this.estopSwipeInstruction,
       resetEstopLabel: resetEstopLabel ?? this.resetEstopLabel,
@@ -120,6 +136,10 @@ class ControlLabelConfig {
   Map<String, dynamic> toJson() => {
     'upLabel': upLabel,
     'downLabel': downLabel,
+    'leftLabel': leftLabel,
+    'rightLabel': rightLabel,
+    'forwardLabel': forwardLabel,
+    'reverseLabel': reverseLabel,
     'estopSwipeInstruction': estopSwipeInstruction,
     'resetEstopLabel': resetEstopLabel,
     'screenTitle': screenTitle,
@@ -129,6 +149,10 @@ class ControlLabelConfig {
     return ControlLabelConfig(
       upLabel: json['upLabel'] as String? ?? 'UP',
       downLabel: json['downLabel'] as String? ?? 'DOWN',
+      leftLabel: json['leftLabel'] as String? ?? 'LEFT',
+      rightLabel: json['rightLabel'] as String? ?? 'RIGHT',
+      forwardLabel: json['forwardLabel'] as String? ?? 'FWD',
+      reverseLabel: json['reverseLabel'] as String? ?? 'REV',
       estopSwipeInstruction:
           json['estopSwipeInstruction'] as String? ?? 'SWIPE TO EMERGENCY STOP',
       resetEstopLabel: json['resetEstopLabel'] as String? ?? 'RESET E-STOP',
@@ -142,6 +166,10 @@ class ControlLabelConfig {
       other is ControlLabelConfig &&
           other.upLabel == upLabel &&
           other.downLabel == downLabel &&
+          other.leftLabel == leftLabel &&
+          other.rightLabel == rightLabel &&
+          other.forwardLabel == forwardLabel &&
+          other.reverseLabel == reverseLabel &&
           other.estopSwipeInstruction == estopSwipeInstruction &&
           other.resetEstopLabel == resetEstopLabel &&
           other.screenTitle == screenTitle;
@@ -150,6 +178,10 @@ class ControlLabelConfig {
   int get hashCode => Object.hash(
     upLabel,
     downLabel,
+    leftLabel,
+    rightLabel,
+    forwardLabel,
+    reverseLabel,
     estopSwipeInstruction,
     resetEstopLabel,
     screenTitle,
@@ -365,6 +397,8 @@ extension PushButtonWiringConfigInfo on PushButtonWiringConfig {
         return false;
     }
   }
+
+  bool get isSpringReturn => upIsSpringReturn;
 
   bool get downIsSpringReturn {
     switch (this) {

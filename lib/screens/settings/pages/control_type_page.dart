@@ -315,7 +315,7 @@ class _WiringConfigTile extends StatelessWidget {
             : AppColors.connBg,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          onTap: () => ctrl.updatepushConfig(
+          onTap: () => ctrl.updatePushConfig(
             ctrl.config.pushConfig.copyWith(wiringConfig: config),
           ),
           borderRadius: BorderRadius.circular(10),

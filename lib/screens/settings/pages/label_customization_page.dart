@@ -5,10 +5,6 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LabelCustomizationPage
-// ─────────────────────────────────────────────────────────────────────────────
-
 class LabelCustomizationPage extends StatelessWidget {
   const LabelCustomizationPage({super.key});
 
@@ -43,10 +39,13 @@ class _LabelCustomizationBody extends StatefulWidget {
       _LabelCustomizationBodyState();
 }
 
-class _LabelCustomizationBodyState
-    extends State<_LabelCustomizationBody> {
+class _LabelCustomizationBodyState extends State<_LabelCustomizationBody> {
   late final TextEditingController _upCtrl;
   late final TextEditingController _downCtrl;
+  late final TextEditingController _leftCtrl;
+  late final TextEditingController _rightCtrl;
+  late final TextEditingController _forwardCtrl;
+  late final TextEditingController _reverseCtrl;
   late final TextEditingController _estopCtrl;
   late final TextEditingController _resetEstopCtrl;
   late final TextEditingController _screenTitleCtrl;
@@ -55,10 +54,13 @@ class _LabelCustomizationBodyState
   @override
   void initState() {
     super.initState();
-    final cfg =
-        context.read<LayoutSettingsController>().config.labelConfig;
+    final cfg = context.read<LayoutSettingsController>().config.labelConfig;
     _upCtrl = TextEditingController(text: cfg.upLabel);
     _downCtrl = TextEditingController(text: cfg.downLabel);
+    _leftCtrl = TextEditingController(text: cfg.leftLabel);
+    _rightCtrl = TextEditingController(text: cfg.rightLabel);
+    _forwardCtrl = TextEditingController(text: cfg.forwardLabel);
+    _reverseCtrl = TextEditingController(text: cfg.reverseLabel);
     _estopCtrl = TextEditingController(text: cfg.estopSwipeInstruction);
     _resetEstopCtrl = TextEditingController(text: cfg.resetEstopLabel);
     _screenTitleCtrl = TextEditingController(text: cfg.screenTitle);
@@ -68,6 +70,10 @@ class _LabelCustomizationBodyState
   void dispose() {
     _upCtrl.dispose();
     _downCtrl.dispose();
+    _leftCtrl.dispose();
+    _rightCtrl.dispose();
+    _forwardCtrl.dispose();
+    _reverseCtrl.dispose();
     _estopCtrl.dispose();
     _resetEstopCtrl.dispose();
     _screenTitleCtrl.dispose();
@@ -78,10 +84,15 @@ class _LabelCustomizationBodyState
     final proposed = ControlLabelConfig(
       upLabel: _upCtrl.text.trim(),
       downLabel: _downCtrl.text.trim(),
+      leftLabel: _leftCtrl.text.trim(),
+      rightLabel: _rightCtrl.text.trim(),
+      forwardLabel: _forwardCtrl.text.trim(),
+      reverseLabel: _reverseCtrl.text.trim(),
       estopSwipeInstruction: _estopCtrl.text.trim(),
       resetEstopLabel: _resetEstopCtrl.text.trim(),
       screenTitle: _screenTitleCtrl.text.trim(),
     );
+
     final result =
         context.read<LayoutSettingsController>().updateLabelConfig(proposed);
     setState(() {
@@ -99,23 +110,20 @@ class _LabelCustomizationBodyState
 
   @override
   Widget build(BuildContext context) {
-    final saved =
-        context.watch<LayoutSettingsController>().config.labelConfig;
+    final saved = context.watch<LayoutSettingsController>().config.labelConfig;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
-        // ── Controls
         _PageCard(
-          title: 'BUTTON LABELS',
-          icon: Icons.label_outline_rounded,
+          title: 'HOIST LABELS',
+          icon: Icons.swap_vert_rounded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const _InfoBanner(
                 message:
-                    'Labels must be 1–18 characters. '
-                    'They appear on buttons and the E-Stop control.',
+                    'These labels are used by PLC14 and the PLC38 hoist axis.',
               ),
               const SizedBox(height: 16),
               _LabelField(
@@ -138,7 +146,57 @@ class _LabelCustomizationBodyState
             ],
           ),
         ),
-
+        _PageCard(
+          title: 'PLC38 TRAVEL LABELS',
+          icon: Icons.alt_route_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _InfoBanner(
+                message:
+                    'These labels are used by PLC38 traverse and travel '
+                    'controls when the screen switches to push buttons or '
+                    'sliders.',
+              ),
+              const SizedBox(height: 16),
+              _LabelField(
+                controller: _leftCtrl,
+                label: 'Left Button Label',
+                hint: 'LEFT',
+                icon: Icons.arrow_back_rounded,
+                savedValue: saved.leftLabel,
+                maxLength: ControlLabelConfig.maxLabelLength,
+              ),
+              const SizedBox(height: 12),
+              _LabelField(
+                controller: _rightCtrl,
+                label: 'Right Button Label',
+                hint: 'RIGHT',
+                icon: Icons.arrow_forward_rounded,
+                savedValue: saved.rightLabel,
+                maxLength: ControlLabelConfig.maxLabelLength,
+              ),
+              const SizedBox(height: 12),
+              _LabelField(
+                controller: _forwardCtrl,
+                label: 'Forward Label',
+                hint: 'FWD',
+                icon: Icons.north_rounded,
+                savedValue: saved.forwardLabel,
+                maxLength: ControlLabelConfig.maxLabelLength,
+              ),
+              const SizedBox(height: 12),
+              _LabelField(
+                controller: _reverseCtrl,
+                label: 'Reverse Label',
+                hint: 'REV',
+                icon: Icons.south_rounded,
+                savedValue: saved.reverseLabel,
+                maxLength: ControlLabelConfig.maxLabelLength,
+              ),
+            ],
+          ),
+        ),
         _PageCard(
           title: 'E-STOP LABELS',
           icon: Icons.warning_amber_rounded,
@@ -165,7 +223,6 @@ class _LabelCustomizationBodyState
             ],
           ),
         ),
-
         _PageCard(
           title: 'SCREEN TITLE',
           icon: Icons.title_rounded,
@@ -178,8 +235,6 @@ class _LabelCustomizationBodyState
             maxLength: ControlLabelConfig.maxLabelLength,
           ),
         ),
-
-        // ── Error + apply button
         Container(
           margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           child: Column(
@@ -198,21 +253,24 @@ class _LabelCustomizationBodyState
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.connPrimary,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
         ),
-
-        // ── Preview
         _PageCard(
           title: 'PREVIEW',
           icon: Icons.preview_rounded,
           child: _LabelPreview(
             upLabel: _upCtrl.text,
             downLabel: _downCtrl.text,
+            leftLabel: _leftCtrl.text,
+            rightLabel: _rightCtrl.text,
+            forwardLabel: _forwardCtrl.text,
+            reverseLabel: _reverseCtrl.text,
             estopInstruction: _estopCtrl.text,
             resetLabel: _resetEstopCtrl.text,
             screenTitle: _screenTitleCtrl.text,
@@ -222,10 +280,6 @@ class _LabelCustomizationBodyState
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// _LabelField
-// ─────────────────────────────────────────────────────────────────────────────
 
 class _LabelField extends StatefulWidget {
   const _LabelField({
@@ -249,8 +303,7 @@ class _LabelField extends StatefulWidget {
 }
 
 class _LabelFieldState extends State<_LabelField> {
-  bool get _hasUnsaved =>
-      widget.controller.text.trim() != widget.savedValue;
+  bool get _hasUnsaved => widget.controller.text.trim() != widget.savedValue;
 
   @override
   void initState() {
@@ -301,48 +354,55 @@ class _LabelFieldState extends State<_LabelField> {
           maxLength: widget.maxLength,
           decoration: InputDecoration(
             hintText: widget.hint,
-            hintStyle:
-                const TextStyle(color: AppColors.connTextMuted, fontSize: 13),
+            hintStyle: const TextStyle(
+              color: AppColors.connTextMuted,
+              fontSize: 13,
+            ),
             filled: true,
             fillColor: AppColors.connBg,
             counterStyle: const TextStyle(
-                color: AppColors.connTextMuted, fontSize: 10),
+              color: AppColors.connTextMuted,
+              fontSize: 10,
+            ),
             contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 10),
+              horizontal: 12,
+              vertical: 10,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide:
-                  const BorderSide(color: AppColors.connBorder),
+              borderSide: const BorderSide(color: AppColors.connBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide:
-                  const BorderSide(color: AppColors.connBorder),
+              borderSide: const BorderSide(color: AppColors.connBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(
-                  color: AppColors.connPrimary, width: 1.5),
+                color: AppColors.connPrimary,
+                width: 1.5,
+              ),
             ),
           ),
           style: const TextStyle(
-              color: AppColors.connText,
-              fontSize: 13,
-              fontWeight: FontWeight.w500),
+            color: AppColors.connText,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// _LabelPreview
-// ─────────────────────────────────────────────────────────────────────────────
-
 class _LabelPreview extends StatelessWidget {
   const _LabelPreview({
     required this.upLabel,
     required this.downLabel,
+    required this.leftLabel,
+    required this.rightLabel,
+    required this.forwardLabel,
+    required this.reverseLabel,
     required this.estopInstruction,
     required this.resetLabel,
     required this.screenTitle,
@@ -350,6 +410,10 @@ class _LabelPreview extends StatelessWidget {
 
   final String upLabel;
   final String downLabel;
+  final String leftLabel;
+  final String rightLabel;
+  final String forwardLabel;
+  final String reverseLabel;
   final String estopInstruction;
   final String resetLabel;
   final String screenTitle;
@@ -362,7 +426,10 @@ class _LabelPreview extends StatelessWidget {
         const Text(
           'Labels update live as you type.',
           style: TextStyle(
-              color: AppColors.connTextMuted, fontSize: 11, height: 1.4),
+            color: AppColors.connTextMuted,
+            fontSize: 11,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 12),
         Container(
@@ -376,7 +443,6 @@ class _LabelPreview extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Screen title
               Center(
                 child: Text(
                   screenTitle.isEmpty ? '—' : screenTitle.toUpperCase(),
@@ -389,70 +455,83 @@ class _LabelPreview extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              // E-Stop bar
-              Container(
+              _PreviewBar(
+                label: estopInstruction.isEmpty
+                    ? '—'
+                    : 'SWIPE  ${estopInstruction.toUpperCase()}',
+                color: AppColors.eStopColor,
                 height: 34,
-                decoration: BoxDecoration(
-                  color: AppColors.eStopColor.withAlpha(38),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: AppColors.eStopColor.withAlpha(80)),
-                ),
-                child: Center(
-                  child: Text(
-                    estopInstruction.isEmpty
-                        ? '—'
-                        : '▶▶  ${estopInstruction.toUpperCase()}',
-                    style: const TextStyle(
-                      color: AppColors.eStopColorLight,
-                      fontSize: 8,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.0,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
               ),
               const SizedBox(height: 8),
-              // Reset E-Stop bar (shown when E-Stop is active)
-              Container(
+              _PreviewBar(
+                label: resetLabel.isEmpty ? '—' : resetLabel.toUpperCase(),
+                color: AppColors.idleColor,
                 height: 28,
-                decoration: BoxDecoration(
-                  color: AppColors.idleColor.withAlpha(25),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: AppColors.idleColor.withAlpha(60)),
-                ),
-                child: Center(
-                  child: Text(
-                    resetLabel.isEmpty ? '—' : resetLabel.toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.darkTextSub,
-                      fontSize: 8,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
               ),
               const SizedBox(height: 8),
-              // Hoist buttons
               Row(
                 children: [
                   Expanded(
-                      child: _HoistMock(
-                    label: upLabel.isEmpty ? '—' : upLabel,
-                    isUp: true,
-                  )),
+                    child: _DirectionMock(
+                      label: upLabel.isEmpty ? '—' : upLabel,
+                      icon: Icons.arrow_upward_rounded,
+                      color: AppColors.upColor,
+                      colorLight: AppColors.upColorLight,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: _HoistMock(
-                    label: downLabel.isEmpty ? '—' : downLabel,
-                    isUp: false,
-                  )),
+                    child: _DirectionMock(
+                      label: downLabel.isEmpty ? '—' : downLabel,
+                      icon: Icons.arrow_downward_rounded,
+                      color: AppColors.downColor,
+                      colorLight: AppColors.downColorLight,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DirectionMock(
+                      label: leftLabel.isEmpty ? '—' : leftLabel,
+                      icon: Icons.arrow_back_rounded,
+                      color: AppColors.traverseColor,
+                      colorLight: AppColors.traverseColorLight,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DirectionMock(
+                      label: rightLabel.isEmpty ? '—' : rightLabel,
+                      icon: Icons.arrow_forward_rounded,
+                      color: AppColors.traverseColor,
+                      colorLight: AppColors.traverseColorLight,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DirectionMock(
+                      label: forwardLabel.isEmpty ? '—' : forwardLabel,
+                      icon: Icons.north_rounded,
+                      color: AppColors.travelColor,
+                      colorLight: AppColors.travelColorLight,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DirectionMock(
+                      label: reverseLabel.isEmpty ? '—' : reverseLabel,
+                      icon: Icons.south_rounded,
+                      color: AppColors.travelColor,
+                      colorLight: AppColors.travelColorLight,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -463,15 +542,21 @@ class _LabelPreview extends StatelessWidget {
   }
 }
 
-class _HoistMock extends StatelessWidget {
-  const _HoistMock({required this.label, required this.isUp});
+class _DirectionMock extends StatelessWidget {
+  const _DirectionMock({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.colorLight,
+  });
+
   final String label;
-  final bool isUp;
+  final IconData icon;
+  final Color color;
+  final Color colorLight;
 
   @override
   Widget build(BuildContext context) {
-    final color = isUp ? AppColors.upColor : AppColors.downColor;
-    final colorLight = isUp ? AppColors.upColorLight : AppColors.downColorLight;
     return Container(
       height: 64,
       decoration: BoxDecoration(
@@ -482,11 +567,7 @@ class _HoistMock extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            isUp ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
-            color: colorLight,
-            size: 20,
-          ),
+          Icon(icon, color: colorLight, size: 20),
           const SizedBox(height: 4),
           Text(
             label.toUpperCase(),
@@ -514,9 +595,42 @@ class _HoistMock extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared atoms
-// ─────────────────────────────────────────────────────────────────────────────
+class _PreviewBar extends StatelessWidget {
+  const _PreviewBar({
+    required this.label,
+    required this.color,
+    required this.height,
+  });
+
+  final String label;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withAlpha(80)),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 8,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.0,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
 
 class _PageCard extends StatelessWidget {
   const _PageCard({
@@ -524,6 +638,7 @@ class _PageCard extends StatelessWidget {
     required this.icon,
     required this.child,
   });
+
   final String title;
   final IconData icon;
   final Widget child;
@@ -538,9 +653,10 @@ class _PageCard extends StatelessWidget {
         border: Border.all(color: AppColors.connBorder),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withAlpha(8),
-              blurRadius: 6,
-              offset: const Offset(0, 2)),
+            color: Colors.black.withAlpha(8),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Column(
@@ -581,6 +697,7 @@ class _PageCard extends StatelessWidget {
 
 class _InfoBanner extends StatelessWidget {
   const _InfoBanner({required this.message});
+
   final String message;
 
   @override
@@ -595,14 +712,20 @@ class _InfoBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded,
-              size: 14, color: AppColors.scanning),
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 14,
+            color: AppColors.scanning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               style: const TextStyle(
-                  color: AppColors.connTextSub, fontSize: 11, height: 1.5),
+                color: AppColors.connTextSub,
+                fontSize: 11,
+                height: 1.5,
+              ),
             ),
           ),
         ],
@@ -613,6 +736,7 @@ class _InfoBanner extends StatelessWidget {
 
 class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({required this.message});
+
   final String message;
 
   @override
@@ -627,14 +751,20 @@ class _ErrorBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber_rounded,
-              size: 14, color: AppColors.error),
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 14,
+            color: AppColors.error,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               style: const TextStyle(
-                  color: AppColors.error, fontSize: 11, height: 1.5),
+                color: AppColors.error,
+                fontSize: 11,
+                height: 1.5,
+              ),
             ),
           ),
         ],
