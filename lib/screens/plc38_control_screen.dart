@@ -17,6 +17,7 @@ import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
+import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
@@ -314,6 +315,19 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               ],
             ),
             actions: [
+              IconButton(
+                icon: const Icon(
+                  Icons.tune_rounded,
+                  size: 20,
+                  color: AppColors.darkTextSub,
+                ),
+                tooltip: 'Customise',
+                onPressed: () => Navigator.of(ctx).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ControlCustomizationScreen(),
+                  ),
+                ),
+              ),
               IconButton(
                 icon: const Icon(
                   Icons.bluetooth_disabled,

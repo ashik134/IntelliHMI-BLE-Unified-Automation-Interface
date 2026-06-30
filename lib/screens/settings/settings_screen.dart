@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
-import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,21 +49,6 @@ class SettingsScreen extends StatelessWidget {
               // ── Security Section ─────────────────────────────────────────────
               const _SectionHeader(label: 'SECURITY'),
               _BiometricCard(),
-
-              // ── Control Screen Section ──────────────────────────────────────
-              const _SectionHeader(label: 'CONTROL SCREEN'),
-              _SettingsTile(
-                icon: Icons.tune_rounded,
-                iconColor: AppColors.connPrimary,
-                title: 'Control Screen Customisation',
-                subtitle:
-                    'Resize buttons, rename labels, configure layout sections',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ControlCustomizationScreen(),
-                  ),
-                ),
-              ),
 
               // ── Security Information Section ────────────────────────────────
               const _SectionHeader(label: 'SECURITY INFORMATION'),

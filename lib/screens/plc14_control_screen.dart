@@ -16,6 +16,7 @@ import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
+import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -263,6 +264,19 @@ class _ControlScreenState extends State<ControlScreen>
                 ],
               ),
               actions: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.tune_rounded,
+                    size: 20,
+                    color: AppColors.darkTextSub,
+                  ),
+                  tooltip: 'Customise',
+                  onPressed: () => Navigator.of(ctx).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ControlCustomizationScreen(),
+                    ),
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(
                     Icons.bluetooth_disabled,
