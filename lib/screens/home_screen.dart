@@ -373,7 +373,7 @@ class _ProfessionalHeader extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 46,
+            width: 60,
             height: 46,
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
@@ -385,7 +385,7 @@ class _ProfessionalHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(9),
               child: Image.asset(
                 'assets/images/intellicontrol-icon-1024x1024 (6).png',
-                fit: BoxFit.contain,
+                fit: BoxFit.fill,
               ),
             ),
           ),

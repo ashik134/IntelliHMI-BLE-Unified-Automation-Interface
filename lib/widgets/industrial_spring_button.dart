@@ -231,13 +231,22 @@ class _IndustrialButtonContent extends StatelessWidget {
   final bool isLatched;
   final bool isEnabled;
 
+  // Alpha helper with clamping
+  int _alpha(double opacity) {
+    return (opacity.clamp(0.0, 1.0) * 255).round();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final statusLabel = !isEnabled
+    final bool isPressed = press > 0.08;
+    final bool isLocked = !isEnabled;
+    final bool isReady = !isActive && !isPressed && isEnabled;
+
+    final statusLabel = isLocked
         ? 'LOCKED'
         : isActive
         ? 'ACTIVE'
-        : press > 0.08
+        : isPressed
         ? 'PRESSED'
         : 'READY';
     final modeLabel = isSpringReturn
@@ -245,28 +254,38 @@ class _IndustrialButtonContent extends StatelessWidget {
         : isLatched
         ? 'LATCHED'
         : 'TAP';
-    final labelColor = !isEnabled
+    final labelColor = isLocked
         ? AppColors.darkTextSub.withAlpha(_alpha(0.55))
         : isActive
         ? activeColorLight
         : AppColors.darkText;
-    final mutedColor = !isEnabled
+    final mutedColor = isLocked
         ? AppColors.darkTextSub.withAlpha(_alpha(0.45))
         : isActive
         ? activeColorLight
+        : isPressed
+        ? activeColor.withAlpha(_alpha(0.8))
         : AppColors.darkTextMuted;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact =
-            constraints.maxHeight < 170 || constraints.maxWidth < 135;
+            constraints.maxHeight < 180 || constraints.maxWidth < 150;
         final padding = compact
-            ? const EdgeInsets.fromLTRB(10, 9, 10, 10)
-            : const EdgeInsets.fromLTRB(14, 12, 14, 14);
+            ? const EdgeInsets.fromLTRB(10, 8, 10, 8)
+            : const EdgeInsets.fromLTRB(16, 12, 16, 12);
+        final double statusFontSize = compact ? 8 : 10;
+        final double modeFontSize = compact ? 8 : 10;
+        final double labelFontSize = compact ? 14 : 17;
+
+        // Responsive spacing
+        final double headerSpacing = compact ? 6 : 8;
+        final double bottomSpacing = compact ? 5 : 7;
 
         return Padding(
           padding: padding,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
                 height: compact ? 20 : 24,
@@ -277,7 +296,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                       isActive: isActive,
                       isEnabled: isEnabled,
                     ),
-                    const SizedBox(width: 7),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         statusLabel,
@@ -285,9 +304,16 @@ class _IndustrialButtonContent extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: mutedColor,
-                          fontSize: compact ? 9 : 10,
+                          fontSize: statusFontSize,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 0,
+                          letterSpacing: 0.8,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withAlpha(_alpha(0.3)),
+                              blurRadius: 2,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -299,14 +325,22 @@ class _IndustrialButtonContent extends StatelessWidget {
                         color: AppColors.darkTextSub.withAlpha(
                           isEnabled ? _alpha(0.85) : _alpha(0.45),
                         ),
-                        fontSize: compact ? 9 : 10,
+                        fontSize: modeFontSize,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0,
+                        letterSpacing: 0.5,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black.withAlpha(_alpha(0.2)),
+                            blurRadius: 2,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
+              SizedBox(height: headerSpacing),
               Expanded(
                 child: Center(
                   child: LayoutBuilder(
@@ -350,13 +384,32 @@ class _IndustrialButtonContent extends StatelessWidget {
                                     : AppColors.darkText,
                                 shadows: [
                                   Shadow(
-                                    color: Colors.black.withAlpha(_alpha(0.58)),
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 1),
+                                    color: Colors.black.withAlpha(
+                                      isActive ? _alpha(0.6) : _alpha(0.4),
+                                    ),
+                                    blurRadius: isActive ? 8 : 4,
+                                    offset: Offset(0, isActive ? 2 : 1),
                                   ),
                                 ],
                               ),
                             ),
+                          
+                             if (isLocked)
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.black.withAlpha(_alpha(0.25)),
+                                  border: Border.all(
+                                    color: Colors.white.withAlpha(_alpha(0.08)),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: diameter * 0.2,
+                                  color: Colors.white.withAlpha(_alpha(0.3)),
+                                ),
+                              ),
                           ],
                         ),
                       );
@@ -364,7 +417,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: bottomSpacing),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
@@ -373,25 +426,33 @@ class _IndustrialButtonContent extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: labelColor,
-                    fontSize: compact ? 15 : 17,
+                    fontSize: labelFontSize,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+                    letterSpacing: 1.2,
                     shadows: [
                       Shadow(
                         color: Colors.black.withAlpha(_alpha(0.55)),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
+                        if (isActive)
+                          Shadow(
+                            color: activeColor.withAlpha(_alpha(0.3)),
+                            blurRadius: 12,
+                            offset: Offset.zero,
+                          ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 7),
+              SizedBox(height: bottomSpacing*0.8),
               _StatusRail(
                 color: activeColor,
                 isActive: isActive,
-                isPressed: press > 0.08,
+                isPressed: isPressed,
                 isEnabled: isEnabled,
+                isCompact: compact,
+
               ),
             ],
           ),
@@ -452,39 +513,48 @@ class _StatusRail extends StatelessWidget {
     required this.isActive,
     required this.isPressed,
     required this.isEnabled,
+    this.isCompact = false,
+    this.isVeryCompact = false,
   });
 
   final Color color;
   final bool isActive;
   final bool isPressed;
   final bool isEnabled;
+  final bool isCompact;
+  final bool isVeryCompact;
 
   @override
   Widget build(BuildContext context) {
-    final fill = !isEnabled
-        ? AppColors.disabled
-        : isActive
-        ? color
-        : isPressed
-        ? color.withAlpha(_alpha(0.56))
-        : AppColors.darkBorder;
+    final bool isLocked = !isEnabled;
+    final double railHeight = isVeryCompact ? 2 : isCompact ? 2.5 : 3;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-      height: 5,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(3),
-        color: fill,
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                  color: color.withAlpha(_alpha(0.5)),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                ),
-              ]
-            : null,
+    return SizedBox(
+      height: railHeight + 4,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        width: double.infinity,
+        height: railHeight,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(railHeight / 2),
+          color: isLocked
+              ? Colors.grey.withOpacity(0.15)
+              : isActive
+              ? color
+              : isPressed
+              ? color.withOpacity(0.5)
+              : Colors.grey.withOpacity(0.1),
+          boxShadow: (isActive || isPressed) && !isLocked
+              ? [
+                  BoxShadow(
+                    color: color.withOpacity(0.3),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ]
+              : [],
+        ),
       ),
     );
   }

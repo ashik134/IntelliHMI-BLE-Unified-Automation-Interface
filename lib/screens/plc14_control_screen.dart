@@ -252,6 +252,7 @@ class _ControlScreenState extends State<ControlScreen>
                             isDisabled:
                                 controller.estopLatched ||
                                 !controller.isConnected,
+                            height: sizing.resolvedHoistHeight,
                             upActive:
                                 controller.hoistState == HoistState.upSlow,
                             downActive:
