@@ -15,6 +15,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
+import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -32,6 +33,7 @@ class _ControlScreenState extends State<ControlScreen>
   // ── Mutual-exclusion: only one hoist direction active at a time ────────────
   bool _upActive = false;
   bool _downActive = false;
+  bool _isBackNavigating = false;
   bool _isResetDialogVisible = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
@@ -147,6 +149,55 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
+   /// Clears all latching states for push buttons
+/// This ensures any latched commands are properly released
+//.. existing code ...
+
+  // Called by PopScope when the operator presses the back button or swipes.
+  // canPop is false so didPop is always false; the method handles all navigation.
+  Future<void> _onBackAttempted(bool didPop, Object? result) async {
+    if (didPop || _isBackNavigating) return;
+    _isBackNavigating = true;
+    try {
+      final controller = context.read<CraneController>();
+
+      // Stop all motion before showing the dialog so the PLC never keeps
+      // moving while the operator is looking at a confirmation prompt.
+      await controller.stopAllMotion();
+      _resetLocalButtonStates();
+
+      if (!mounted) return;
+      final confirmed = await showControlExitDialog(context);
+      if (!mounted) return;
+
+      if (confirmed) {
+        // disconnect() sends a final idle command then drops the BLE link.
+        // The HMIAppShell reacts to isDisconnected and swaps in ConnectionScreen
+        // automatically — no explicit Navigator call needed.
+        await controller.disconnect();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Exit canceled. Controls reactivated.'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) _isBackNavigating = false;
+    }
+  }
+
+  void _resetLocalButtonStates() {
+    if (!mounted) return;
+    setState(() {
+      _upActive = false;
+      _downActive = false;
+    });
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
@@ -170,182 +221,186 @@ class _ControlScreenState extends State<ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
 
-        return Scaffold(
-          backgroundColor: AppColors.darkBg,
-          resizeToAvoidBottomInset: false,
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  screenTitle,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.darkText,
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: _onBackAttempted,
+          child: Scaffold(
+            backgroundColor: AppColors.darkBg,
+            resizeToAvoidBottomInset: false,
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    screenTitle,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.darkText,
+                    ),
                   ),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(
-                        color: AppColors.upColorLight,
-                        shape: BoxShape.circle,
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        margin: const EdgeInsets.only(right: 5),
+                        decoration: const BoxDecoration(
+                          color: AppColors.upColorLight,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'Connected',
-                      style: TextStyle(
-                        color: AppColors.upColorLight,
-                        fontSize: 10,
+                      const Text(
+                        'Connected',
+                        style: TextStyle(
+                          color: AppColors.upColorLight,
+                          fontSize: 10,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.bluetooth_disabled,
+                    size: 20,
+                    color: AppColors.darkTextSub,
+                  ),
+                  tooltip: 'Disconnect',
+                  onPressed: controller.disconnect,
                 ),
               ],
             ),
-            actions: [
-              IconButton(
-                icon: const Icon(
-                  Icons.bluetooth_disabled,
-                  size: 20,
-                  color: AppColors.darkTextSub,
-                ),
-                tooltip: 'Disconnect',
-                onPressed: controller.disconnect,
-              ),
-            ],
-          ),
-          body: SafeArea(
-            maintainBottomViewPadding: true,
-            child: Padding(
-              padding: metrics.bodyPadding,
-              child: Column(
-                children: [
-                  _buildSafetyActionPanel(
-                    controller: controller,
-                    compact: metrics.isCompact,
-                    height: metrics.estopHeight,
-                    labels: labels,
-                  ),
-                  SizedBox(height: metrics.itemSpacing),
-                  if (metrics.showSensorRow) ...[
-                    _sensorRow(controller),
+            body: SafeArea(
+              maintainBottomViewPadding: true,
+              child: Padding(
+                padding: metrics.bodyPadding,
+                child: Column(
+                  children: [
+                    _buildSafetyActionPanel(
+                      controller: controller,
+                      compact: metrics.isCompact,
+                      height: metrics.estopHeight,
+                      labels: labels,
+                    ),
                     SizedBox(height: metrics.itemSpacing),
-                  ],
-                  if (metrics.showLEDs) ...[
-                    _liveLEDs(controller),
-                    SizedBox(height: metrics.itemSpacing),
-                  ],
-                  // ── Hoist controls – Expanded fills all remaining space
-                  // (prevents overflow on compact / landscape screens).
-                  Expanded(
-                    child: layoutCfg.widgetType == ControlWidgetType.pushButton
-                        ? PushControlGroup(
-                            pushConfig: layoutCfg.pushConfig,
-                            upLabel: labels.upLabel,
-                            downLabel: labels.downLabel,
-                            isDisabled:
-                                controller.estopLatched ||
-                                !controller.isConnected,
-                            height: sizing.resolvedHoistHeight,
-                            upActive:
-                                controller.hoistState == HoistState.upSlow,
-                            downActive:
-                                controller.hoistState == HoistState.downSlow,
-                            onUpChanged: (state) {
-                              setState(() {
-                                _upActive = state != ControlState.idle;
-                              });
-                              controller.setHoistCommand(
-                                isUp: true,
-                                state: state,
-                              );
-                            },
-                            onDownChanged: (state) {
-                              setState(() {
-                                _downActive = state != ControlState.idle;
-                              });
-                              controller.setHoistCommand(
-                                isUp: false,
-                                state: state,
-                              );
-                            },
-                          )
-                        : Row(
-                            children: [
-                              Expanded(
-                                child: CraneSliderButton(
-                                  label: labels.upLabel,
-                                  icon: Icons.arrow_upward_rounded,
+                    if (metrics.showSensorRow) ...[
+                      _sensorRow(controller),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
+                    if (metrics.showLEDs) ...[
+                      _liveLEDs(controller),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
+                    // ── Hoist controls – Expanded fills all remaining space
+                    // (prevents overflow on compact / landscape screens).
+                    Expanded(
+                      child: layoutCfg.widgetType == ControlWidgetType.pushButton
+                          ? PushControlGroup(
+                              pushConfig: layoutCfg.pushConfig,
+                              upLabel: labels.upLabel,
+                              downLabel: labels.downLabel,
+                              isDisabled:
+                                  controller.estopLatched ||
+                                  !controller.isConnected,
+                              height: sizing.resolvedHoistHeight,
+                              upActive:
+                                  controller.hoistState == HoistState.upSlow,
+                              downActive:
+                                  controller.hoistState == HoistState.downSlow,
+                              onUpChanged: (state) {
+                                setState(() {
+                                  _upActive = state != ControlState.idle;
+                                });
+                                controller.setHoistCommand(
                                   isUp: true,
-                                  // Disabled when e-stop is active, disconnected,
-                                  // OR the DOWN button is currently active (mutual exclusion).
-                                  isDisabled:
-                                      controller.estopLatched ||
-                                      !controller.isConnected ||
-                                      _downActive,
-                                  onCommandChanged: (state) {
-                                    setState(() {
-                                      _upActive = state != ControlState.idle;
-                                    });
-                                    controller.setHoistCommand(
-                                      isUp: true,
-                                      state: state,
-                                    );
-                                  },
-                                  externalState:
-                                      switch (controller.hoistState) {
-                                        HoistState.upSlow => ControlState.slow,
-                                        HoistState.upFast => ControlState.fast,
-                                        _ => ControlState.idle,
-                                      },
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: CraneSliderButton(
-                                  label: labels.downLabel,
-                                  icon: Icons.arrow_downward_rounded,
+                                  state: state,
+                                );
+                              },
+                              onDownChanged: (state) {
+                                setState(() {
+                                  _downActive = state != ControlState.idle;
+                                });
+                                controller.setHoistCommand(
                                   isUp: false,
-                                  // Disabled when e-stop is active, disconnected,
-                                  // OR the UP button is currently active (mutual exclusion).
-                                  isDisabled:
-                                      controller.estopLatched ||
-                                      !controller.isConnected ||
-                                      _upActive,
-                                  onCommandChanged: (state) {
-                                    setState(() {
-                                      _downActive = state != ControlState.idle;
-                                    });
-                                    controller.setHoistCommand(
-                                      isUp: false,
-                                      state: state,
-                                    );
-                                  },
-                                  externalState: switch (controller
-                                      .hoistState) {
-                                    HoistState.downSlow => ControlState.slow,
-                                    HoistState.downFast => ControlState.fast,
-                                    _ => ControlState.idle,
-                                  },
+                                  state: state,
+                                );
+                              },
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: CraneSliderButton(
+                                    label: labels.upLabel,
+                                    icon: Icons.arrow_upward_rounded,
+                                    isUp: true,
+                                    // Disabled when e-stop is active, disconnected,
+                                    // OR the DOWN button is currently active (mutual exclusion).
+                                    isDisabled:
+                                        controller.estopLatched ||
+                                        !controller.isConnected ||
+                                        _downActive,
+                                    onCommandChanged: (state) {
+                                      setState(() {
+                                        _upActive = state != ControlState.idle;
+                                      });
+                                      controller.setHoistCommand(
+                                        isUp: true,
+                                        state: state,
+                                      );
+                                    },
+                                    externalState:
+                                        switch (controller.hoistState) {
+                                          HoistState.upSlow => ControlState.slow,
+                                          HoistState.upFast => ControlState.fast,
+                                          _ => ControlState.idle,
+                                        },
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                  ),
-
-                  SizedBox(height: metrics.itemSpacing),
-
-                  // ── Status bar
-                  _buildStatusBar(controller),
-
-                  SizedBox(height: metrics.itemSpacing),
-                ],
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: CraneSliderButton(
+                                    label: labels.downLabel,
+                                    icon: Icons.arrow_downward_rounded,
+                                    isUp: false,
+                                    // Disabled when e-stop is active, disconnected,
+                                    // OR the UP button is currently active (mutual exclusion).
+                                    isDisabled:
+                                        controller.estopLatched ||
+                                        !controller.isConnected ||
+                                        _upActive,
+                                    onCommandChanged: (state) {
+                                      setState(() {
+                                        _downActive = state != ControlState.idle;
+                                      });
+                                      controller.setHoistCommand(
+                                        isUp: false,
+                                        state: state,
+                                      );
+                                    },
+                                    externalState: switch (controller
+                                        .hoistState) {
+                                      HoistState.downSlow => ControlState.slow,
+                                      HoistState.downFast => ControlState.fast,
+                                      _ => ControlState.idle,
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+          
+                    SizedBox(height: metrics.itemSpacing),
+          
+                    // ── Status bar
+                    _buildStatusBar(controller),
+          
+                    SizedBox(height: metrics.itemSpacing),
+                  ],
+                ),
               ),
             ),
           ),

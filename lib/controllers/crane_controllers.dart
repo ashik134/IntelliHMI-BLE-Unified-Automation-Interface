@@ -602,6 +602,17 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     await _bleService.disconnect();
   }
 
+  /// Stops all crane motion by sending an idle command and resetting PLC38 axis
+  /// state. No-op when estop is latched (PLC outputs are already off) or when
+  /// not connected.
+  Future<void> stopAllMotion() async {
+    if (_estopLatched || !isConnected) return;
+    _p38VertState = ControlState.idle;
+    _p38TravState = ControlState.idle;
+    _p38TripState = ControlState.idle;
+    await _sendCommand(PlcOutputCommand.idle());
+  }
+
   Future<void> resetEStop() async {
     _estopLatched = false;
     await _sendCommand(PlcOutputCommand.idle());

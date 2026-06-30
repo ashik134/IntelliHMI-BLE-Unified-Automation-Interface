@@ -155,7 +155,7 @@ const _widgetTypeEntries = [
     type: ControlWidgetType.toggle,
     label: 'Toggle Control',
     icon: Icons.toggle_on_rounded,
-    available: true,
+    available: false,
     description:
         'Configurable spring-return or latched buttons. Slow speed only.',
   ),

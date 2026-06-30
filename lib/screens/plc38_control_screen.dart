@@ -16,6 +16,7 @@ import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
+import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
@@ -41,6 +42,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   bool _tripFwdActive = false;
   bool _tripRevActive = false;
 
+  bool _isBackNavigating = false;
   bool _isResetDialogVisible = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
@@ -174,6 +176,55 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   //   }
   // }
 
+  // Called by PopScope when the operator presses the back button or swipes.
+  // canPop is false so didPop is always false; the method handles all navigation.
+  Future<void> _onBackAttempted(bool didPop, Object? result) async {
+    if (didPop || _isBackNavigating) return;
+    _isBackNavigating = true;
+    try {
+      final controller = context.read<CraneController>();
+
+      // Stop all motion on all three axes before showing the dialog so the
+      // PLC never keeps moving while the operator reviews the prompt.
+      await controller.stopAllMotion();
+      _resetLocalButtonStates();
+
+      if (!mounted) return;
+      final confirmed = await showControlExitDialog(context);
+      if (!mounted) return;
+
+      if (confirmed) {
+        // disconnect() sends a final idle command then drops the BLE link.
+        // HMIAppShell reacts to isDisconnected and swaps in ConnectionScreen
+        // automatically — no explicit Navigator call needed.
+        await controller.disconnect();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Exit canceled. Controls reactivated.'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) _isBackNavigating = false;
+    }
+  }
+
+  void _resetLocalButtonStates() {
+    if (!mounted) return;
+    setState(() {
+      _vertUpActive = false;
+      _vertDownActive = false;
+      _travLeftActive = false;
+      _travRightActive = false;
+      _tripFwdActive = false;
+      _tripRevActive = false;
+    });
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
@@ -221,7 +272,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
 
-        return Scaffold(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: _onBackAttempted,
+          child: Scaffold(
           backgroundColor: AppColors.darkBg,
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
@@ -412,6 +466,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               ),
             ),
           ),
+        ),
         );
       },
     );
