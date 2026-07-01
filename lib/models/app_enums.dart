@@ -13,9 +13,9 @@ enum TravelDirection { idle, forward, reverse }
 enum HoistState { idle, upSlow, upFast, downSlow, downFast }
 
 enum PlcType {
-  plc14('PLC14'),
-  plc21('PLC21'),
-  plc38('PLC38'),
+  plc14('IntelliKran MIN'),
+  plc21('IntelliKran MID'),
+  plc38('IntelliKran MAX'),
   unknown('Unknown PLC');
 
   const PlcType(this.displayName);

@@ -1,12 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Centralised bottom-navigation state for the [MainShell].
-///
-/// Every entry point that needs to change the active tab (quick-action buttons,
-/// the HomeScreen CTA card, programmatic deep-links, etc.) calls [navigateTo]
-/// on this controller instead of managing a local index.  The [MainShell]
-/// reads this controller and rebuilds its [IndexedStack] accordingly so the
-/// Bottom Navigation Bar always reflects the current section.
 class NavigationController extends ChangeNotifier {
   int _currentIndex = 0;
 
