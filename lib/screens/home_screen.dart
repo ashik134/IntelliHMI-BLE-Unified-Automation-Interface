@@ -6,6 +6,7 @@ import 'package:battery_plus/battery_plus.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/screens/settings/settings_screen.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
@@ -40,7 +41,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  int _currentNavIndex = 0;
   bool _commStatsExpanded = false;
 
   late final AnimationController _fadeController;
@@ -105,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _navigateToConnect() {
     HapticFeedback.mediumImpact();
-    Navigator.of(context).pushNamed('/crane');
+    context.read<NavigationController>().navigateToControl();
   }
 
   void _navigateToSettings() {
@@ -115,57 +115,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
-  void _showComingSoon(String feature) {
-    HapticFeedback.lightImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.construction_rounded, color: Colors.white, size: 18),
-            const SizedBox(width: 10),
-            Text(
-              '$feature \u2014 Coming soon',
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.connPrimary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _onNavTap(int index) {
-    HapticFeedback.selectionClick();
-    setState(() => _currentNavIndex = index);
-
-    switch (index) {
-      case 0:
-        break;
-      case 1:
-        _navigateToConnect();
-      case 2:
-        _showComingSoon('Diagnostics');
-      case 3:
-        _showComingSoon('Logs');
-      case 4:
-        _navigateToSettings();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
 
     return Scaffold(
       backgroundColor: AppColors.homeBg,
-      bottomNavigationBar: _IndustrialBottomNav(
-        currentIndex: _currentNavIndex,
-        onTap: _onNavTap,
-      ),
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: SafeArea(
@@ -187,8 +142,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     const SizedBox(height: 10),
                     _QuickActionsGrid(
                       onControlPanel: _navigateToConnect,
-                      onDiagnostics: () => _showComingSoon('Diagnostics'),
-                      onLogs: () => _showComingSoon('Logs'),
+                      onDiagnostics: () => context
+                          .read<NavigationController>()
+                          .navigateToDiagnostics(),
+                      onLogs: () =>
+                          context.read<NavigationController>().navigateToLogs(),
                       onSettings: _navigateToSettings,
                     ),
                     const SizedBox(height: 22),
@@ -241,117 +199,6 @@ class _SectionLabel extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Industrial Bottom Navigation Bar (5 Tabs)
-// ═══════════════════════════════════════════════════════════════
-
-class _IndustrialBottomNav extends StatelessWidget {
-  const _IndustrialBottomNav({
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  final int currentIndex;
-  final void Function(int) onTap;
-
-  static const _tabs = [
-    (icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
-    (icon: Icons.tune_outlined, activeIcon: Icons.tune_rounded, label: 'Control'),
-    (icon: Icons.monitor_heart_outlined, activeIcon: Icons.monitor_heart_rounded, label: 'Diagnostics'),
-    (icon: Icons.receipt_long_outlined, activeIcon: Icons.receipt_long_rounded, label: 'Logs'),
-    (icon: Icons.settings_outlined, activeIcon: Icons.settings_rounded, label: 'Settings'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.navBarBg,
-        border: Border(
-          top: BorderSide(color: AppColors.navBarBorder, width: 0.5),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowMedium,
-            blurRadius: 12,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(_tabs.length, (i) {
-              final isActive = i == currentIndex;
-              return _NavTabItem(
-                icon: isActive ? _tabs[i].activeIcon : _tabs[i].icon,
-                label: _tabs[i].label,
-                isActive: isActive,
-                onTap: () => onTap(i),
-              );
-            }),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavTabItem extends StatelessWidget {
-  const _NavTabItem({
-    required this.icon,
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isActive
-              ? AppColors.navBarActive.withAlpha(20)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive ? AppColors.navBarActive : AppColors.navBarInactive,
-              size: 22,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                color: isActive ? AppColors.navBarActive : AppColors.navBarInactive,
-                fontSize: 10,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
 // Professional Header
 // ═══════════════════════════════════════════════════════════════
 
@@ -396,11 +243,11 @@ class _ProfessionalHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'IntelliHMI',
-                  style: GoogleFonts.exo2(
-                    color: AppColors.lightText,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
+                  'INTELLIHMI',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: const Color.fromARGB(255, 2, 36, 109),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                     letterSpacing: 0.4,
                     height: 1.0,
                   ),
@@ -418,21 +265,21 @@ class _ProfessionalHeader extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.homePrimaryLight,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'v${AppConstants.appVersion}',
-              style: TextStyle(
-                color: AppColors.homePrimary,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+          // Container(
+          //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          //   decoration: BoxDecoration(
+          //     color: AppColors.homePrimaryLight,
+          //     borderRadius: BorderRadius.circular(8),
+          //   ),
+          //   child: const Text(
+          //     'v${AppConstants.appVersion}',
+          //     style: TextStyle(
+          //       color: AppColors.homePrimary,
+          //       fontSize: 10,
+          //       fontWeight: FontWeight.w700,
+          //     ),
+          //   ),
+          // ),
           const SizedBox(width: 2),
           _HeaderIconButton(
             icon: Icons.person_outline_rounded,

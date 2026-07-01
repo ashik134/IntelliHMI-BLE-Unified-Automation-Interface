@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/devices_panel.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/heros_status_card.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/quick_status_row.dart';
@@ -131,6 +132,25 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  Widget _buildAppBar(CraneController controller) {
+    return IndustrialAppBar(
+      title: 'Scan Devices',
+      showBackButton: true,
+      onBackPressed: () {
+        context.read<NavigationController>().navigateToHome();
+      },
+      isScanning: controller.isScanning,
+      canScan:
+          !controller.isConnectionActive &&
+          !controller.isCancellingConnection &&
+          !controller.isConnected &&
+          controller.bluetoothReady &&
+          controller.permissionsGranted,
+      onScanPressed: controller.scanForDevices,
+      onStopScan: controller.stopScan,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
@@ -174,28 +194,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
     );
   }
-}
-
-Widget _buildAppBar(CraneController controller) {
-  return IndustrialAppBar(
-    title: 'Scan Devices',
-
-    showBackButton: true,
-    onBackPressed: () {},
-    isScanning: controller.isScanning,
-    canScan:
-        !controller.isConnectionActive &&
-        !controller.isCancellingConnection &&
-        !controller.isConnected &&
-        controller.bluetoothReady &&
-        controller.permissionsGranted,
-    onScanPressed: controller.scanForDevices,
-    onStopScan: controller.stopScan,
-    onSettingsPressed: () {
-      // Navigate to settings
-      // Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-    },
-  );
 }
 
 class _InitializingView extends StatelessWidget {
@@ -243,7 +241,6 @@ class _InitializingView extends StatelessWidget {
 class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final VoidCallback? onScanPressed;
-  final VoidCallback? onSettingsPressed;
   final bool isScanning;
   final bool canScan;
   final VoidCallback? onStopScan;
@@ -257,7 +254,6 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.title,
     this.onScanPressed,
-    this.onSettingsPressed,
     this.isScanning = false,
     this.canScan = false,
     this.onStopScan,
