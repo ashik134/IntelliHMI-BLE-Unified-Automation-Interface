@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 
-import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,7 +47,7 @@ class SettingsScreen extends StatelessWidget {
 
               // ── Security Section ─────────────────────────────────────────────
               const _SectionHeader(label: 'SECURITY'),
-              _BiometricCard(),
+              const _BiometricCard(),
 
               // ── Security Information Section ────────────────────────────────
               const _SectionHeader(label: 'SECURITY INFORMATION'),
@@ -57,26 +56,8 @@ class SettingsScreen extends StatelessWidget {
               // ── Active Session Section ──────────────────────────────────────
               if (_isAuthenticated) ...[
                 const _SectionHeader(label: 'ACTIVE SESSION'),
-                _ActiveSessionCard(),
+                const _ActiveSessionCard(),
               ],
-
-              // ── Application Section ─────────────────────────────────────────
-              const _SectionHeader(label: 'APPLICATION'),
-              _SettingsTile(
-                icon: Icons.info_outline_rounded,
-                iconColor: AppColors.neutral,
-                title: 'About',
-                subtitle:
-                    '${AppConstants.appTitle}  ·  v${AppConstants.appVersion}',
-                onTap: () => _showAboutDialog(context),
-              ),
-              _SettingsTile(
-                icon: Icons.restore_rounded,
-                iconColor: AppColors.connWarning,
-                title: 'Reset All Settings',
-                subtitle: 'Restore all customisations to factory defaults',
-                onTap: () => _confirmReset(context),
-              ),
 
               const SizedBox(height: 32),
             ],
@@ -92,48 +73,6 @@ class SettingsScreen extends StatelessWidget {
     return false; // Placeholder - implement based on your auth state
   }
 
-  Future<void> _confirmReset(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset all settings?'),
-        content: const Text(
-          'This will restore all control screen customisations to their '
-          'factory defaults. This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && context.mounted) {
-      await context.read<LayoutSettingsController>().resetToDefaults();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Settings reset to defaults.')),
-        );
-      }
-    }
-  }
-
-  void _showAboutDialog(BuildContext context) {
-    showAboutDialog(
-      context: context,
-      applicationName: AppConstants.appTitle,
-      applicationVersion: AppConstants.appVersion,
-      applicationLegalese:
-          '© ${DateTime.now().year}  Industrial crane remote control system.',
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,80 +95,6 @@ class _SectionHeader extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.1,
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.divider)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: iconColor.withAlpha(22),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: iconColor, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: AppColors.connText,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: AppColors.connTextMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.connTextMuted,
-                size: 20,
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -296,7 +161,7 @@ class _DeviceIdentityCardState extends State<_DeviceIdentityCard> {
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: AppColors.homeSuccess,
                   shape: BoxShape.circle,
                 ),
@@ -384,8 +249,8 @@ class _BiometricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Replace with your actual biometric state
-    final isBiometricAvailable = false; // TODO: Get from controller
-    final isBiometricEnrolled = false; // TODO: Get from controller
+    const isBiometricAvailable = false; // TODO: Get from controller
+    const isBiometricEnrolled = false; // TODO: Get from controller
 
     return _IndustrialCard(
       child: Column(
@@ -393,7 +258,7 @@ class _BiometricCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.face_unlock_rounded,
                 color: AppColors.connTextMuted,
                 size: 20,
@@ -609,12 +474,12 @@ class _ActiveSessionCard extends StatelessWidget {
             valueColor: AppColors.connSuccess,
           ),
           const SizedBox(height: 8),
-          _InfoRow(
+          const _InfoRow(
             label: 'PLC Device',
             value: 'RRC_PLC', // TODO: Get from controller
           ),
           const SizedBox(height: 8),
-          _InfoRow(
+          const _InfoRow(
             label: 'Signal',
             value: '-62 dBm', // TODO: Get from controller
           ),
