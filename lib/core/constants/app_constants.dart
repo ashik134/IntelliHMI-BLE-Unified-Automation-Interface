@@ -8,7 +8,7 @@ class AppConstants {
   static const String prefsKeyEmail = 'saved_email';
   static const String prefsKeyPassword = 'saved_password';
   static const String prefsKeyDeviceId = 'last_device_id';
-  static const String prefsKeyLayoutConfig = 'control_layout_config_v1';
+  static const String prefsKeyLayoutConfig = 'control_layout_config_v2';
 
   static const String defaultAdminEmail = 'admin@plc.com';
   static const String defaultAdminPassword = 'Admin123';

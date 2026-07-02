@@ -1,26 +1,33 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart' show Color, FontWeight;
+
+import 'package:rev_crane_control_ops/models/control_role.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetType
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum ControlWidgetType { sliderButton, pushButton, toggle, joystick }
+enum ControlWidgetType {
+  sliderButton,
+  pushButton,
+  toggle,
+  joystick,
+  rotary,
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetSizeConfig
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// E-Stop-only sizing. Per-axis motion-control sizing lives on
+/// [AxisControlConfig.heightScale] instead — there's only ever one E-Stop
+/// button, so no per-axis concept applies to it.
 class ControlWidgetSizeConfig {
-  const ControlWidgetSizeConfig({
-    this.hoistButtonHeightScale = 1.0,
-    this.estopButtonHeightScale = 1.0,
-  });
+  const ControlWidgetSizeConfig({this.estopButtonHeightScale = 1.0});
 
   static const double minHeightScale = 0.7;
   static const double maxHeightScale = 1.5;
-
-  /// Base height for the hoist-button row.
-  static const double baseHoistButtonHeight = 185.0;
 
   /// Base height for the E-Stop swipe button.
   static const double baseEstopButtonHeight = 74.0;
@@ -28,36 +35,24 @@ class ControlWidgetSizeConfig {
   /// Industrial HMI minimum touch target (per IEC 62264 / Material guidance).
   static const double minTouchTargetPx = 48.0;
 
-  final double hoistButtonHeightScale;
   final double estopButtonHeightScale;
-
-  double get resolvedHoistHeight =>
-      baseHoistButtonHeight * hoistButtonHeightScale;
 
   double get resolvedEstopHeight =>
       baseEstopButtonHeight * estopButtonHeightScale;
 
-  ControlWidgetSizeConfig copyWith({
-    double? hoistButtonHeightScale,
-    double? estopButtonHeightScale,
-  }) {
+  ControlWidgetSizeConfig copyWith({double? estopButtonHeightScale}) {
     return ControlWidgetSizeConfig(
-      hoistButtonHeightScale:
-          hoistButtonHeightScale ?? this.hoistButtonHeightScale,
       estopButtonHeightScale:
           estopButtonHeightScale ?? this.estopButtonHeightScale,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'hoistButtonHeightScale': hoistButtonHeightScale,
     'estopButtonHeightScale': estopButtonHeightScale,
   };
 
   factory ControlWidgetSizeConfig.fromJson(Map<String, dynamic> json) {
     return ControlWidgetSizeConfig(
-      hoistButtonHeightScale:
-          (json['hoistButtonHeightScale'] as num?)?.toDouble() ?? 1.0,
       estopButtonHeightScale:
           (json['estopButtonHeightScale'] as num?)?.toDouble() ?? 1.0,
     );
@@ -67,12 +62,411 @@ class ControlWidgetSizeConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ControlWidgetSizeConfig &&
-          other.hoistButtonHeightScale == hoistButtonHeightScale &&
           other.estopButtonHeightScale == estopButtonHeightScale;
 
   @override
-  int get hashCode =>
-      Object.hash(hoistButtonHeightScale, estopButtonHeightScale);
+  int get hashCode => estopButtonHeightScale.hashCode;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AxisControlConfig
+//
+// Per-axis control type, spring/latch wiring, and height scale — each axis
+// (Hoist / Traverse / Travel) has its own independent Control Type, replacing
+// the single global switch this app used before per-button editing existed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AxisControlConfig {
+  const AxisControlConfig({
+    this.widgetType = ControlWidgetType.sliderButton,
+    this.wiringConfig = PushButtonWiringConfig.offMomentary,
+    this.heightScale = 1.0,
+  });
+
+  /// Base (unscaled) height for a push/toggle button row, or a slider pair.
+  static const double baseHeight = 185.0;
+
+  static const double minHeightScale = 0.7;
+  static const double maxHeightScale = 1.5;
+
+  /// Industrial HMI minimum touch target (per IEC 62264 / Material guidance).
+  static const double minTouchTargetPx = 48.0;
+
+  final ControlWidgetType widgetType;
+
+  /// Consulted only when [widgetType] is pushButton or toggle.
+  final PushButtonWiringConfig wiringConfig;
+
+  final double heightScale;
+
+  double get resolvedHeight => baseHeight * heightScale;
+
+  AxisControlConfig copyWith({
+    ControlWidgetType? widgetType,
+    PushButtonWiringConfig? wiringConfig,
+    double? heightScale,
+  }) {
+    return AxisControlConfig(
+      widgetType: widgetType ?? this.widgetType,
+      wiringConfig: wiringConfig ?? this.wiringConfig,
+      heightScale: heightScale ?? this.heightScale,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'widgetType': widgetType.name,
+    'wiringConfig': wiringConfig.name,
+    'heightScale': heightScale,
+  };
+
+  factory AxisControlConfig.fromJson(Map<String, dynamic> json) {
+    return AxisControlConfig(
+      widgetType: ControlWidgetType.values.firstWhere(
+        (e) => e.name == json['widgetType'],
+        orElse: () => ControlWidgetType.sliderButton,
+      ),
+      wiringConfig: PushButtonWiringConfig.values.firstWhere(
+        (e) => e.name == json['wiringConfig'],
+        orElse: () => PushButtonWiringConfig.offMomentary,
+      ),
+      heightScale: (json['heightScale'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AxisControlConfig &&
+          other.widgetType == widgetType &&
+          other.wiringConfig == wiringConfig &&
+          other.heightScale == heightScale;
+
+  @override
+  int get hashCode => Object.hash(widgetType, wiringConfig, heightScale);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AxisConfigSet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AxisConfigSet {
+  const AxisConfigSet({
+    this.hoist = const AxisControlConfig(),
+    this.traverse = const AxisControlConfig(),
+    this.travel = const AxisControlConfig(),
+  });
+
+  final AxisControlConfig hoist;
+  final AxisControlConfig traverse;
+  final AxisControlConfig travel;
+
+  AxisControlConfig forAxis(AxisKind axis) => switch (axis) {
+    AxisKind.hoist => hoist,
+    AxisKind.traverse => traverse,
+    AxisKind.travel => travel,
+  };
+
+  AxisConfigSet withAxis(AxisKind axis, AxisControlConfig config) =>
+      switch (axis) {
+        AxisKind.hoist => copyWith(hoist: config),
+        AxisKind.traverse => copyWith(traverse: config),
+        AxisKind.travel => copyWith(travel: config),
+      };
+
+  AxisConfigSet copyWith({
+    AxisControlConfig? hoist,
+    AxisControlConfig? traverse,
+    AxisControlConfig? travel,
+  }) {
+    return AxisConfigSet(
+      hoist: hoist ?? this.hoist,
+      traverse: traverse ?? this.traverse,
+      travel: travel ?? this.travel,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'hoist': hoist.toJson(),
+    'traverse': traverse.toJson(),
+    'travel': travel.toJson(),
+  };
+
+  factory AxisConfigSet.fromJson(Map<String, dynamic> json) {
+    return AxisConfigSet(
+      hoist: json['hoist'] != null
+          ? AxisControlConfig.fromJson(json['hoist'] as Map<String, dynamic>)
+          : const AxisControlConfig(),
+      traverse: json['traverse'] != null
+          ? AxisControlConfig.fromJson(
+              json['traverse'] as Map<String, dynamic>,
+            )
+          : const AxisControlConfig(),
+      travel: json['travel'] != null
+          ? AxisControlConfig.fromJson(json['travel'] as Map<String, dynamic>)
+          : const AxisControlConfig(),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AxisConfigSet &&
+          other.hoist == hoist &&
+          other.traverse == traverse &&
+          other.travel == travel;
+
+  @override
+  int get hashCode => Object.hash(hoist, traverse, travel);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ButtonStyleConfig
+//
+// Cosmetic overrides for a single button. All fields are nullable — null
+// means "use the role's theme default," resolved at render time so future
+// theme changes still propagate to buttons that haven't been customized.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ButtonStyleConfig {
+  const ButtonStyleConfig({
+    this.primaryColor,
+    this.activeColor,
+    this.cornerRadius,
+    this.elevation,
+    this.iconSize,
+    this.labelFontSize,
+    this.labelFontWeight,
+    this.showLabel = true,
+  });
+
+  static const double minCornerRadius = 0.0;
+  static const double maxCornerRadius = 32.0;
+  static const double minElevation = 0.0;
+  static const double maxElevation = 12.0;
+  static const double minIconSize = 16.0;
+  static const double maxIconSize = 96.0;
+  static const double minLabelFontSize = 8.0;
+  static const double maxLabelFontSize = 28.0;
+
+  final Color? primaryColor;
+  final Color? activeColor;
+  final double? cornerRadius;
+  final double? elevation;
+  final double? iconSize;
+  final double? labelFontSize;
+  final FontWeight? labelFontWeight;
+  final bool showLabel;
+
+  Color resolvePrimary(Color fallback) => primaryColor ?? fallback;
+  Color resolveActive(Color fallback) => activeColor ?? fallback;
+
+  ButtonStyleConfig copyWith({
+    Color? primaryColor,
+    Color? activeColor,
+    double? cornerRadius,
+    double? elevation,
+    double? iconSize,
+    double? labelFontSize,
+    FontWeight? labelFontWeight,
+    bool? showLabel,
+    bool clearPrimaryColor = false,
+    bool clearActiveColor = false,
+  }) {
+    return ButtonStyleConfig(
+      primaryColor: clearPrimaryColor
+          ? null
+          : (primaryColor ?? this.primaryColor),
+      activeColor: clearActiveColor ? null : (activeColor ?? this.activeColor),
+      cornerRadius: cornerRadius ?? this.cornerRadius,
+      elevation: elevation ?? this.elevation,
+      iconSize: iconSize ?? this.iconSize,
+      labelFontSize: labelFontSize ?? this.labelFontSize,
+      labelFontWeight: labelFontWeight ?? this.labelFontWeight,
+      showLabel: showLabel ?? this.showLabel,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'primaryColor': primaryColor?.toARGB32(),
+    'activeColor': activeColor?.toARGB32(),
+    'cornerRadius': cornerRadius,
+    'elevation': elevation,
+    'iconSize': iconSize,
+    'labelFontSize': labelFontSize,
+    'labelFontWeight': labelFontWeight?.value,
+    'showLabel': showLabel,
+  };
+
+  factory ButtonStyleConfig.fromJson(Map<String, dynamic> json) {
+    final primary = json['primaryColor'] as num?;
+    final active = json['activeColor'] as num?;
+    final weightValue = json['labelFontWeight'] as num?;
+    return ButtonStyleConfig(
+      primaryColor: primary != null ? Color(primary.toInt()) : null,
+      activeColor: active != null ? Color(active.toInt()) : null,
+      cornerRadius: (json['cornerRadius'] as num?)?.toDouble(),
+      elevation: (json['elevation'] as num?)?.toDouble(),
+      iconSize: (json['iconSize'] as num?)?.toDouble(),
+      labelFontSize: (json['labelFontSize'] as num?)?.toDouble(),
+      labelFontWeight: weightValue != null
+          ? FontWeight.values.firstWhere(
+              (w) => w.value == weightValue.toInt(),
+              orElse: () => FontWeight.w900,
+            )
+          : null,
+      showLabel: json['showLabel'] as bool? ?? true,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ButtonStyleConfig &&
+          other.primaryColor == primaryColor &&
+          other.activeColor == activeColor &&
+          other.cornerRadius == cornerRadius &&
+          other.elevation == elevation &&
+          other.iconSize == iconSize &&
+          other.labelFontSize == labelFontSize &&
+          other.labelFontWeight == labelFontWeight &&
+          other.showLabel == showLabel;
+
+  @override
+  int get hashCode => Object.hash(
+    primaryColor,
+    activeColor,
+    cornerRadius,
+    elevation,
+    iconSize,
+    labelFontSize,
+    labelFontWeight,
+    showLabel,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RoleStyleConfig
+//
+// Named fields for the seven STYLEABLE roles only. There is deliberately no
+// `estop` field on this class — a structural (not just validated) guarantee
+// that E-Stop's appearance can never be reassigned away from its safety-red
+// identity. Attempting to look up or set a style for ControlRole.estop
+// throws, by design.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class RoleStyleConfig {
+  const RoleStyleConfig({
+    this.hoistUp = const ButtonStyleConfig(),
+    this.hoistDown = const ButtonStyleConfig(),
+    this.traverseLeft = const ButtonStyleConfig(),
+    this.traverseRight = const ButtonStyleConfig(),
+    this.travelForward = const ButtonStyleConfig(),
+    this.travelReverse = const ButtonStyleConfig(),
+    this.resetEstop = const ButtonStyleConfig(),
+  });
+
+  final ButtonStyleConfig hoistUp;
+  final ButtonStyleConfig hoistDown;
+  final ButtonStyleConfig traverseLeft;
+  final ButtonStyleConfig traverseRight;
+  final ButtonStyleConfig travelForward;
+  final ButtonStyleConfig travelReverse;
+  final ButtonStyleConfig resetEstop;
+
+  ButtonStyleConfig forRole(ControlRole role) => switch (role) {
+    ControlRole.hoistUp => hoistUp,
+    ControlRole.hoistDown => hoistDown,
+    ControlRole.traverseLeft => traverseLeft,
+    ControlRole.traverseRight => traverseRight,
+    ControlRole.travelForward => travelForward,
+    ControlRole.travelReverse => travelReverse,
+    ControlRole.resetEstop => resetEstop,
+    ControlRole.estop => throw ArgumentError(
+      'E-Stop appearance is not customizable.',
+    ),
+  };
+
+  RoleStyleConfig withRole(ControlRole role, ButtonStyleConfig style) =>
+      switch (role) {
+        ControlRole.hoistUp => copyWith(hoistUp: style),
+        ControlRole.hoistDown => copyWith(hoistDown: style),
+        ControlRole.traverseLeft => copyWith(traverseLeft: style),
+        ControlRole.traverseRight => copyWith(traverseRight: style),
+        ControlRole.travelForward => copyWith(travelForward: style),
+        ControlRole.travelReverse => copyWith(travelReverse: style),
+        ControlRole.resetEstop => copyWith(resetEstop: style),
+        ControlRole.estop => throw ArgumentError(
+          'E-Stop appearance is not customizable.',
+        ),
+      };
+
+  RoleStyleConfig copyWith({
+    ButtonStyleConfig? hoistUp,
+    ButtonStyleConfig? hoistDown,
+    ButtonStyleConfig? traverseLeft,
+    ButtonStyleConfig? traverseRight,
+    ButtonStyleConfig? travelForward,
+    ButtonStyleConfig? travelReverse,
+    ButtonStyleConfig? resetEstop,
+  }) {
+    return RoleStyleConfig(
+      hoistUp: hoistUp ?? this.hoistUp,
+      hoistDown: hoistDown ?? this.hoistDown,
+      traverseLeft: traverseLeft ?? this.traverseLeft,
+      traverseRight: traverseRight ?? this.traverseRight,
+      travelForward: travelForward ?? this.travelForward,
+      travelReverse: travelReverse ?? this.travelReverse,
+      resetEstop: resetEstop ?? this.resetEstop,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'hoistUp': hoistUp.toJson(),
+    'hoistDown': hoistDown.toJson(),
+    'traverseLeft': traverseLeft.toJson(),
+    'traverseRight': traverseRight.toJson(),
+    'travelForward': travelForward.toJson(),
+    'travelReverse': travelReverse.toJson(),
+    'resetEstop': resetEstop.toJson(),
+  };
+
+  factory RoleStyleConfig.fromJson(Map<String, dynamic> json) {
+    ButtonStyleConfig read(String key) => json[key] != null
+        ? ButtonStyleConfig.fromJson(json[key] as Map<String, dynamic>)
+        : const ButtonStyleConfig();
+    return RoleStyleConfig(
+      hoistUp: read('hoistUp'),
+      hoistDown: read('hoistDown'),
+      traverseLeft: read('traverseLeft'),
+      traverseRight: read('traverseRight'),
+      travelForward: read('travelForward'),
+      travelReverse: read('travelReverse'),
+      resetEstop: read('resetEstop'),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoleStyleConfig &&
+          other.hoistUp == hoistUp &&
+          other.hoistDown == hoistDown &&
+          other.traverseLeft == traverseLeft &&
+          other.traverseRight == traverseRight &&
+          other.travelForward == travelForward &&
+          other.travelReverse == travelReverse &&
+          other.resetEstop == resetEstop;
+
+  @override
+  int get hashCode => Object.hash(
+    hoistUp,
+    hoistDown,
+    traverseLeft,
+    traverseRight,
+    travelForward,
+    travelReverse,
+    resetEstop,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,6 +488,10 @@ class ControlLabelConfig {
 
   static const int maxLabelLength = 18;
   static const int minLabelLength = 1;
+
+  /// Higher limit for free-form instruction text (E-Stop swipe prompt,
+  /// screen title) where a full short sentence is expected.
+  static const int maxInstructionLength = 40;
 
   final String upLabel;
   final String downLabel;
@@ -196,28 +594,42 @@ class ControlArrangementConfig {
   const ControlArrangementConfig({
     this.showSensorRow = true,
     this.showLiveLEDs = true,
+    this.showConnectionSubtitle = true,
   });
 
   final bool showSensorRow;
 
   final bool showLiveLEDs;
 
-  ControlArrangementConfig copyWith({bool? showSensorRow, bool? showLiveLEDs}) {
+  /// The small "● Connected" subtitle under the AppBar title. The only
+  /// chrome element that has no on-screen tile to attach a delete badge to,
+  /// so it's toggled from the customization overflow menu instead.
+  final bool showConnectionSubtitle;
+
+  ControlArrangementConfig copyWith({
+    bool? showSensorRow,
+    bool? showLiveLEDs,
+    bool? showConnectionSubtitle,
+  }) {
     return ControlArrangementConfig(
       showSensorRow: showSensorRow ?? this.showSensorRow,
       showLiveLEDs: showLiveLEDs ?? this.showLiveLEDs,
+      showConnectionSubtitle:
+          showConnectionSubtitle ?? this.showConnectionSubtitle,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'showSensorRow': showSensorRow,
     'showLiveLEDs': showLiveLEDs,
+    'showConnectionSubtitle': showConnectionSubtitle,
   };
 
   factory ControlArrangementConfig.fromJson(Map<String, dynamic> json) {
     return ControlArrangementConfig(
       showSensorRow: json['showSensorRow'] as bool? ?? true,
       showLiveLEDs: json['showLiveLEDs'] as bool? ?? true,
+      showConnectionSubtitle: json['showConnectionSubtitle'] as bool? ?? true,
     );
   }
 
@@ -226,64 +638,106 @@ class ControlArrangementConfig {
       identical(this, other) ||
       other is ControlArrangementConfig &&
           other.showSensorRow == showSensorRow &&
-          other.showLiveLEDs == showLiveLEDs;
+          other.showLiveLEDs == showLiveLEDs &&
+          other.showConnectionSubtitle == showConnectionSubtitle;
 
   @override
-  int get hashCode => Object.hash(showSensorRow, showLiveLEDs);
+  int get hashCode =>
+      Object.hash(showSensorRow, showLiveLEDs, showConnectionSubtitle);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlLayoutConfig  (top-level)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Default axis render order (Hoist, Traverse, Travel). PLC38-only meaning —
+/// PLC14/PLC21 only ever render the Hoist axis, so order is a no-op there.
+const List<AxisKind> kDefaultAxisOrder = [
+  AxisKind.hoist,
+  AxisKind.traverse,
+  AxisKind.travel,
+];
+
 class ControlLayoutConfig {
   const ControlLayoutConfig({
-    this.widgetType = ControlWidgetType.sliderButton,
     this.sizeConfig = const ControlWidgetSizeConfig(),
     this.labelConfig = const ControlLabelConfig(),
     this.arrangementConfig = const ControlArrangementConfig(),
-    this.pushConfig = const PushControlConfig(),
+    this.axisConfigs = const AxisConfigSet(),
+    this.roleStyles = const RoleStyleConfig(),
+    this.axisOrder = kDefaultAxisOrder,
   });
 
-  /// Active control widget type.  [sliderButton] and [toggle] are functional
-  final ControlWidgetType widgetType;
+  /// Schema version, bumped whenever a persisted-shape-breaking field is
+  /// added/removed. Not serialized into JSON itself — tracked here purely
+  /// as a marker for the SharedPreferences key version
+  /// (see AppConstants.prefsKeyLayoutConfig).
+  static const int schemaVersion = 2;
+
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
   final ControlArrangementConfig arrangementConfig;
-  final PushControlConfig pushConfig;
+
+  /// Per-axis control type, spring/latch wiring, and height scale.
+  final AxisConfigSet axisConfigs;
+
+  /// Per-role cosmetic overrides (color, corner radius, icon size, ...).
+  final RoleStyleConfig roleStyles;
+
+  /// Display order of the three motion axes. Meaningful on PLC38 only.
+  final List<AxisKind> axisOrder;
 
   ControlLayoutConfig copyWith({
-    ControlWidgetType? widgetType,
     ControlWidgetSizeConfig? sizeConfig,
     ControlLabelConfig? labelConfig,
     ControlArrangementConfig? arrangementConfig,
-    PushControlConfig? pushConfig,
+    AxisConfigSet? axisConfigs,
+    RoleStyleConfig? roleStyles,
+    List<AxisKind>? axisOrder,
   }) {
     return ControlLayoutConfig(
-      widgetType: widgetType ?? this.widgetType,
       sizeConfig: sizeConfig ?? this.sizeConfig,
       labelConfig: labelConfig ?? this.labelConfig,
       arrangementConfig: arrangementConfig ?? this.arrangementConfig,
-      pushConfig: pushConfig ?? this.pushConfig,
+      axisConfigs: axisConfigs ?? this.axisConfigs,
+      roleStyles: roleStyles ?? this.roleStyles,
+      axisOrder: axisOrder ?? this.axisOrder,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'widgetType': widgetType.name,
     'sizeConfig': sizeConfig.toJson(),
     'labelConfig': labelConfig.toJson(),
     'arrangementConfig': arrangementConfig.toJson(),
-    'pushConfig': pushConfig.toJson(),
+    'axisConfigs': axisConfigs.toJson(),
+    'roleStyles': roleStyles.toJson(),
+    'axisOrder': axisOrder.map((a) => a.name).toList(),
   };
 
+  static AxisKind? _tryParseAxisKind(dynamic name) {
+    for (final a in AxisKind.values) {
+      if (a.name == name) return a;
+    }
+    return null;
+  }
+
+  static List<AxisKind> _parseAxisOrder(dynamic raw) {
+    if (raw is! List) return kDefaultAxisOrder;
+    final parsed = raw
+        .map(_tryParseAxisKind)
+        .whereType<AxisKind>()
+        .toList();
+    // Defensive fallback: must be exactly the 3 axis kinds, each once —
+    // otherwise a corrupted/hand-edited value silently reverts to default
+    // rather than producing a partial or duplicated axis list.
+    if (parsed.length != 3 || parsed.toSet().length != 3) {
+      return kDefaultAxisOrder;
+    }
+    return parsed;
+  }
+
   factory ControlLayoutConfig.fromJson(Map<String, dynamic> json) {
-    final typeName = json['widgetType'] as String?;
-    final widgetType = ControlWidgetType.values.firstWhere(
-      (e) => e.name == typeName,
-      orElse: () => ControlWidgetType.sliderButton,
-    );
     return ControlLayoutConfig(
-      widgetType: widgetType,
       sizeConfig: json['sizeConfig'] != null
           ? ControlWidgetSizeConfig.fromJson(
               json['sizeConfig'] as Map<String, dynamic>,
@@ -299,11 +753,13 @@ class ControlLayoutConfig {
               json['arrangementConfig'] as Map<String, dynamic>,
             )
           : const ControlArrangementConfig(),
-      pushConfig: json['pushConfig'] != null
-          ? PushControlConfig.fromJson(
-              json['pushConfig'] as Map<String, dynamic>,
-            )
-          : const PushControlConfig(),
+      axisConfigs: json['axisConfigs'] != null
+          ? AxisConfigSet.fromJson(json['axisConfigs'] as Map<String, dynamic>)
+          : const AxisConfigSet(),
+      roleStyles: json['roleStyles'] != null
+          ? RoleStyleConfig.fromJson(json['roleStyles'] as Map<String, dynamic>)
+          : const RoleStyleConfig(),
+      axisOrder: _parseAxisOrder(json['axisOrder']),
     );
   }
 
@@ -319,41 +775,34 @@ class ControlLayoutConfig {
     }
   }
 
+  static bool _axisOrderEquals(List<AxisKind> a, List<AxisKind> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ControlLayoutConfig &&
-          other.widgetType == widgetType &&
           other.sizeConfig == sizeConfig &&
           other.labelConfig == labelConfig &&
           other.arrangementConfig == arrangementConfig &&
-          other.pushConfig == pushConfig;
+          other.axisConfigs == axisConfigs &&
+          other.roleStyles == roleStyles &&
+          _axisOrderEquals(other.axisOrder, axisOrder);
 
   @override
   int get hashCode => Object.hash(
-    widgetType,
     sizeConfig,
     labelConfig,
     arrangementConfig,
-    pushConfig,
+    axisConfigs,
+    roleStyles,
+    Object.hashAll(axisOrder),
   );
-}
-
-enum ToggleWiringConfig {
-  /// 0-T  ·  Off → Momentary ON
-  offMomentary,
-
-  /// 0-R  ·  Off → Latched ON
-  offLatched,
-
-  /// R-0-R  ·  Latched ON → OFF → Latched ON
-  latchedOffLatched,
-
-  /// T-0-R  ·  Momentary ON (UP) → OFF → Latched ON (DOWN)
-  momentaryUpLatchedDown,
-
-  /// T-0-T  ·  Momentary ON → OFF → Momentary ON
-  dualMomentary,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,45 +857,4 @@ extension PushButtonWiringConfigInfo on PushButtonWiringConfig {
         return false;
     }
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PushControlConfig
-//
-// Configuration for toggle-mode hoist controls.
-// Stored within ControlLayoutConfig when widgetType == toggle.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class PushControlConfig {
-  const PushControlConfig({
-    this.wiringConfig = PushButtonWiringConfig.offMomentary,
-  });
-
-  /// The wiring schema that determines spring-return vs latched behaviour
-  /// per button and mutual exclusion rules.
-  final PushButtonWiringConfig wiringConfig;
-
-  PushControlConfig copyWith({PushButtonWiringConfig? wiringConfig}) {
-    return PushControlConfig(wiringConfig: wiringConfig ?? this.wiringConfig);
-  }
-
-  Map<String, dynamic> toJson() => {'wiringConfig': wiringConfig.name};
-
-  factory PushControlConfig.fromJson(Map<String, dynamic> json) {
-    final name = json['wiringConfig'] as String?;
-    return PushControlConfig(
-      wiringConfig: PushButtonWiringConfig.values.firstWhere(
-        (e) => e.name == name,
-        orElse: () => PushButtonWiringConfig.offMomentary,
-      ),
-    );
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is PushControlConfig && other.wiringConfig == wiringConfig;
-
-  @override
-  int get hashCode => wiringConfig.hashCode;
 }

@@ -240,7 +240,6 @@ class _IndustrialButtonContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isPressed = press > 0.08;
     final bool isLocked = !isEnabled;
-    final bool isReady = !isActive && !isPressed && isEnabled;
 
     final statusLabel = isLocked
         ? 'LOCKED'
@@ -514,7 +513,6 @@ class _StatusRail extends StatelessWidget {
     required this.isPressed,
     required this.isEnabled,
     this.isCompact = false,
-    this.isVeryCompact = false,
   });
 
   final Color color;
@@ -522,12 +520,11 @@ class _StatusRail extends StatelessWidget {
   final bool isPressed;
   final bool isEnabled;
   final bool isCompact;
-  final bool isVeryCompact;
 
   @override
   Widget build(BuildContext context) {
     final bool isLocked = !isEnabled;
-    final double railHeight = isVeryCompact ? 2 : isCompact ? 2.5 : 3;
+    final double railHeight = isCompact ? 2.5 : 3;
 
     return SizedBox(
       height: railHeight + 4,
@@ -539,16 +536,16 @@ class _StatusRail extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(railHeight / 2),
           color: isLocked
-              ? Colors.grey.withOpacity(0.15)
+              ? Colors.grey.withValues(alpha: 0.15)
               : isActive
               ? color
               : isPressed
-              ? color.withOpacity(0.5)
-              : Colors.grey.withOpacity(0.1),
+              ? color.withValues(alpha: 0.5)
+              : Colors.grey.withValues(alpha: 0.1),
           boxShadow: (isActive || isPressed) && !isLocked
               ? [
                   BoxShadow(
-                    color: color.withOpacity(0.3),
+                    color: color.withValues(alpha: 0.3),
                     blurRadius: 4,
                     spreadRadius: 0,
                   ),

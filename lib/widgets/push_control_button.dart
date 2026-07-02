@@ -65,6 +65,8 @@ class UpPushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -73,13 +75,18 @@ class UpPushControlButton extends StatelessWidget {
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
 
+  /// Optional per-role appearance override (from ButtonStyleConfig). Null
+  /// keeps the role's default theme color.
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
+
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.arrow_upward_rounded,
-      activeColor: AppColors.upColor,
-      activeColorLight: AppColors.upColorLight,
+      activeColor: colorOverride ?? AppColors.upColor,
+      activeColorLight: colorOverrideLight ?? AppColors.upColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
@@ -96,6 +103,8 @@ class DownPushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -103,14 +112,16 @@ class DownPushControlButton extends StatelessWidget {
   final bool isDisabled;
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
 
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.arrow_downward_rounded,
-      activeColor: AppColors.downColor,
-      activeColorLight: AppColors.downColorLight,
+      activeColor: colorOverride ?? AppColors.downColor,
+      activeColorLight: colorOverrideLight ?? AppColors.downColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
@@ -127,6 +138,8 @@ class LeftPushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -134,14 +147,16 @@ class LeftPushControlButton extends StatelessWidget {
   final bool isDisabled;
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
 
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.arrow_back_rounded,
-      activeColor: AppColors.traverseColor,
-      activeColorLight: AppColors.traverseColorLight,
+      activeColor: colorOverride ?? AppColors.traverseColor,
+      activeColorLight: colorOverrideLight ?? AppColors.traverseColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
@@ -158,6 +173,8 @@ class RightPushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -165,14 +182,16 @@ class RightPushControlButton extends StatelessWidget {
   final bool isDisabled;
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
 
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.arrow_forward_rounded,
-      activeColor: AppColors.traverseColor,
-      activeColorLight: AppColors.traverseColorLight,
+      activeColor: colorOverride ?? AppColors.traverseColor,
+      activeColorLight: colorOverrideLight ?? AppColors.traverseColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
@@ -189,6 +208,8 @@ class ForwardPushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -196,14 +217,16 @@ class ForwardPushControlButton extends StatelessWidget {
   final bool isDisabled;
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
 
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.north_rounded,
-      activeColor: AppColors.travelColor,
-      activeColorLight: AppColors.travelColorLight,
+      activeColor: colorOverride ?? AppColors.travelColor,
+      activeColorLight: colorOverrideLight ?? AppColors.travelColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
@@ -220,6 +243,8 @@ class ReversePushControlButton extends StatelessWidget {
     required this.isDisabled,
     required this.isSpringReturn,
     required this.onCommandChanged,
+    this.colorOverride,
+    this.colorOverrideLight,
   });
 
   final String label;
@@ -227,74 +252,21 @@ class ReversePushControlButton extends StatelessWidget {
   final bool isDisabled;
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
+  final Color? colorOverride;
+  final Color? colorOverrideLight;
 
   @override
   Widget build(BuildContext context) {
     return DirectionalPushControlButton(
       label: label,
       icon: Icons.south_rounded,
-      activeColor: AppColors.travelColor,
-      activeColorLight: AppColors.travelColorLight,
+      activeColor: colorOverride ?? AppColors.travelColor,
+      activeColorLight: colorOverrideLight ?? AppColors.travelColorLight,
       isActive: isActive,
       isDisabled: isDisabled,
       isSpringReturn: isSpringReturn,
       onCommandChanged: onCommandChanged,
     );
-  }
-}
-
-class PushControlGroup extends StatelessWidget {
-  const PushControlGroup({
-    super.key,
-    required this.pushConfig,
-    required this.upLabel,
-    required this.downLabel,
-    required this.isDisabled,
-    required this.onUpChanged,
-    required this.onDownChanged,
-    required this.upActive,
-    required this.downActive,
-    this.height,
-  });
-
-  final PushControlConfig pushConfig;
-  final String upLabel;
-  final String downLabel;
-  final bool isDisabled;
-  final ValueChanged<ControlState> onUpChanged;
-  final ValueChanged<ControlState> onDownChanged;
-  final bool upActive;
-  final bool downActive;
-  final double? height;
-
-  @override
-  Widget build(BuildContext context) {
-    final row = Row(
-      children: [
-        Expanded(
-          child: UpPushControlButton(
-            label: upLabel,
-            isActive: upActive,
-            isDisabled: isDisabled,
-            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
-            onCommandChanged: onUpChanged,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: DownPushControlButton(
-            label: downLabel,
-            isActive: downActive,
-            isDisabled: isDisabled,
-            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
-            onCommandChanged: onDownChanged,
-          ),
-        ),
-      ],
-    );
-
-    if (height == null) return row;
-    return SizedBox(height: height, child: row);
   }
 }
 
