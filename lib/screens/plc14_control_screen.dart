@@ -1,22 +1,30 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
-import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
-import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
+import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
+import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
+import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
+import 'package:rev_crane_control_ops/widgets/customization/toggle_switch_button.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -28,14 +36,12 @@ class ControlScreen extends StatefulWidget {
 class _ControlScreenState extends State<ControlScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnim;
   CraneController? _craneController;
 
-  // ── Mutual-exclusion: only one hoist direction active at a time ────────────
+  // â”€â”€ Mutual-exclusion: only one hoist direction active at a time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   bool _upActive = false;
   bool _downActive = false;
   bool _isBackNavigating = false;
-  bool _isResetDialogVisible = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
 
@@ -48,9 +54,6 @@ class _ControlScreenState extends State<ControlScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -69,7 +72,7 @@ class _ControlScreenState extends State<ControlScreen>
   }
 
   void _dismissResetDialogIfVisible() {
-    if (!mounted || !_isResetDialogVisible || _isDismissingResetDialog) return;
+    if (!mounted || _isDismissingResetDialog) return;
     _isDismissingResetDialog = true;
     FocusManager.instance.primaryFocus?.unfocus();
     final dialogContext = _resetDialogContext;
@@ -104,17 +107,11 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
-  // void resetLocalButtonStates() {
-  //   setState(() {
-  //     _upState = ControlState.idle;
-  //     _downState = ControlState.idle;
-  //   });
-  // }
-
-  // ── E-Stop ──────────────────────────────────────────────────────────────────
+  // â”€â”€ E-Stop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Deliberately reachable at all times, including while Customization Mode
+  // is active â€” the safety action panel is never gated by AbsorbPointer.
 
   Future<void> _onEStopTap() async {
-    // resetLocalButtonStates();
     final controller = context.read<CraneController>();
     await controller.triggerEStop();
     Vibration.vibrate(duration: 600, amplitude: 255);
@@ -150,10 +147,6 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
-   /// Clears all latching states for push buttons
-/// This ensures any latched commands are properly released
-//.. existing code ...
-
   // Called by PopScope when the operator presses the back button or swipes.
   // canPop is false so didPop is always false; the method handles all navigation.
   Future<void> _onBackAttempted(bool didPop, Object? result) async {
@@ -174,7 +167,7 @@ class _ControlScreenState extends State<ControlScreen>
       if (confirmed) {
         // disconnect() sends a final idle command then drops the BLE link.
         // The HMIAppShell reacts to isDisconnected and swaps in ConnectionScreen
-        // automatically — no explicit Navigator call needed.
+        // automatically â€” no explicit Navigator call needed.
         await controller.disconnect();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -199,16 +192,25 @@ class _ControlScreenState extends State<ControlScreen>
     });
   }
 
-  // ── Build ───────────────────────────────────────────────────────────────────
+  // â”€â”€ Customization Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Future<void> _enterCustomizationMode() async {
+    _resetLocalButtonStates();
+    await context.read<CustomizationModeController>().enter();
+  }
+
+  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<CraneController, LayoutSettingsController>(
-      builder: (ctx, controller, layoutCtrl, _) {
-        final layoutCfg = layoutCtrl.config;
+    return Consumer3<CraneController, LayoutSettingsController, CustomizationModeController>(
+      builder: (ctx, controller, layoutCtrl, customCtrl, _) {
+        final isEditing = customCtrl.isActive;
+        final layoutCfg = isEditing ? customCtrl.draft : layoutCtrl.config;
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
+        final hoistAxisCfg = layoutCfg.axisConfigs.hoist;
         final metrics = ControlLayoutMetrics.compute(
           MediaQuery.of(ctx).size.height -
               kToolbarHeight -
@@ -222,606 +224,371 @@ class _ControlScreenState extends State<ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
 
-        return PopScope(
-          canPop: false,
-          onPopInvokedWithResult: _onBackAttempted,
-          child: Scaffold(
-            backgroundColor: AppColors.darkBg,
-            resizeToAvoidBottomInset: false,
-            appBar: AppBar(
-              automaticallyImplyLeading: false,
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    screenTitle,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.darkText,
-                    ),
-                  ),
-                  Row(
+        return Stack(
+          children: [
+            PopScope(
+              canPop: !isEditing,
+              onPopInvokedWithResult: _onBackAttempted,
+              child: Scaffold(
+                backgroundColor: AppColors.darkBg,
+                resizeToAvoidBottomInset: false,
+                appBar: AppBar(
+                  automaticallyImplyLeading: false,
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        margin: const EdgeInsets.only(right: 5),
-                        decoration: const BoxDecoration(
-                          color: AppColors.upColorLight,
-                          shape: BoxShape.circle,
+                      Text(
+                        isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.darkText,
                         ),
                       ),
-                      const Text(
-                        'Connected',
-                        style: TextStyle(
-                          color: AppColors.upColorLight,
-                          fontSize: 10,
+                      if (!isEditing && arrangement.showConnectionSubtitle)
+                        Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              margin: const EdgeInsets.only(right: 5),
+                              decoration: const BoxDecoration(
+                                color: AppColors.upColorLight,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const Text(
+                              'Connected',
+                              style: TextStyle(
+                                color: AppColors.upColorLight,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
                     ],
                   ),
-                ],
-              ),
-              actions: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.tune_rounded,
-                    size: 20,
-                    color: AppColors.darkTextSub,
-                  ),
-                  tooltip: 'Customise',
-                  onPressed: () => Navigator.of(ctx).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ControlCustomizationScreen(),
-                    ),
-                  ),
+                  actions: isEditing
+                      ? const []
+                      : [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.dashboard_customize_rounded,
+                              size: 20,
+                              color: AppColors.darkTextSub,
+                            ),
+                            tooltip: 'Customize Layout',
+                            onPressed: _enterCustomizationMode,
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.bluetooth_disabled,
+                              size: 20,
+                              color: AppColors.darkTextSub,
+                            ),
+                            tooltip: 'Disconnect',
+                            onPressed: controller.disconnect,
+                          ),
+                        ],
                 ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.bluetooth_disabled,
-                    size: 20,
-                    color: AppColors.darkTextSub,
-                  ),
-                  tooltip: 'Disconnect',
-                  onPressed: controller.disconnect,
-                ),
-              ],
-            ),
-            body: SafeArea(
-              maintainBottomViewPadding: true,
-              child: Padding(
-                padding: metrics.bodyPadding,
-                child: Column(
-                  children: [
-                    _buildSafetyActionPanel(
-                      controller: controller,
-                      compact: metrics.isCompact,
-                      height: metrics.estopHeight,
-                      labels: labels,
-                    ),
-                    SizedBox(height: metrics.itemSpacing),
-                    if (metrics.showSensorRow) ...[
-                      _sensorRow(controller),
-                      SizedBox(height: metrics.itemSpacing),
-                    ],
-                    if (metrics.showLEDs) ...[
-                      _liveLEDs(controller),
-                      SizedBox(height: metrics.itemSpacing),
-                    ],
-                    // ── Hoist controls – Expanded fills all remaining space
-                    // (prevents overflow on compact / landscape screens).
-                    Expanded(
-                      child: layoutCfg.widgetType == ControlWidgetType.pushButton
-                          ? PushControlGroup(
-                              pushConfig: layoutCfg.pushConfig,
-                              upLabel: labels.upLabel,
-                              downLabel: labels.downLabel,
-                              isDisabled:
-                                  controller.estopLatched ||
-                                  !controller.isConnected,
-                              height: sizing.resolvedHoistHeight,
-                              upActive:
-                                  controller.hoistState == HoistState.upSlow,
-                              downActive:
-                                  controller.hoistState == HoistState.downSlow,
-                              onUpChanged: (state) {
-                                setState(() {
-                                  _upActive = state != ControlState.idle;
-                                });
-                                controller.setHoistCommand(
-                                  isUp: true,
-                                  state: state,
-                                );
-                              },
-                              onDownChanged: (state) {
-                                setState(() {
-                                  _downActive = state != ControlState.idle;
-                                });
-                                controller.setHoistCommand(
-                                  isUp: false,
-                                  state: state,
-                                );
-                              },
-                            )
-                          : Row(
-                              children: [
-                                Expanded(
-                                  child: CraneSliderButton(
-                                    label: labels.upLabel,
-                                    icon: Icons.arrow_upward_rounded,
-                                    isUp: true,
-                                    // Disabled when e-stop is active, disconnected,
-                                    // OR the DOWN button is currently active (mutual exclusion).
-                                    isDisabled:
-                                        controller.estopLatched ||
-                                        !controller.isConnected ||
-                                        _downActive,
-                                    onCommandChanged: (state) {
-                                      setState(() {
-                                        _upActive = state != ControlState.idle;
-                                      });
-                                      controller.setHoistCommand(
-                                        isUp: true,
-                                        state: state,
-                                      );
-                                    },
-                                    externalState:
-                                        switch (controller.hoistState) {
-                                          HoistState.upSlow => ControlState.slow,
-                                          HoistState.upFast => ControlState.fast,
-                                          _ => ControlState.idle,
-                                        },
-                                  ),
+                body: SafeArea(
+                  maintainBottomViewPadding: true,
+                  child: Padding(
+                    padding: metrics.bodyPadding,
+                    child: Column(
+                      children: [
+                        SafetyActionPanel(
+                          estopLatched: controller.estopLatched,
+                          compact: metrics.isCompact,
+                          height: metrics.estopHeight,
+                          instructionLabel: labels.estopSwipeInstruction,
+                          resetLabel: labels.resetEstopLabel,
+                          onEStopTap: _onEStopTap,
+                          onResetActivated: _onResetEStopTap,
+                        ),
+                        SizedBox(height: metrics.itemSpacing),
+                        if (metrics.showSensorRow) ...[
+                          EditableControlTile(
+                            isEditing: isEditing,
+                            onDelete: () => customCtrl.applyDraftChange(
+                              layoutCfg.copyWith(
+                                arrangementConfig: arrangement.copyWith(
+                                  showSensorRow: false,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: CraneSliderButton(
-                                    label: labels.downLabel,
-                                    icon: Icons.arrow_downward_rounded,
-                                    isUp: false,
-                                    // Disabled when e-stop is active, disconnected,
-                                    // OR the UP button is currently active (mutual exclusion).
-                                    isDisabled:
-                                        controller.estopLatched ||
-                                        !controller.isConnected ||
-                                        _upActive,
-                                    onCommandChanged: (state) {
-                                      setState(() {
-                                        _downActive = state != ControlState.idle;
-                                      });
-                                      controller.setHoistCommand(
-                                        isUp: false,
-                                        state: state,
-                                      );
-                                    },
-                                    externalState: switch (controller
-                                        .hoistState) {
-                                      HoistState.downSlow => ControlState.slow,
-                                      HoistState.downFast => ControlState.fast,
-                                      _ => ControlState.idle,
-                                    },
-                                  ),
+                              ),
+                            ),
+                            child: SensorRow(a1: controller.a1, a2: controller.a2),
+                          ),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+                        if (metrics.showLEDs) ...[
+                          EditableControlTile(
+                            isEditing: isEditing,
+                            onDelete: () => customCtrl.applyDraftChange(
+                              layoutCfg.copyWith(
+                                arrangementConfig: arrangement.copyWith(
+                                  showLiveLEDs: false,
+                                ),
+                              ),
+                            ),
+                            child: LiveLedRow(
+                              leds: [
+                                LedSpec(
+                                  label: 'ESTOP',
+                                  active: controller.ledEstop,
+                                  color: AppColors.eStopColor,
+                                  pin: 'R0_0',
+                                ),
+                                LedSpec(
+                                  label: 'UP',
+                                  active: controller.ledUp,
+                                  color: AppColors.upColor,
+                                  pin: 'Q0.1',
+                                ),
+                                LedSpec(
+                                  label: 'DOWN',
+                                  active: controller.ledDown,
+                                  color: AppColors.downColor,
+                                  pin: 'Q0.2',
+                                ),
+                                LedSpec(
+                                  label: 'FAST',
+                                  active: controller.ledFast,
+                                  color: AppColors.fastColor,
+                                  pin: 'Q0.3',
                                 ),
                               ],
                             ),
+                          ),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+                        // â”€â”€ Hoist controls â€“ Expanded fills all remaining space
+                        // (prevents overflow on compact / landscape screens).
+                        Expanded(
+                          child: _hoistControls(
+                            controller: controller,
+                            labels: labels,
+                            axisCfg: hoistAxisCfg,
+                            roleStyles: layoutCfg.roleStyles,
+                            sizing: sizing,
+                            isEditing: isEditing,
+                          ),
+                        ),
+
+                        SizedBox(height: metrics.itemSpacing),
+
+                        StatusBarChip(
+                          color: controller.estopLatched
+                              ? AppColors.eStopColor
+                              : switch (controller.hoistState) {
+                                  HoistState.idle => AppColors.idleColor,
+                                  HoistState.upSlow => AppColors.upColor,
+                                  HoistState.upFast => AppColors.fastColor,
+                                  HoistState.downSlow => AppColors.downColor,
+                                  HoistState.downFast => AppColors.fastColor,
+                                },
+                          label: controller.statusLabel,
+                        ),
+
+                        SizedBox(height: metrics.itemSpacing),
+                      ],
                     ),
-          
-                    SizedBox(height: metrics.itemSpacing),
-          
-                    // ── Status bar
-                    _buildStatusBar(controller),
-          
-                    SizedBox(height: metrics.itemSpacing),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
+            if (isEditing)
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: CustomizationModeBar(),
+              ),
+          ],
         );
       },
     );
   }
 
-  Widget _buildSafetyActionPanel({
+  Widget _hoistControls({
     required CraneController controller,
-    required bool compact,
-    required double height,
     required ControlLabelConfig labels,
+    required AxisControlConfig axisCfg,
+    required RoleStyleConfig roleStyles,
+    required ControlWidgetSizeConfig sizing,
+    required bool isEditing,
   }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      width: double.infinity,
-      child: controller.estopLatched
-          ? _buildResetSection(labels.resetEstopLabel, compact: compact)
-          : _buildEStopButton(
-              instructionLabel: labels.estopSwipeInstruction,
-              compact: compact,
-              height: height,
-            ),
-    );
-  }
+    final isDisabled = controller.estopLatched || !controller.isConnected;
+    final upStyle = roleStyles.forRole(ControlRole.hoistUp);
+    final downStyle = roleStyles.forRole(ControlRole.hoistDown);
 
-  Widget _liveLEDs(CraneController controller) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _ledIndicator(
-            label: 'ESTOP',
-            active: controller.ledEstop,
-            color: AppColors.eStopColor,
-            pinName: 'R0_0',
-          ),
-          _ledIndicator(
-            label: 'UP',
-            active: controller.ledUp,
-            color: AppColors.upColor,
-            pinName: 'Q0.1',
-          ),
-          _ledIndicator(
-            label: 'DOWN',
-            active: controller.ledDown,
-            color: AppColors.downColor,
-            pinName: 'Q0.2',
-          ),
-          _ledIndicator(
-            label: 'FAST',
-            active: controller.ledFast,
-            color: AppColors.fastColor,
-            pinName: 'Q0.3',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _ledIndicator({
-    required String label,
-    required Color color,
-    required bool active,
-    required String pinName,
-  }) {
-    return Column(
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: active ? 1.0 : 0.0),
-          duration: const Duration(milliseconds: 300),
-          builder: (context, value, child) {
-            return Container(
-              width: 9,
-              height: 9,
-              decoration: BoxDecoration(
-                color: active ? color : Colors.grey.shade300,
-                shape: BoxShape.circle,
-
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: color.withAlpha(153),
-                          blurRadius: (4 * value),
-                          spreadRadius: 1,
-                        ),
-                      ]
-                    : [],
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 4),
-        Text(
-          pinName,
-          style: const TextStyle(
-            fontSize: 6,
-            fontWeight: FontWeight.bold,
-            color: AppColors.darkTextSub,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 8,
-            color: active ? color : AppColors.darkTextMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sensorRow(CraneController controller) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _sensorCard(
-          label: 'Load 1',
-          tag: 'A1',
-          value: controller.a1,
-          color: AppColors.upColor,
-        ),
-        const SizedBox(width: 8),
-        _sensorCard(
-          label: 'Load 2',
-          tag: 'A2',
-          value: controller.a2,
-          color: AppColors.downColor,
-        ),
-      ],
-    );
-  }
-
-  Widget _sensorCard({
-    required String label,
-    required String tag,
-    required int value,
-    required Color color,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.darkBorder),
-        ),
-        child: Row(
+    switch (axisCfg.widgetType) {
+      case ControlWidgetType.pushButton:
+        return Row(
           children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: color.withAlpha(25),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Center(
-                child: Text(
-                  tag,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color,
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () =>
+                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+                child: SizedBox(
+                  height: axisCfg.resolvedHeight,
+                  child: UpPushControlButton(
+                    label: labels.upLabel,
+                    isActive: controller.hoistState == HoistState.upSlow,
+                    isDisabled: isDisabled,
+                    isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                    colorOverride: upStyle.primaryColor,
+                    colorOverrideLight: upStyle.activeColor,
+                    onCommandChanged: (state) {
+                      setState(() => _upActive = state != ControlState.idle);
+                      controller.setHoistCommand(isUp: true, state: state);
+                    },
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label.toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.darkTextSub,
-                      fontSize: 8,
-                    ),
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () => ButtonEditSheet.showForRole(
+                  context,
+                  ControlRole.hoistDown,
+                ),
+                child: SizedBox(
+                  height: axisCfg.resolvedHeight,
+                  child: DownPushControlButton(
+                    label: labels.downLabel,
+                    isActive: controller.hoistState == HoistState.downSlow,
+                    isDisabled: isDisabled,
+                    isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                    colorOverride: downStyle.primaryColor,
+                    colorOverrideLight: downStyle.activeColor,
+                    onCommandChanged: (state) {
+                      setState(() => _downActive = state != ControlState.idle);
+                      controller.setHoistCommand(isUp: false, state: state);
+                    },
                   ),
-                  Text(
-                    '$value',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.darkText,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
+        );
 
-  // ── Status bar ──────────────────────────────────────────────────────────────
-
-  Widget _buildStatusBar(CraneController controller) {
-    final Color c = controller.estopLatched
-        ? AppColors.eStopColor
-        : switch (controller.hoistState) {
-            HoistState.idle => AppColors.idleColor,
-            HoistState.upSlow => AppColors.upColor,
-            HoistState.upFast => AppColors.fastColor,
-            HoistState.downSlow => AppColors.downColor,
-            HoistState.downFast => AppColors.fastColor,
-          };
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: c.withAlpha(31),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: c.withAlpha(128)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            controller.statusLabel,
-            style: TextStyle(
-              color: c,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              letterSpacing: 0.8,
+      case ControlWidgetType.toggle:
+        return Row(
+          children: [
+            Expanded(
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () =>
+                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+                child: ToggleSwitchButton(
+                  label: labels.upLabel,
+                  icon: Icons.arrow_upward_rounded,
+                  activeColor: upStyle.resolvePrimary(AppColors.upColor),
+                  activeColorLight: upStyle.resolveActive(AppColors.upColorLight),
+                  isActive: controller.hoistState == HoistState.upSlow,
+                  isDisabled: isDisabled || _downActive,
+                  isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                  style: upStyle,
+                  onCommandChanged: (state) {
+                    setState(() => _upActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: true, state: state);
+                  },
+                ),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── E-Stop button ───────────────────────────────────────────────────────────
-
-  Widget _buildEStopButton({
-    required double height,
-    required String instructionLabel,
-    required bool compact,
-  }) {
-    return Material(
-      // Wrap with Material for ripple effect
-      color: Colors.transparent,
-      child: InkWell(
-        // Use InkWell instead of GestureDetector
-        onTap: _onEStopTap,
-        borderRadius: BorderRadius.circular(14),
-        splashColor: Colors.white.withAlpha(50),
-        highlightColor: Colors.white.withAlpha(20),
-        child: Container(
-          width: double.infinity,
-          constraints: BoxConstraints(minHeight: compact ? 100 : 100),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF6B0000), AppColors.eStopColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            const SizedBox(width: 12),
+            Expanded(
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () => ButtonEditSheet.showForRole(
+                  context,
+                  ControlRole.hoistDown,
+                ),
+                child: ToggleSwitchButton(
+                  label: labels.downLabel,
+                  icon: Icons.arrow_downward_rounded,
+                  activeColor: downStyle.resolvePrimary(AppColors.downColor),
+                  activeColorLight: downStyle.resolveActive(
+                    AppColors.downColorLight,
+                  ),
+                  isActive: controller.hoistState == HoistState.downSlow,
+                  isDisabled: isDisabled || _upActive,
+                  isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                  style: downStyle,
+                  onCommandChanged: (state) {
+                    setState(() => _downActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: false, state: state);
+                  },
+                ),
+              ),
             ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.eStopColor.withAlpha(100),
-                blurRadius: 14,
-                spreadRadius: 2,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: compact ? 32 : 34,
-                height: compact ? 32 : 34,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(31),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withAlpha(64),
-                    width: 2,
-                  ),
-                ),
-                child: const Icon(
-                  Icons.power_settings_new,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-              SizedBox(width: compact ? 10 : 12),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'STOP',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  Text(
-                    'Tap to stop all crane operations',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: compact ? 9 : 10,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+          ],
+        );
 
-  // ── ESTOP active → Reset section ────────────────────────────────────────────
-
-  Widget _buildResetSection(String resetLabel, {bool compact = false}) {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(compact ? 8 : 10),
-          decoration: BoxDecoration(
-            color: AppColors.eStopColor.withAlpha(31),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.eStopColor.withAlpha(153),
-              width: 2,
+      case ControlWidgetType.sliderButton:
+      case ControlWidgetType.joystick:
+      case ControlWidgetType.rotary:
+        return Row(
+          children: [
+            Expanded(
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () =>
+                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+                child: CraneSliderButton(
+                  label: labels.upLabel,
+                  icon: Icons.arrow_upward_rounded,
+                  isUp: true,
+                  axisColor: upStyle.primaryColor,
+                  // Disabled when e-stop is active, disconnected,
+                  // OR the DOWN button is currently active (mutual exclusion).
+                  isDisabled: isDisabled || _downActive,
+                  onCommandChanged: (state) {
+                    setState(() => _upActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: true, state: state);
+                  },
+                  externalState: switch (controller.hoistState) {
+                    HoistState.upSlow => ControlState.slow,
+                    HoistState.upFast => ControlState.fast,
+                    _ => ControlState.idle,
+                  },
+                ),
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: compact ? 28 : 32,
-                height: compact ? 28 : 32,
-                decoration: const BoxDecoration(
-                  color: AppColors.eStopColor,
-                  shape: BoxShape.circle,
+            const SizedBox(width: 12),
+            Expanded(
+              child: EditableControlTile(
+                isEditing: isEditing,
+                onCustomize: () => ButtonEditSheet.showForRole(
+                  context,
+                  ControlRole.hoistDown,
                 ),
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: compact ? 15 : 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'EMERGENCY STOP ACTIVE',
-                      style: TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    Text(
-                      'All crane controls are locked',
-                      style: TextStyle(
-                        color: AppColors.darkTextSub,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+                child: CraneSliderButton(
+                  label: labels.downLabel,
+                  icon: Icons.arrow_downward_rounded,
+                  isUp: false,
+                  axisColor: downStyle.primaryColor,
+                  // Disabled when e-stop is active, disconnected,
+                  // OR the UP button is currently active (mutual exclusion).
+                  isDisabled: isDisabled || _upActive,
+                  onCommandChanged: (state) {
+                    setState(() => _downActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: false, state: state);
+                  },
+                  externalState: switch (controller.hoistState) {
+                    HoistState.downSlow => ControlState.slow,
+                    HoistState.downFast => ControlState.fast,
+                    _ => ControlState.idle,
+                  },
                 ),
               ),
-            ],
-          ),
-        ),
-        SizedBox(height: compact ? 6 : 8),
-        EStopSwipeButton(
-          onActivated: () {
-            _onResetEStopTap();
-          },
-          instructionLabel: 'SWIPE TO RESET E-STOP',
-          instructionSubtitle: 'Slide right to clear emergency lockout',
-        ),
-      ],
-    );
+            ),
+          ],
+        );
+    }
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -10,14 +11,21 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
-import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
 import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
 import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
-import 'package:rev_crane_control_ops/screens/settings/control_customization_screen.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
+import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
+import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
+import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
+import 'package:rev_crane_control_ops/widgets/customization/toggle_switch_button.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
@@ -44,7 +52,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   bool _tripRevActive = false;
 
   bool _isBackNavigating = false;
-  bool _isResetDialogVisible = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
 
@@ -73,7 +80,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   }
 
   void _dismissResetDialogIfVisible() {
-    if (!mounted || !_isResetDialogVisible || _isDismissingResetDialog) return;
+    if (!mounted || _resetDialogContext == null || _isDismissingResetDialog) return;
     _isDismissingResetDialog = true;
     FocusManager.instance.primaryFocus?.unfocus();
     final dialogContext = _resetDialogContext;
@@ -108,16 +115,11 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   }
 
   // ── E-Stop ──────────────────────────────────────────────────────────────────
+  // Deliberately reachable at all times, including while Customization Mode
+  // is active — the safety action panel is never gated by AbsorbPointer.
 
   Future<void> _onEStopTap() async {
-    setState(() {
-      _vertUpActive = false;
-      _vertDownActive = false;
-      _travLeftActive = false;
-      _travRightActive = false;
-      _tripFwdActive = false;
-      _tripRevActive = false;
-    });
+    _resetLocalButtonStates();
     final controller = context.read<CraneController>();
     await controller.triggerEStop();
     Vibration.vibrate(duration: 600, amplitude: 255);
@@ -152,30 +154,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       Vibration.vibrate(duration: 100);
     }
   }
-
-  // Future<bool> _showResetDialog(CraneController controller) async {
-  //   if (!mounted || _isResetDialogVisible) return false;
-  //   if (controller.currentScreen != AppScreen.plc38Control ||
-  //       !controller.isConnected) {
-  //     return false;
-  //   }
-  //   _isResetDialogVisible = true;
-  //   try {
-  //     final result = await showDialog<bool>(
-  //       context: context,
-  //       barrierDismissible: false,
-  //       builder: (dialogContext) {
-  //         _resetDialogContext = dialogContext;
-  //         return _Plc38ResetDialog(controller: controller);
-  //       },
-  //     );
-  //     return result ?? false;
-  //   } finally {
-  //     _isResetDialogVisible = false;
-  //     _isDismissingResetDialog = false;
-  //     _resetDialogContext = null;
-  //   }
-  // }
 
   // Called by PopScope when the operator presses the back button or swipes.
   // canPop is false so didPop is always false; the method handles all navigation.
@@ -226,18 +204,36 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     });
   }
 
+  // ── Customization Mode ──────────────────────────────────────────────────────
+
+  Future<void> _enterCustomizationMode() async {
+    _resetLocalButtonStates();
+    await context.read<CustomizationModeController>().enter();
+  }
+
+  void _reorderAxis({required AxisKind moved, required AxisKind target}) {
+    final customCtrl = context.read<CustomizationModeController>();
+    final draft = customCtrl.draft;
+    final order = List<AxisKind>.from(draft.axisOrder);
+    final fromIndex = order.indexOf(moved);
+    final toIndex = order.indexOf(target);
+    if (fromIndex == -1 || toIndex == -1 || fromIndex == toIndex) return;
+    order.removeAt(fromIndex);
+    order.insert(toIndex, moved);
+    customCtrl.applyDraftChange(draft.copyWith(axisOrder: order));
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<CraneController, LayoutSettingsController>(
-      builder: (ctx, controller, layoutCtrl, _) {
-        final layoutCfg = layoutCtrl.config;
+    return Consumer3<CraneController, LayoutSettingsController, CustomizationModeController>(
+      builder: (ctx, controller, layoutCtrl, customCtrl, _) {
+        final isEditing = customCtrl.isActive;
+        final layoutCfg = isEditing ? customCtrl.draft : layoutCtrl.config;
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
-        final usePushButtons =
-            layoutCfg.widgetType == ControlWidgetType.pushButton;
         final controlsDisabled =
             controller.estopLatched || !controller.isConnected;
         final vertUpActive =
@@ -273,429 +269,809 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
 
-        return PopScope(
-          canPop: false,
-          onPopInvokedWithResult: _onBackAttempted,
-          child: Scaffold(
-          backgroundColor: AppColors.darkBg,
-          resizeToAvoidBottomInset: false,
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  screenTitle,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.darkText,
-                  ),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(
-                        color: AppColors.upColorLight,
-                        shape: BoxShape.circle,
+        return Stack(
+          children: [
+            PopScope(
+              canPop: !isEditing,
+              onPopInvokedWithResult: _onBackAttempted,
+              child: Scaffold(
+                backgroundColor: AppColors.darkBg,
+                resizeToAvoidBottomInset: false,
+                appBar: AppBar(
+                  automaticallyImplyLeading: false,
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.darkText,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'Connected · PLC38',
-                      style: TextStyle(
-                        color: AppColors.upColorLight,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(
-                  Icons.tune_rounded,
-                  size: 20,
-                  color: AppColors.darkTextSub,
-                ),
-                tooltip: 'Customise',
-                onPressed: () => Navigator.of(ctx).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ControlCustomizationScreen(),
+                      if (!isEditing && arrangement.showConnectionSubtitle)
+                        Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              margin: const EdgeInsets.only(right: 5),
+                              decoration: const BoxDecoration(
+                                color: AppColors.upColorLight,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const Text(
+                              'Connected · PLC38',
+                              style: TextStyle(
+                                color: AppColors.upColorLight,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
+                  actions: isEditing
+                      ? const []
+                      : [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.dashboard_customize_rounded,
+                              size: 20,
+                              color: AppColors.darkTextSub,
+                            ),
+                            tooltip: 'Customize Layout',
+                            onPressed: _enterCustomizationMode,
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.bluetooth_disabled,
+                              size: 20,
+                              color: AppColors.darkTextSub,
+                            ),
+                            tooltip: 'Disconnect',
+                            onPressed: controller.disconnect,
+                          ),
+                        ],
                 ),
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.bluetooth_disabled,
-                  size: 20,
-                  color: AppColors.darkTextSub,
-                ),
-                tooltip: 'Disconnect',
-                onPressed: controller.disconnect,
-              ),
-            ],
-          ),
-          body: SafeArea(
-            maintainBottomViewPadding: true,
-            child: Padding(
-              padding: metrics.bodyPadding,
-              child: Column(
-                children: [
-                  // ── E-Stop / Reset ──────────────────────────────────────
-                  _buildSafetyActionPanel(
-                    controller: controller,
-                    compact: metrics.isCompact,
-                    height: metrics.estopHeight,
-                    labels: labels,
-                  ),
-                  SizedBox(height: metrics.itemSpacing),
-
-                  // ── Sensor row ────────────────────────────────────────────────
-                  if (metrics.showSensorRow) ...[
-                    _sensorRow(controller),
-                    SizedBox(height: metrics.itemSpacing),
-                  ],
-
-                  // ── PLC38 10-output LED indicators ──────────────────────
-                  if (metrics.showLEDs) ...[
-                    _liveLEDs(controller),
-                    SizedBox(height: metrics.itemSpacing),
-                  ],
-
-                  // ── Axis controls (3 rows) ──────────────────────────────
-                  Expanded(
+                body: SafeArea(
+                  maintainBottomViewPadding: true,
+                  child: Padding(
+                    padding: metrics.bodyPadding,
                     child: Column(
                       children: [
-                        _axisRow(
-                          label: 'HOIST',
-                          icon: Icons.swap_vert_rounded,
-                          color: AppColors.upColor,
-                          children: [
-                            if (usePushButtons)
-                              ..._verticalPushButtons(
-                                controller: controller,
-                                labels: labels,
-                                pushConfig: layoutCfg.pushConfig,
-                                controlsDisabled: controlsDisabled,
-                                buttonHeight: sizing.resolvedHoistHeight,
-                                upActive: vertUpActive,
-                                downActive: vertDownActive,
-                              )
-                            else
-                              ..._verticalSliders(
-                                controller: controller,
-                                labels: labels,
-                                controlsDisabled: controlsDisabled,
-                                upActive: vertUpActive,
-                                downActive: vertDownActive,
-                              ),
-                          ],
+                        // ── E-Stop / Reset ──────────────────────────────────────
+                        SafetyActionPanel(
+                          estopLatched: controller.estopLatched,
+                          compact: metrics.isCompact,
+                          height: metrics.estopHeight,
+                          instructionLabel: labels.estopSwipeInstruction,
+                          resetLabel: labels.resetEstopLabel,
+                          onEStopTap: _onEStopTap,
+                          onResetActivated: _onResetEStopTap,
                         ),
                         SizedBox(height: metrics.itemSpacing),
 
-                        _axisRow(
-                          label: 'TRAVERSE',
-                          icon: Icons.swap_horiz_rounded,
-                          color: AppColors.traverseColor,
-                          children: [
-                            if (usePushButtons)
-                              ..._traversePushButtons(
-                                controller: controller,
-                                labels: labels,
-                                pushConfig: layoutCfg.pushConfig,
-                                controlsDisabled: controlsDisabled,
-                                buttonHeight: sizing.resolvedHoistHeight,
-                                leftActive: travLeftActive,
-                                rightActive: travRightActive,
-                              )
-                            else
-                              Expanded(
-                                child: CrossTravelSlider(
-                                  leftLabel: labels.leftLabel,
-                                  rightLabel: labels.rightLabel,
-                                  isDisabled: controlsDisabled,
-                                  onCommandChanged:
-                                      ({
-                                        required bool isLeft,
-                                        required ControlState state,
-                                      }) {
-                                        setState(() {
-                                          _travLeftActive =
-                                              isLeft &&
-                                              state != ControlState.idle;
-                                          _travRightActive =
-                                              !isLeft &&
-                                              state != ControlState.idle;
-                                        });
-                                        controller.setTraverseCommand(
-                                          isLeft: isLeft,
-                                          state: state,
-                                        );
-                                      },
+                        // ── Sensor row ────────────────────────────────────────
+                        if (metrics.showSensorRow) ...[
+                          EditableControlTile(
+                            isEditing: isEditing,
+                            onDelete: () => customCtrl.applyDraftChange(
+                              layoutCfg.copyWith(
+                                arrangementConfig: arrangement.copyWith(
+                                  showSensorRow: false,
                                 ),
                               ),
-                          ],
+                            ),
+                            child: SensorRow(a1: controller.a1, a2: controller.a2),
+                          ),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+
+                        // ── PLC38 10-output LED indicators ──────────────────────
+                        if (metrics.showLEDs) ...[
+                          EditableControlTile(
+                            isEditing: isEditing,
+                            onDelete: () => customCtrl.applyDraftChange(
+                              layoutCfg.copyWith(
+                                arrangementConfig: arrangement.copyWith(
+                                  showLiveLEDs: false,
+                                ),
+                              ),
+                            ),
+                            child: LiveLedRow(
+                              leds: [
+                                LedSpec(
+                                  label: 'ESTOP',
+                                  active: controller.ledEstop,
+                                  color: AppColors.eStopColor,
+                                  pin: 'Q_ES',
+                                ),
+                                LedSpec(
+                                  label: 'UP',
+                                  active: controller.ledUp,
+                                  color: AppColors.upColor,
+                                  pin: 'Q0.1',
+                                ),
+                                LedSpec(
+                                  label: 'DN',
+                                  active: controller.ledDown,
+                                  color: AppColors.downColor,
+                                  pin: 'Q0.2',
+                                ),
+                                LedSpec(
+                                  label: 'FU',
+                                  active: controller.ledFast,
+                                  color: AppColors.fastColor,
+                                  pin: 'Q0.3',
+                                ),
+                                LedSpec(
+                                  label: 'LT',
+                                  active: controller.ledLeft,
+                                  color: AppColors.traverseColor,
+                                  pin: 'Q0.4',
+                                ),
+                                LedSpec(
+                                  label: 'RT',
+                                  active: controller.ledRight,
+                                  color: AppColors.traverseColor,
+                                  pin: 'Q0.5',
+                                ),
+                                LedSpec(
+                                  label: 'FL',
+                                  active: controller.ledFastLr,
+                                  color: AppColors.fastColor,
+                                  pin: 'Q0.6',
+                                ),
+                                LedSpec(
+                                  label: 'FW',
+                                  active: controller.ledForward,
+                                  color: AppColors.travelColor,
+                                  pin: 'Q0.7',
+                                ),
+                                LedSpec(
+                                  label: 'RV',
+                                  active: controller.ledReverse,
+                                  color: AppColors.travelColor,
+                                  pin: 'Q0.8',
+                                ),
+                                LedSpec(
+                                  label: 'FB',
+                                  active: controller.ledFastFb,
+                                  color: AppColors.fastColor,
+                                  pin: 'Q0.9',
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+
+                        // ── Axis controls (reorderable while editing) ───────────
+                        Expanded(
+                          child: Column(
+                            children: [
+                              for (var i = 0; i < layoutCfg.axisOrder.length; i++) ...[
+                                _axisSection(
+                                  layoutCfg.axisOrder[i],
+                                  isEditing: isEditing,
+                                  card: _cardForAxis(
+                                    layoutCfg.axisOrder[i],
+                                    controller: controller,
+                                    labels: labels,
+                                    layoutCfg: layoutCfg,
+                                    sizing: sizing,
+                                    controlsDisabled: controlsDisabled,
+                                    isEditing: isEditing,
+                                    vertUpActive: vertUpActive,
+                                    vertDownActive: vertDownActive,
+                                    travLeftActive: travLeftActive,
+                                    travRightActive: travRightActive,
+                                    tripFwdActive: tripFwdActive,
+                                    tripRevActive: tripRevActive,
+                                  ),
+                                ),
+                                if (i != layoutCfg.axisOrder.length - 1)
+                                  SizedBox(height: metrics.itemSpacing),
+                              ],
+                            ],
+                          ),
                         ),
+
                         SizedBox(height: metrics.itemSpacing),
 
-                        _axisRow(
-                          label: 'TRAVEL',
-                          icon: Icons.open_in_full_rounded,
-                          color: AppColors.travelColor,
-                          children: [
-                            if (usePushButtons)
-                              ..._travelPushButtons(
-                                controller: controller,
-                                labels: labels,
-                                pushConfig: layoutCfg.pushConfig,
-                                controlsDisabled: controlsDisabled,
-                                buttonHeight: sizing.resolvedHoistHeight,
-                                forwardActive: tripFwdActive,
-                                reverseActive: tripRevActive,
-                              )
-                            else
-                              ..._travelSliders(
-                                controller: controller,
-                                labels: labels,
-                                controlsDisabled: controlsDisabled,
-                                forwardActive: tripFwdActive,
-                                reverseActive: tripRevActive,
-                              ),
-                          ],
+                        // ── Status bar ────────────────────────────────────────
+                        StatusBarChip(
+                          color: controller.estopLatched
+                              ? AppColors.eStopColor
+                              : controller.activeCommand.isIdle
+                              ? AppColors.idleColor
+                              : AppColors.upColorLight,
+                          label: controller.activeCommand.statusLabel,
                         ),
+                        SizedBox(height: metrics.itemSpacing),
                       ],
                     ),
                   ),
-
-                  SizedBox(height: metrics.itemSpacing),
-
-                  // ── Status bar ──────────────────────────────────────────────────────
-                  _buildStatusBar(controller),
-                  SizedBox(height: metrics.itemSpacing),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+            if (isEditing)
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: CustomizationModeBar(),
+              ),
+          ],
         );
       },
     );
   }
 
-  // ── External state helpers ─────────────────────────────────────────────────
-
-  List<Widget> _verticalSliders({
+  Widget _cardForAxis(
+    AxisKind kind, {
     required CraneController controller,
     required ControlLabelConfig labels,
+    required ControlLayoutConfig layoutCfg,
+    required ControlWidgetSizeConfig sizing,
+    required bool controlsDisabled,
+    required bool isEditing,
+    required bool vertUpActive,
+    required bool vertDownActive,
+    required bool travLeftActive,
+    required bool travRightActive,
+    required bool tripFwdActive,
+    required bool tripRevActive,
+  }) {
+    switch (kind) {
+      case AxisKind.hoist:
+        return _axisCard(
+          label: 'HOIST',
+          icon: Icons.swap_vert_rounded,
+          color: AppColors.upColor,
+          showDragHandle: isEditing,
+          children: _hoistAxisContent(
+            controller: controller,
+            labels: labels,
+            axisCfg: layoutCfg.axisConfigs.hoist,
+            roleStyles: layoutCfg.roleStyles,
+            controlsDisabled: controlsDisabled,
+            upActive: vertUpActive,
+            downActive: vertDownActive,
+            isEditing: isEditing,
+          ),
+        );
+      case AxisKind.traverse:
+        return _axisCard(
+          label: 'TRAVERSE',
+          icon: Icons.swap_horiz_rounded,
+          color: AppColors.traverseColor,
+          showDragHandle: isEditing,
+          children: _traverseAxisContent(
+            controller: controller,
+            labels: labels,
+            axisCfg: layoutCfg.axisConfigs.traverse,
+            roleStyles: layoutCfg.roleStyles,
+            controlsDisabled: controlsDisabled,
+            leftActive: travLeftActive,
+            rightActive: travRightActive,
+            isEditing: isEditing,
+          ),
+        );
+      case AxisKind.travel:
+        return _axisCard(
+          label: 'TRAVEL',
+          icon: Icons.open_in_full_rounded,
+          color: AppColors.travelColor,
+          showDragHandle: isEditing,
+          children: _travelAxisContent(
+            controller: controller,
+            labels: labels,
+            axisCfg: layoutCfg.axisConfigs.travel,
+            roleStyles: layoutCfg.roleStyles,
+            controlsDisabled: controlsDisabled,
+            forwardActive: tripFwdActive,
+            reverseActive: tripRevActive,
+            isEditing: isEditing,
+          ),
+        );
+    }
+  }
+
+  // ── HOIST axis content ──────────────────────────────────────────────────────
+
+  List<Widget> _hoistAxisContent({
+    required CraneController controller,
+    required ControlLabelConfig labels,
+    required AxisControlConfig axisCfg,
+    required RoleStyleConfig roleStyles,
     required bool controlsDisabled,
     required bool upActive,
     required bool downActive,
+    required bool isEditing,
   }) {
-    return [
-      Expanded(
-        child: CraneSliderButton(
-          label: labels.upLabel,
-          icon: Icons.arrow_upward_rounded,
-          isUp: true,
-          isDisabled: controlsDisabled || downActive,
-          onCommandChanged: (state) {
-            setState(() => _vertUpActive = state != ControlState.idle);
-            controller.setHoistCommand(isUp: true, state: state);
-          },
-          externalState: _externalVertState(controller, isUp: true),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: CraneSliderButton(
-          label: labels.downLabel,
-          icon: Icons.arrow_downward_rounded,
-          isUp: false,
-          isDisabled: controlsDisabled || upActive,
-          onCommandChanged: (state) {
-            setState(() => _vertDownActive = state != ControlState.idle);
-            controller.setHoistCommand(isUp: false, state: state);
-          },
-          externalState: _externalVertState(controller, isUp: false),
-        ),
-      ),
-    ];
+    final upStyle = roleStyles.forRole(ControlRole.hoistUp);
+    final downStyle = roleStyles.forRole(ControlRole.hoistDown);
+
+    switch (axisCfg.widgetType) {
+      case ControlWidgetType.pushButton:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: UpPushControlButton(
+                  label: labels.upLabel,
+                  isActive: upActive,
+                  isDisabled: controlsDisabled || downActive,
+                  isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                  colorOverride: upStyle.primaryColor,
+                  colorOverrideLight: upStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _vertUpActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: true, state: state);
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistDown),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: DownPushControlButton(
+                  label: labels.downLabel,
+                  isActive: downActive,
+                  isDisabled: controlsDisabled || upActive,
+                  isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                  colorOverride: downStyle.primaryColor,
+                  colorOverrideLight: downStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _vertDownActive = state != ControlState.idle);
+                    controller.setHoistCommand(isUp: false, state: state);
+                  },
+                ),
+              ),
+            ),
+          ),
+        ];
+
+      case ControlWidgetType.toggle:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+              child: ToggleSwitchButton(
+                label: labels.upLabel,
+                icon: Icons.arrow_upward_rounded,
+                activeColor: upStyle.resolvePrimary(AppColors.upColor),
+                activeColorLight: upStyle.resolveActive(AppColors.upColorLight),
+                isActive: upActive,
+                isDisabled: controlsDisabled || downActive,
+                isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                style: upStyle,
+                onCommandChanged: (state) {
+                  setState(() => _vertUpActive = state != ControlState.idle);
+                  controller.setHoistCommand(isUp: true, state: state);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistDown),
+              child: ToggleSwitchButton(
+                label: labels.downLabel,
+                icon: Icons.arrow_downward_rounded,
+                activeColor: downStyle.resolvePrimary(AppColors.downColor),
+                activeColorLight: downStyle.resolveActive(
+                  AppColors.downColorLight,
+                ),
+                isActive: downActive,
+                isDisabled: controlsDisabled || upActive,
+                isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                style: downStyle,
+                onCommandChanged: (state) {
+                  setState(() => _vertDownActive = state != ControlState.idle);
+                  controller.setHoistCommand(isUp: false, state: state);
+                },
+              ),
+            ),
+          ),
+        ];
+
+      case ControlWidgetType.sliderButton:
+      case ControlWidgetType.joystick:
+      case ControlWidgetType.rotary:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
+              child: CraneSliderButton(
+                label: labels.upLabel,
+                icon: Icons.arrow_upward_rounded,
+                isUp: true,
+                axisColor: upStyle.primaryColor,
+                isDisabled: controlsDisabled || downActive,
+                onCommandChanged: (state) {
+                  setState(() => _vertUpActive = state != ControlState.idle);
+                  controller.setHoistCommand(isUp: true, state: state);
+                },
+                externalState: _externalVertState(controller, isUp: true),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForRole(context, ControlRole.hoistDown),
+              child: CraneSliderButton(
+                label: labels.downLabel,
+                icon: Icons.arrow_downward_rounded,
+                isUp: false,
+                axisColor: downStyle.primaryColor,
+                isDisabled: controlsDisabled || upActive,
+                onCommandChanged: (state) {
+                  setState(() => _vertDownActive = state != ControlState.idle);
+                  controller.setHoistCommand(isUp: false, state: state);
+                },
+                externalState: _externalVertState(controller, isUp: false),
+              ),
+            ),
+          ),
+        ];
+    }
   }
 
-  List<Widget> _verticalPushButtons({
-    required CraneController controller,
-    required ControlLabelConfig labels,
-    required PushControlConfig pushConfig,
-    required bool controlsDisabled,
-    required double buttonHeight,
-    required bool upActive,
-    required bool downActive,
-  }) {
-    return [
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: UpPushControlButton(
-            label: labels.upLabel,
-            isActive: upActive,
-            isDisabled: controlsDisabled || downActive,
-            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _vertUpActive = state != ControlState.idle);
-              controller.setHoistCommand(isUp: true, state: state);
-            },
-          ),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: DownPushControlButton(
-            label: labels.downLabel,
-            isActive: downActive,
-            isDisabled: controlsDisabled || upActive,
-            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _vertDownActive = state != ControlState.idle);
-              controller.setHoistCommand(isUp: false, state: state);
-            },
-          ),
-        ),
-      ),
-    ];
-  }
+  // ── TRAVERSE axis content ───────────────────────────────────────────────────
 
-  List<Widget> _traversePushButtons({
+  List<Widget> _traverseAxisContent({
     required CraneController controller,
     required ControlLabelConfig labels,
-    required PushControlConfig pushConfig,
+    required AxisControlConfig axisCfg,
+    required RoleStyleConfig roleStyles,
     required bool controlsDisabled,
-    required double buttonHeight,
     required bool leftActive,
     required bool rightActive,
+    required bool isEditing,
   }) {
-    return [
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: LeftPushControlButton(
-            label: labels.leftLabel,
-            isActive: leftActive,
-            isDisabled: controlsDisabled || rightActive,
-            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _travLeftActive = state != ControlState.idle);
-              controller.setTraverseCommand(isLeft: true, state: state);
-            },
+    final leftStyle = roleStyles.forRole(ControlRole.traverseLeft);
+    final rightStyle = roleStyles.forRole(ControlRole.traverseRight);
+
+    switch (axisCfg.widgetType) {
+      case ControlWidgetType.pushButton:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.traverseLeft,
+              ),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: LeftPushControlButton(
+                  label: labels.leftLabel,
+                  isActive: leftActive,
+                  isDisabled: controlsDisabled || rightActive,
+                  isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                  colorOverride: leftStyle.primaryColor,
+                  colorOverrideLight: leftStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _travLeftActive = state != ControlState.idle);
+                    controller.setTraverseCommand(isLeft: true, state: state);
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: RightPushControlButton(
-            label: labels.rightLabel,
-            isActive: rightActive,
-            isDisabled: controlsDisabled || leftActive,
-            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _travRightActive = state != ControlState.idle);
-              controller.setTraverseCommand(isLeft: false, state: state);
-            },
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.traverseRight,
+              ),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: RightPushControlButton(
+                  label: labels.rightLabel,
+                  isActive: rightActive,
+                  isDisabled: controlsDisabled || leftActive,
+                  isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                  colorOverride: rightStyle.primaryColor,
+                  colorOverrideLight: rightStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _travRightActive = state != ControlState.idle);
+                    controller.setTraverseCommand(isLeft: false, state: state);
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    ];
+        ];
+
+      case ControlWidgetType.toggle:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.traverseLeft,
+              ),
+              child: ToggleSwitchButton(
+                label: labels.leftLabel,
+                icon: Icons.arrow_back_rounded,
+                activeColor: leftStyle.resolvePrimary(AppColors.traverseColor),
+                activeColorLight: leftStyle.resolveActive(
+                  AppColors.traverseColorLight,
+                ),
+                isActive: leftActive,
+                isDisabled: controlsDisabled || rightActive,
+                isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                style: leftStyle,
+                onCommandChanged: (state) {
+                  setState(() => _travLeftActive = state != ControlState.idle);
+                  controller.setTraverseCommand(isLeft: true, state: state);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.traverseRight,
+              ),
+              child: ToggleSwitchButton(
+                label: labels.rightLabel,
+                icon: Icons.arrow_forward_rounded,
+                activeColor: rightStyle.resolvePrimary(AppColors.traverseColor),
+                activeColorLight: rightStyle.resolveActive(
+                  AppColors.traverseColorLight,
+                ),
+                isActive: rightActive,
+                isDisabled: controlsDisabled || leftActive,
+                isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                style: rightStyle,
+                onCommandChanged: (state) {
+                  setState(() => _travRightActive = state != ControlState.idle);
+                  controller.setTraverseCommand(isLeft: false, state: state);
+                },
+              ),
+            ),
+          ),
+        ];
+
+      case ControlWidgetType.sliderButton:
+      case ControlWidgetType.joystick:
+      case ControlWidgetType.rotary:
+        // CrossTravelSlider renders both directions as one combined widget —
+        // it has no per-direction color override hook (unlike CraneSliderButton),
+        // so it's wrapped as a single axis-scoped edit target rather than two
+        // per-role tiles.
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () =>
+                  ButtonEditSheet.showForAxis(context, AxisKind.traverse),
+              child: CrossTravelSlider(
+                leftLabel: labels.leftLabel,
+                rightLabel: labels.rightLabel,
+                isDisabled: controlsDisabled,
+                onCommandChanged:
+                    ({required bool isLeft, required ControlState state}) {
+                      setState(() {
+                        _travLeftActive = isLeft && state != ControlState.idle;
+                        _travRightActive =
+                            !isLeft && state != ControlState.idle;
+                      });
+                      controller.setTraverseCommand(isLeft: isLeft, state: state);
+                    },
+              ),
+            ),
+          ),
+        ];
+    }
   }
 
-  List<Widget> _travelSliders({
+  // ── TRAVEL axis content ─────────────────────────────────────────────────────
+
+  List<Widget> _travelAxisContent({
     required CraneController controller,
     required ControlLabelConfig labels,
+    required AxisControlConfig axisCfg,
+    required RoleStyleConfig roleStyles,
     required bool controlsDisabled,
     required bool forwardActive,
     required bool reverseActive,
+    required bool isEditing,
   }) {
-    return [
-      Expanded(
-        child: CraneSliderButton(
-          label: labels.forwardLabel,
-          icon: Icons.north_rounded,
-          isUp: true,
-          axisColor: AppColors.travelColor,
-          isDisabled: controlsDisabled || reverseActive,
-          onCommandChanged: (state) {
-            setState(() => _tripFwdActive = state != ControlState.idle);
-            controller.setTravelCommand(isForward: true, state: state);
-          },
-          externalState: _externalTripState(controller, isForward: true),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: CraneSliderButton(
-          label: labels.reverseLabel,
-          icon: Icons.south_rounded,
-          isUp: false,
-          axisColor: AppColors.travelColor,
-          isDisabled: controlsDisabled || forwardActive,
-          onCommandChanged: (state) {
-            setState(() => _tripRevActive = state != ControlState.idle);
-            controller.setTravelCommand(isForward: false, state: state);
-          },
-          externalState: _externalTripState(controller, isForward: false),
-        ),
-      ),
-    ];
-  }
+    final forwardStyle = roleStyles.forRole(ControlRole.travelForward);
+    final reverseStyle = roleStyles.forRole(ControlRole.travelReverse);
 
-  List<Widget> _travelPushButtons({
-    required CraneController controller,
-    required ControlLabelConfig labels,
-    required PushControlConfig pushConfig,
-    required bool controlsDisabled,
-    required double buttonHeight,
-    required bool forwardActive,
-    required bool reverseActive,
-  }) {
-    return [
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: ForwardPushControlButton(
-            label: labels.forwardLabel,
-            isActive: forwardActive,
-            isDisabled: controlsDisabled || reverseActive,
-            isSpringReturn: pushConfig.wiringConfig.upIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _tripFwdActive = state != ControlState.idle);
-              controller.setTravelCommand(isForward: true, state: state);
-            },
+    switch (axisCfg.widgetType) {
+      case ControlWidgetType.pushButton:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelForward,
+              ),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: ForwardPushControlButton(
+                  label: labels.forwardLabel,
+                  isActive: forwardActive,
+                  isDisabled: controlsDisabled || reverseActive,
+                  isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                  colorOverride: forwardStyle.primaryColor,
+                  colorOverrideLight: forwardStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _tripFwdActive = state != ControlState.idle);
+                    controller.setTravelCommand(isForward: true, state: state);
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: _pushButtonFrame(
-          buttonHeight: buttonHeight,
-          child: ReversePushControlButton(
-            label: labels.reverseLabel,
-            isActive: reverseActive,
-            isDisabled: controlsDisabled || forwardActive,
-            isSpringReturn: pushConfig.wiringConfig.downIsSpringReturn,
-            onCommandChanged: (state) {
-              setState(() => _tripRevActive = state != ControlState.idle);
-              controller.setTravelCommand(isForward: false, state: state);
-            },
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelReverse,
+              ),
+              child: _pushButtonFrame(
+                buttonHeight: axisCfg.resolvedHeight,
+                child: ReversePushControlButton(
+                  label: labels.reverseLabel,
+                  isActive: reverseActive,
+                  isDisabled: controlsDisabled || forwardActive,
+                  isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                  colorOverride: reverseStyle.primaryColor,
+                  colorOverrideLight: reverseStyle.activeColor,
+                  onCommandChanged: (state) {
+                    setState(() => _tripRevActive = state != ControlState.idle);
+                    controller.setTravelCommand(isForward: false, state: state);
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    ];
+        ];
+
+      case ControlWidgetType.toggle:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelForward,
+              ),
+              child: ToggleSwitchButton(
+                label: labels.forwardLabel,
+                icon: Icons.north_rounded,
+                activeColor: forwardStyle.resolvePrimary(AppColors.travelColor),
+                activeColorLight: forwardStyle.resolveActive(
+                  AppColors.travelColorLight,
+                ),
+                isActive: forwardActive,
+                isDisabled: controlsDisabled || reverseActive,
+                isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
+                style: forwardStyle,
+                onCommandChanged: (state) {
+                  setState(() => _tripFwdActive = state != ControlState.idle);
+                  controller.setTravelCommand(isForward: true, state: state);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelReverse,
+              ),
+              child: ToggleSwitchButton(
+                label: labels.reverseLabel,
+                icon: Icons.south_rounded,
+                activeColor: reverseStyle.resolvePrimary(AppColors.travelColor),
+                activeColorLight: reverseStyle.resolveActive(
+                  AppColors.travelColorLight,
+                ),
+                isActive: reverseActive,
+                isDisabled: controlsDisabled || forwardActive,
+                isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
+                style: reverseStyle,
+                onCommandChanged: (state) {
+                  setState(() => _tripRevActive = state != ControlState.idle);
+                  controller.setTravelCommand(isForward: false, state: state);
+                },
+              ),
+            ),
+          ),
+        ];
+
+      case ControlWidgetType.sliderButton:
+      case ControlWidgetType.joystick:
+      case ControlWidgetType.rotary:
+        return [
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelForward,
+              ),
+              child: CraneSliderButton(
+                label: labels.forwardLabel,
+                icon: Icons.north_rounded,
+                isUp: true,
+                axisColor: forwardStyle.primaryColor ?? AppColors.travelColor,
+                isDisabled: controlsDisabled || reverseActive,
+                onCommandChanged: (state) {
+                  setState(() => _tripFwdActive = state != ControlState.idle);
+                  controller.setTravelCommand(isForward: true, state: state);
+                },
+                externalState: _externalTripState(controller, isForward: true),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: EditableControlTile(
+              isEditing: isEditing,
+              onCustomize: () => ButtonEditSheet.showForRole(
+                context,
+                ControlRole.travelReverse,
+              ),
+              child: CraneSliderButton(
+                label: labels.reverseLabel,
+                icon: Icons.south_rounded,
+                isUp: false,
+                axisColor: reverseStyle.primaryColor ?? AppColors.travelColor,
+                isDisabled: controlsDisabled || forwardActive,
+                onCommandChanged: (state) {
+                  setState(() => _tripRevActive = state != ControlState.idle);
+                  controller.setTravelCommand(isForward: false, state: state);
+                },
+                externalState: _externalTripState(controller, isForward: false),
+              ),
+            ),
+          ),
+        ];
+    }
   }
 
   Widget _pushButtonFrame({
@@ -757,561 +1133,95 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     return ControlState.idle;
   }
 
-  // ── Axis row wrapper ────────────────────────────────────────────────────────
+  // ── Axis card / reorder wrapper ─────────────────────────────────────────────
 
-  Widget _axisRow({
+  Widget _axisCard({
     required String label,
     required IconData icon,
     required Color color,
     required List<Widget> children,
+    required bool showDragHandle,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withAlpha(76)),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 10, color: color),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Expanded(child: Row(children: children)),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withAlpha(76)),
       ),
-    );
-  }
-
-  Widget _buildSafetyActionPanel({
-    required CraneController controller,
-    required bool compact,
-    required double height,
-    required ControlLabelConfig labels,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      width: double.infinity,
-      child: controller.estopLatched
-          ? _buildResetSection(labels.resetEstopLabel, compact: compact)
-          : _buildEStopButton(
-              compact: compact,
-              height: height,
-              instructionLabel: labels.estopSwipeInstruction,
-            ),
-    );
-  }
-
-  Widget _buildEStopButton({
-    required double height,
-    required bool compact,
-    required String instructionLabel,
-  }) {
-    return Material(
-      // Wrap with Material for ripple effect
-      color: Colors.transparent,
-      child: InkWell(
-        // Use InkWell instead of GestureDetector
-        onTap: _onEStopTap,
-        borderRadius: BorderRadius.circular(14),
-        splashColor: Colors.white.withAlpha(50),
-        highlightColor: Colors.white.withAlpha(20),
-        child: Container(
-          width: double.infinity,
-          constraints: BoxConstraints(minHeight: compact ? 100 : 100),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF6B0000), AppColors.eStopColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.eStopColor.withAlpha(100),
-                blurRadius: 14,
-                spreadRadius: 2,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        children: [
+          Row(
             children: [
-              Container(
-                width: compact ? 32 : 34,
-                height: compact ? 32 : 34,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(31),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withAlpha(64),
-                    width: 2,
-                  ),
-                ),
-                child: const Icon(
-                  Icons.power_settings_new,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-              SizedBox(width: compact ? 10 : 12),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'STOP',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  Text(
-                    'Tap to stop all crane operations',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: compact ? 9 : 10,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── 10-output LED indicator row ─────────────────────────────────────────────
-
-  Widget _liveLEDs(CraneController controller) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _led('ESTOP', controller.ledEstop, AppColors.eStopColor, 'Q_ES'),
-          _led('UP', controller.ledUp, AppColors.upColor, 'Q0.1'),
-          _led('DN', controller.ledDown, AppColors.downColor, 'Q0.2'),
-          _led('FU', controller.ledFast, AppColors.fastColor, 'Q0.3'),
-          _led('LT', controller.ledLeft, AppColors.traverseColor, 'Q0.4'),
-          _led('RT', controller.ledRight, AppColors.traverseColor, 'Q0.5'),
-          _led('FL', controller.ledFastLr, AppColors.fastColor, 'Q0.6'),
-          _led('FW', controller.ledForward, AppColors.travelColor, 'Q0.7'),
-          _led('RV', controller.ledReverse, AppColors.travelColor, 'Q0.8'),
-          _led('FB', controller.ledFastFb, AppColors.fastColor, 'Q0.9'),
-        ],
-      ),
-    );
-  }
-
-  Widget _led(String label, bool active, Color color, String pin) {
-    return Column(
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: active ? 1.0 : 0.0),
-          duration: const Duration(milliseconds: 300),
-          builder: (context, value, _) {
-            return Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: active ? color : Colors.grey.shade600,
-                shape: BoxShape.circle,
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: color.withAlpha(153),
-                          blurRadius: 4 * value,
-                          spreadRadius: 1,
-                        ),
-                      ]
-                    : [],
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 2),
-        Text(
-          pin,
-          style: const TextStyle(
-            fontSize: 5.5,
-            fontWeight: FontWeight.bold,
-            color: AppColors.darkTextSub,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 7,
-            color: active ? color : AppColors.darkTextMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Sensor row ──────────────────────────────────────────────────────────────
-
-  Widget _sensorRow(CraneController controller) {
-    return Row(
-      children: [
-        Expanded(
-          child: _sensorCard(
-            label: 'Load 1',
-            tag: 'A1',
-            value: controller.a1,
-            color: AppColors.upColor,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _sensorCard(
-            label: 'Load 2',
-            tag: 'A2',
-            value: controller.a2,
-            color: AppColors.downColor,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sensorCard({
-    required String label,
-    required String tag,
-    required int value,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: color.withAlpha(25),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Center(
-              child: Text(
-                tag,
+              Icon(icon, size: 10, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
                 style: TextStyle(
-                  fontSize: 10,
-                  color: color,
+                  fontSize: 8,
                   fontWeight: FontWeight.bold,
+                  color: color,
+                  letterSpacing: 1.2,
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label.toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.darkTextSub,
-                    fontSize: 8,
-                  ),
-                ),
-                Text(
-                  '$value',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.darkText,
-                  ),
+              if (showDragHandle) ...[
+                const Spacer(),
+                const Icon(
+                  Icons.drag_indicator_rounded,
+                  size: 12,
+                  color: AppColors.darkTextSub,
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Status bar ──────────────────────────────────────────────────────────────
-
-  Widget _buildStatusBar(CraneController controller) {
-    final Color c = controller.estopLatched
-        ? AppColors.eStopColor
-        : controller.activeCommand.isIdle
-        ? AppColors.idleColor
-        : AppColors.upColorLight;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: c.withAlpha(31),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: c.withAlpha(128)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              controller.activeCommand.statusLabel,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: c,
-                fontWeight: FontWeight.bold,
-                fontSize: 11,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── E-Stop button ───────────────────────────────────────────────────────────
-
-  // ── Reset section ───────────────────────────────────────────────────────────
-
-  Widget _buildResetSection(String resetLabel, {bool compact = false}) {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(compact ? 8 : 10),
-          decoration: BoxDecoration(
-            color: AppColors.eStopColor.withAlpha(31),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.eStopColor.withAlpha(153),
-              width: 2,
-            ),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: compact ? 13 : 16,
-                backgroundColor: AppColors.eStopColor,
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: compact ? 15 : 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'EMERGENCY STOP ACTIVE',
-                      style: TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    Text(
-                      'All crane controls are locked',
-                      style: TextStyle(
-                        color: AppColors.darkTextSub,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
-        ),
-        SizedBox(height: compact ? 6 : 8),
-        EStopSwipeButton(
-          onActivated: () {
-            _onResetEStopTap();
-          },
-          instructionLabel: 'SWIPE TO RESET E-STOP',
-          instructionSubtitle: 'Slide right to clear emergency lockout',
-        ),
-      ],
+          const SizedBox(height: 2),
+          Expanded(child: Row(children: children)),
+        ],
+      ),
+    );
+  }
+
+  /// Wraps an axis card with drag-to-reorder handling while Customization
+  /// Mode is active. Reordering only changes child order within the Column —
+  /// each axis keeps its Expanded flex-fill, so ControlLayoutMetrics'
+  /// overflow-prevention guarantees are untouched.
+  Widget _axisSection(
+    AxisKind kind, {
+    required bool isEditing,
+    required Widget card,
+  }) {
+    if (!isEditing) return Expanded(child: card);
+    return Expanded(
+      child: DragTarget<AxisKind>(
+        onWillAcceptWithDetails: (details) => details.data != kind,
+        onAcceptWithDetails: (details) =>
+            _reorderAxis(moved: details.data, target: kind),
+        builder: (context, candidateData, rejectedData) {
+          final isHovering = candidateData.isNotEmpty;
+          return LongPressDraggable<AxisKind>(
+            data: kind,
+            feedback: Material(
+              color: Colors.transparent,
+              child: SizedBox(
+                width: 320,
+                height: 130,
+                child: Opacity(opacity: 0.85, child: card),
+              ),
+            ),
+            childWhenDragging: Opacity(opacity: 0.25, child: card),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                border: isHovering
+                    ? Border.all(color: AppColors.accent, width: 2)
+                    : null,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: card,
+            ),
+          );
+        },
+      ),
     );
   }
 }
-
-// // ── Reset E-Stop dialog ─────────────────────────────────────────────────────
-
-// class _Plc38ResetDialog extends StatefulWidget {
-//   final CraneController controller;
-
-//   const _Plc38ResetDialog({required this.controller});
-
-//   @override
-//   State<_Plc38ResetDialog> createState() => _Plc38ResetDialogState();
-// }
-
-// class _Plc38ResetDialogState extends State<_Plc38ResetDialog> {
-//   final TextEditingController _pwCtrl = TextEditingController();
-//   bool _obscure = true;
-//   String? _errorMessage;
-
-//   @override
-//   void dispose() {
-//     _pwCtrl.dispose();
-//     super.dispose();
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return AlertDialog(
-//       scrollable: true,
-//       backgroundColor: AppColors.panel,
-//       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-//       title: const Row(
-//         children: [
-//           Icon(Icons.lock_reset, color: AppColors.eStopColorLight, size: 22),
-//           SizedBox(width: 10),
-//           Text(
-//             'Reset Emergency Stop',
-//             style: TextStyle(color: AppColors.darkText, fontSize: 17),
-//           ),
-//         ],
-//       ),
-//       content: Column(
-//         mainAxisSize: MainAxisSize.min,
-//         crossAxisAlignment: CrossAxisAlignment.start,
-//         children: [
-//           const Text(
-//             'Enter your password to unlock crane controls.',
-//             style: TextStyle(color: AppColors.darkTextSub, fontSize: 13),
-//           ),
-//           const SizedBox(height: 16),
-//           if (_errorMessage != null) ...[
-//             Container(
-//               padding: const EdgeInsets.all(10),
-//               decoration: BoxDecoration(
-//                 color: AppColors.eStopColor.withAlpha(31),
-//                 borderRadius: BorderRadius.circular(8),
-//                 border:
-//                     Border.all(color: AppColors.eStopColor.withAlpha(102)),
-//               ),
-//               child: Row(
-//                 children: [
-//                   const Icon(Icons.error_outline,
-//                       color: AppColors.eStopColorLight, size: 16),
-//                   const SizedBox(width: 8),
-//                   Expanded(
-//                     child: Text(
-//                       _errorMessage!,
-//                       style: const TextStyle(
-//                           color: AppColors.eStopColorLight, fontSize: 12),
-//                     ),
-//                   ),
-//                 ],
-//               ),
-//             ),
-//             const SizedBox(height: 12),
-//           ],
-//           TextField(
-//             controller: _pwCtrl,
-//             obscureText: _obscure,
-//             autofocus: true,
-//             style: const TextStyle(color: AppColors.darkText),
-//             decoration: InputDecoration(
-//               labelText: 'Password',
-//               labelStyle: const TextStyle(color: AppColors.darkTextSub),
-//               filled: true,
-//               fillColor: AppColors.panelAlt,
-//               border: OutlineInputBorder(
-//                 borderRadius: BorderRadius.circular(10),
-//                 borderSide:
-//                     const BorderSide(color: AppColors.darkBorder),
-//               ),
-//               enabledBorder: OutlineInputBorder(
-//                 borderRadius: BorderRadius.circular(10),
-//                 borderSide:
-//                     const BorderSide(color: AppColors.darkBorder),
-//               ),
-//               suffixIcon: IconButton(
-//                 icon: Icon(
-//                   _obscure ? Icons.visibility_off : Icons.visibility,
-//                   color: AppColors.darkTextSub,
-//                   size: 18,
-//                 ),
-//                 onPressed: () => setState(() => _obscure = !_obscure),
-//               ),
-//             ),
-//           ),
-//         ],
-//       ),
-//       actions: [
-//         TextButton(
-//           onPressed: () => Navigator.of(context).pop(false),
-//           child: const Text('Cancel',
-//               style: TextStyle(color: AppColors.darkTextSub)),
-//         ),
-//         ElevatedButton(
-//           onPressed: () {
-//             final ok =
-//                 widget.controller.verifyLocalPassword(_pwCtrl.text);
-//             if (ok) {
-//               Navigator.of(context).pop(true);
-//             } else {
-//               setState(
-//                   () => _errorMessage = 'Incorrect password. Try again.');
-//             }
-//           },
-//           style: ElevatedButton.styleFrom(
-//             backgroundColor: AppColors.eStopColorLight,
-//             foregroundColor: Colors.white,
-//             shape: RoundedRectangleBorder(
-//                 borderRadius: BorderRadius.circular(10)),
-//           ),
-//           child: const Text('Unlock'),
-//         ),
-//       ],
-//     );
-//   }
-// }

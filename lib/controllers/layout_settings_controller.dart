@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:rev_crane_control_ops/core/constants/app_constants.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +24,7 @@ class LayoutSettingsController extends ChangeNotifier {
   /// True once [load] has completed (or failed with fallback to defaults).
   bool get isLoaded => _loaded;
 
-  static const String _prefsKey = 'control_layout_config_v1';
+  static const String _prefsKey = AppConstants.prefsKeyLayoutConfig;
 
   // ── Persistence ────────────────────────────────────────────────────────────
 
@@ -86,24 +88,52 @@ class LayoutSettingsController extends ChangeNotifier {
     _persist();
   }
 
-  /// Stores the selected widget type for future use.
-  /// Does NOT change the active control widget implementation.
-  void updateWidgetType(ControlWidgetType widgetType) {
-    _config = _config.copyWith(widgetType: widgetType);
+  /// Updates a single axis's control type / wiring / height scale, after
+  /// validation (touch-target + scale bounds).
+  ValidationResult updateAxisConfig(AxisKind axis, AxisControlConfig config) {
+    final result = _validator.validateAxisConfig(axis, config);
+    if (!result.isValid) return result;
+    _config = _config.copyWith(
+      axisConfigs: _config.axisConfigs.withAxis(axis, config),
+    );
     notifyListeners();
     _persist();
+    return result;
   }
 
-  /// Updates the toggle-control wiring configuration.
-  void updatePushConfig(PushControlConfig pushConfig) {
-    _config = _config.copyWith(pushConfig: pushConfig);
+  /// Updates a single role's cosmetic style, after validation. Throws if
+  /// [role] is [ControlRole.estop] — E-Stop appearance is not customizable.
+  ValidationResult updateRoleStyle(ControlRole role, ButtonStyleConfig style) {
+    final result = _validator.validateRoleStyle(role, style);
+    if (!result.isValid) return result;
+    _config = _config.copyWith(
+      roleStyles: _config.roleStyles.withRole(role, style),
+    );
     notifyListeners();
     _persist();
+    return result;
   }
 
-  @Deprecated('Use updatePushConfig instead.')
-  void updatepushConfig(PushControlConfig pushConfig) {
-    updatePushConfig(pushConfig);
+  /// Updates the display order of the three motion axes (PLC38 only).
+  ValidationResult updateAxisOrder(List<AxisKind> axisOrder) {
+    final result = _validator.validateAxisOrder(axisOrder);
+    if (!result.isValid) return result;
+    _config = _config.copyWith(axisOrder: axisOrder);
+    notifyListeners();
+    _persist();
+    return result;
+  }
+
+  /// Replaces the entire config after validation. Used by
+  /// CustomizationModeController.commit() to persist a fully-edited draft
+  /// in one atomic step.
+  Future<ValidationResult> replaceConfig(ControlLayoutConfig next) async {
+    final result = _validator.validateFullConfig(next);
+    if (!result.isValid) return result;
+    _config = next;
+    notifyListeners();
+    await _persist();
+    return result;
   }
 
   /// Resets every sub-configuration to factory defaults.

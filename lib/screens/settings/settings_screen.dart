@@ -248,27 +248,25 @@ class _BiometricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Replace with your actual biometric state
-    const isBiometricAvailable = false; // TODO: Get from controller
-    const isBiometricEnrolled = false; // TODO: Get from controller
-
-    return _IndustrialCard(
+    // TODO: Replace with runtime state from controller when biometric
+    // enrollment is implemented. Using hardcoded unavailable state for now.
+    return const _IndustrialCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.face_unlock_rounded,
                 color: AppColors.connTextMuted,
                 size: 20,
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Biometric Quick-Auth',
                       style: TextStyle(
                         color: AppColors.connText,
@@ -276,14 +274,10 @@ class _BiometricCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    SizedBox(height: 2),
                     Text(
-                      isBiometricEnrolled
-                          ? 'Credentials enrolled. Fingerprint/face login active.'
-                          : isBiometricAvailable
-                          ? 'Hardware available. Log in manually to enroll.'
-                          : 'No biometric hardware detected on this device.',
-                      style: const TextStyle(
+                      'No biometric hardware detected on this device.',
+                      style: TextStyle(
                         color: AppColors.connTextMuted,
                         fontSize: 11.5,
                         height: 1.35,
@@ -292,18 +286,12 @@ class _BiometricCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.divider.withAlpha(40),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
-                  isBiometricEnrolled! ? 'ON' : 'OFF',
+                  'OFF',
                   style: TextStyle(
-                    color: isBiometricEnrolled!
-                        ? AppColors.connSuccess
-                        : AppColors.connTextMuted,
+                    color: AppColors.connTextMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.8,
@@ -311,66 +299,6 @@ class _BiometricCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          if (isBiometricEnrolled!) ...[
-            const SizedBox(height: 14),
-            Container(height: 1, color: AppColors.divider),
-            const SizedBox(height: 14),
-            _ActionButton(
-              icon: Icons.delete_outline_rounded,
-              label: 'Revoke Biometric Access',
-              color: AppColors.error,
-              outlined: true,
-              onTap: () => _confirmRevoke(context),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  void _confirmRevoke(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.divider),
-        ),
-        title: const Text(
-          'Revoke Biometric Access',
-          style: TextStyle(
-            color: AppColors.connText,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: const Text(
-          'Stored operator credentials will be permanently removed from this '
-          'device keystore. You will need to log in manually to re-enroll.',
-          style: TextStyle(color: AppColors.connTextMuted, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: AppColors.connTextMuted),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              // TODO: Call controller.clearBiometricEnrollment();
-            },
-            child: const Text(
-              'Revoke',
-              style: TextStyle(
-                color: AppColors.error,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
           ),
         ],
       ),
@@ -464,7 +392,7 @@ class _ActiveSessionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Replace with your actual session data
-    return _IndustrialCard(
+    return const _IndustrialCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -473,18 +401,18 @@ class _ActiveSessionCard extends StatelessWidget {
             value: 'admin@plc.com', // TODO: Get from controller
             valueColor: AppColors.connSuccess,
           ),
-          const SizedBox(height: 8),
-          const _InfoRow(
+          SizedBox(height: 8),
+          _InfoRow(
             label: 'PLC Device',
             value: 'RRC_PLC', // TODO: Get from controller
           ),
-          const SizedBox(height: 8),
-          const _InfoRow(
+          SizedBox(height: 8),
+          _InfoRow(
             label: 'Signal',
             value: '-62 dBm', // TODO: Get from controller
           ),
-          const SizedBox(height: 8),
-          const _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
+          SizedBox(height: 8),
+          _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
         ],
       ),
     );
@@ -561,14 +489,12 @@ class _ActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.color,
-    this.outlined = false,
     this.onTap,
   });
 
   final IconData icon;
   final String label;
   final Color color;
-  final bool outlined;
   final VoidCallback? onTap;
 
   @override
@@ -578,11 +504,11 @@ class _ActionButton extends StatelessWidget {
       child: Container(
         height: 44,
         decoration: BoxDecoration(
-          color: outlined ? Colors.transparent : color.withAlpha(38),
+          color: color.withAlpha(38),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: onTap != null
-                ? color.withAlpha(outlined ? 153 : 90)
+                ? color.withAlpha(90)
                 : AppColors.divider,
           ),
         ),
