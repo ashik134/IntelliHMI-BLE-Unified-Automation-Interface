@@ -271,7 +271,9 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                         ),
                         child: Slider(
                           value: _sliderValue,
-                          onChanged: widget.isDisabled ? null : _onSliderChanged,
+                          onChanged: widget.isDisabled
+                              ? null
+                              : _onSliderChanged,
                           onChangeStart: _onSliderChangeStart,
                           onChangeEnd: _onSliderChangeEnd,
                         ),
@@ -609,7 +611,7 @@ class RectSliderThumbShape extends SliderComponentShape {
 
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: center, width: width, height: height),
-      Radius.circular(borderRadius),
+      Radius.elliptical(60.0,90.0),
     );
     canvas.drawRRect(rect, paint);
   }

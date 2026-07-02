@@ -14,9 +14,9 @@ import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
-import 'package:rev_crane_control_ops/widgets/cross_travel_slider.dart';
-import 'package:rev_crane_control_ops/widgets/crane_slider_button.dart';
-import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_slider.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/push_control_button.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';

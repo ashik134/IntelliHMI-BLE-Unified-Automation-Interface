@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/estop_swipe_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/estop_swipe_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SafetyActionPanel

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/push_control_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/push_control_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AxisTypePreview
