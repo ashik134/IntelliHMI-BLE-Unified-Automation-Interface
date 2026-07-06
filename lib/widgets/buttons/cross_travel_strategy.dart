@@ -140,19 +140,34 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
     );
   }
 
+  // Independent 3-zone mode: each traverse button controls its own
+  // direction on the natural side and the shared fast_lr modifier on the
+  // inward side (toward the adjacent slider).
+  //
+  //   traverseLeft  → drag left  = left    (leftId = traverseLeft)
+  //                   drag right = fast_lr  (rightId = kTraverseLeftFastKey)
+  //   traverseRight → drag right = right   (rightId = traverseRight)
+  //                   drag left  = fast_lr  (leftId = kTraverseRightFastKey)
+  //
+  // Combined fast traversal requires both sliders together:
+  //   left  fast = left slider dragged left  + right slider dragged left
+  //   right fast = right slider dragged right + left slider dragged right
   ({String leftId, String rightId, String leftLabel, String rightLabel})
   _traverseEndpointsFor(ButtonConfig config) {
-    if (config.role?.axis == AxisKind.traverse) {
-      final isLeftConfig = config.role == ControlRole.traverseLeft;
+    if (config.role == ControlRole.traverseLeft) {
       return (
         leftId: ControlRole.traverseLeft.name,
+        rightId: kTraverseLeftFastKey,
+        leftLabel: config.label,
+        rightLabel: 'FAST',
+      );
+    }
+    if (config.role == ControlRole.traverseRight) {
+      return (
+        leftId: kTraverseRightFastKey,
         rightId: ControlRole.traverseRight.name,
-        leftLabel: isLeftConfig
-            ? config.label
-            : ControlRole.traverseLeft.defaultLabel,
-        rightLabel: isLeftConfig
-            ? ControlRole.traverseRight.defaultLabel
-            : config.label,
+        leftLabel: 'FAST',
+        rightLabel: config.label,
       );
     }
 

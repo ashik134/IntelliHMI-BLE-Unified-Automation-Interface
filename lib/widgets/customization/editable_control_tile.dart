@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/widgets/customization/confirm_dialog.dart';
+import 'package:rev_crane_control_ops/widgets/customization/customization_badge.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EditableControlTile
@@ -51,32 +53,13 @@ class EditableControlTile extends StatelessWidget {
   final bool absorbInput;
 
   Future<void> _confirmThenDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.panel,
-        title: Text(
-          deleteConfirmTitle,
-          style: const TextStyle(color: AppColors.darkText, fontSize: 16),
-        ),
-        content: Text(
-          deleteConfirmBody,
-          style: const TextStyle(color: AppColors.darkTextSub, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.eStopColor),
-            child: const Text('Hide'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: deleteConfirmTitle,
+      body: deleteConfirmBody,
+      confirmLabel: 'Hide',
     );
-    if (confirmed == true) onDelete?.call();
+    if (confirmed) onDelete?.call();
   }
 
   @override
@@ -105,7 +88,7 @@ class EditableControlTile extends StatelessWidget {
           Positioned(
             top: -6,
             right: -6,
-            child: _Badge(
+            child: CustomizationBadge(
               icon: Icons.edit_rounded,
               color: AppColors.accent,
               onTap: onCustomize!,
@@ -116,7 +99,7 @@ class EditableControlTile extends StatelessWidget {
           Positioned(
             top: -6,
             left: -6,
-            child: _Badge(
+            child: CustomizationBadge(
               icon: Icons.visibility_off_rounded,
               color: AppColors.eStopColor,
               onTap: () => _confirmThenDelete(context),
@@ -124,40 +107,6 @@ class EditableControlTile extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.icon,
-    required this.color,
-    required this.onTap,
-    required this.tooltip,
-  });
-
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: color,
-        shape: const CircleBorder(),
-        elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Icon(icon, size: 14, color: Colors.white),
-          ),
-        ),
-      ),
     );
   }
 }

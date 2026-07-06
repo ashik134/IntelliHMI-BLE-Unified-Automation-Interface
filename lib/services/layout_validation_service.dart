@@ -1,14 +1,14 @@
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ValidationResult
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ValidationResult {
-  const ValidationResult.valid()
-    : isValid = true,
-      errors = const [];
+  const ValidationResult.valid() : isValid = true, errors = const [];
 
   const ValidationResult.invalid(this.errors) : isValid = false;
 
@@ -36,11 +36,7 @@ class LayoutValidationService {
       errors,
     );
 
-    _checkMinTouchTarget(
-      'E-Stop button',
-      config.resolvedEstopHeight,
-      errors,
-    );
+    _checkMinTouchTarget('E-Stop button', config.resolvedEstopHeight, errors);
 
     return errors.isEmpty
         ? const ValidationResult.valid()
@@ -64,7 +60,6 @@ class LayoutValidationService {
     );
     _checkLabel('Reset E-Stop label', config.resetEstopLabel, errors);
 
-    
     if (config.screenTitle.isNotEmpty) {
       _checkLabelMaxOnly('Screen title', config.screenTitle, errors);
     }
@@ -103,9 +98,130 @@ class LayoutValidationService {
     final orderResult = validateAxisOrder(config.axisOrder);
     if (!orderResult.isValid) errors.addAll(orderResult.errors);
 
+    final buttons = config.resolvedButtons;
+    for (final entry in buttons.entries) {
+      final buttonResult = validateButtonConfig(entry.value, buttons);
+      if (!buttonResult.isValid) errors.addAll(buttonResult.errors);
+    }
+
+    final slotResult = validateButtonSlots(buttons);
+    if (!slotResult.isValid) errors.addAll(slotResult.errors);
+
     return errors.isEmpty
         ? const ValidationResult.valid()
         : ValidationResult.invalid(errors);
+  }
+
+  ValidationResult validateButtonSlots(Map<String, ButtonConfig> buttons) {
+    final errors = validateGridOccupancy(buttons);
+
+    for (final button in buttons.values) {
+      final role = button.role;
+      if (role == null || !role.isMotionControl || !button.visible) continue;
+      if (isRedundantCrossTravelConfig(button, buttons)) continue;
+
+      final slot = button.slotIndex;
+      final name = button.label.isEmpty ? button.id : button.label;
+      if (slot == null) {
+        errors.add('$name must have a control slot.');
+        continue;
+      }
+      if (slot < ButtonConfig.minSlotIndex ||
+          slot > ButtonConfig.maxSlotIndex) {
+        errors.add(
+          '$name slot must be between ${ButtonConfig.minSlotIndex} and '
+          '${ButtonConfig.maxSlotIndex} (got $slot).',
+        );
+        continue;
+      }
+    }
+
+    return errors.isEmpty
+        ? const ValidationResult.valid()
+        : ValidationResult.invalid(errors);
+  }
+
+  /// Validates a single button's mutual-exclusion configuration against the
+  /// full button set — "validate and reject configurations the PLC protocol
+  /// cannot support, with a clear explanation." Rejects self-exclusion and
+  /// exclusions referencing a nonexistent button id; flags asymmetric
+  /// exclusion pairs (A excludes B but B doesn't exclude A) as an error so
+  /// the operator can't accidentally leave a one-directional interlock.
+  ValidationResult validateButtonConfig(
+    ButtonConfig config,
+    Map<String, ButtonConfig> allButtons,
+  ) {
+    final errors = <String>[];
+
+    if (config.mutualExclusion.excludedButtonIds.contains(config.id)) {
+      errors.add(
+        '${config.label.isEmpty ? config.id : config.label} cannot exclude itself.',
+      );
+    }
+
+    for (final excludedId in config.mutualExclusion.excludedButtonIds) {
+      final excludedButton = allButtons[excludedId];
+      if (excludedButton == null) {
+        errors.add(
+          '${config.label.isEmpty ? config.id : config.label} excludes '
+          'unknown button "$excludedId".',
+        );
+        continue;
+      }
+      if (!excludedButton.mutualExclusion.excludedButtonIds.contains(
+        config.id,
+      )) {
+        errors.add(
+          '${config.label.isEmpty ? config.id : config.label} excludes '
+          '${excludedButton.label.isEmpty ? excludedButton.id : excludedButton.label}, '
+          'but not the reverse — mutual exclusion must be symmetric.',
+        );
+      }
+    }
+
+    final name = config.label.isEmpty ? config.id : config.label;
+    _checkScaleBoundsGeneric(
+      '$name height',
+      config.heightScale,
+      ButtonConfig.minHeightScale,
+      ButtonConfig.maxHeightScale,
+      errors,
+    );
+    _checkScaleBoundsGeneric(
+      '$name width',
+      config.widthScale,
+      ButtonConfig.minWidthScale,
+      ButtonConfig.maxWidthScale,
+      errors,
+    );
+    _checkMinTouchTarget(name, config.resolvedHeight, errors);
+    _checkUnitRange('$name canvasX', config.canvasX, errors);
+    _checkUnitRange('$name canvasY', config.canvasY, errors);
+    final role = config.role;
+    if (role != null && role.isMotionControl) {
+      final slot = config.slotIndex;
+      if (slot == null) {
+        errors.add('$name must have a control slot.');
+      } else if (slot < ButtonConfig.minSlotIndex ||
+          slot > ButtonConfig.maxSlotIndex) {
+        errors.add(
+          '$name slot must be between ${ButtonConfig.minSlotIndex} and '
+          '${ButtonConfig.maxSlotIndex} (got $slot).',
+        );
+      }
+    }
+
+    return errors.isEmpty
+        ? const ValidationResult.valid()
+        : ValidationResult.invalid(errors);
+  }
+
+  void _checkUnitRange(String name, double value, List<String> errors) {
+    if (value < 0.0 || value > 1.0) {
+      errors.add(
+        '$name must be between 0.0 and 1.0 (got ${value.toStringAsFixed(2)}).',
+      );
+    }
   }
 
   /// Validates a single axis's control type / wiring / height scale.
@@ -136,7 +252,10 @@ class LayoutValidationService {
   /// customizable, and [RoleStyleConfig] has no field to hold one anyway,
   /// but this stays as a defensive check for any caller that bypasses that
   /// structural guarantee.
-  ValidationResult validateRoleStyle(ControlRole role, ButtonStyleConfig style) {
+  ValidationResult validateRoleStyle(
+    ControlRole role,
+    ButtonStyleConfig style,
+  ) {
     final errors = <String>[];
 
     if (role == ControlRole.estop) {
@@ -265,9 +384,7 @@ class LayoutValidationService {
     if (value.trim().isEmpty) {
       errors.add('$name must not be empty.');
     } else if (value.length > limit) {
-      errors.add(
-        '$name exceeds the maximum $limit characters.',
-      );
+      errors.add('$name exceeds the maximum $limit characters.');
     }
   }
 

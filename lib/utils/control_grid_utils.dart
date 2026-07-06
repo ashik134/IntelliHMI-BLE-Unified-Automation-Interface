@@ -95,6 +95,12 @@ List<String> validateGridOccupancy(
     if (role == null || !role.isMotionControl || !button.visible) continue;
     if (isRedundantCrossTravelConfig(button, buttons)) continue;
 
+    // Skip buttons whose slot index is outside this grid's range — they
+    // belong to a different screen (e.g. traverse/travel buttons validated
+    // against a PLC14 2-slot grid) and are not an occupancy error here.
+    final rawSlot = button.slotIndex;
+    if (rawSlot == null || rawSlot < 0 || rawSlot >= slotCount) continue;
+
     final name = button.label.isEmpty ? button.id : button.label;
     final slots = occupiedGridSlotsFor(
       button,
@@ -237,9 +243,15 @@ LayoutMutationResult buildButtonTypeChange({
         final pairedSlot = role == ControlRole.traverseRight
             ? anchor
             : anchor + 1;
+        // If the paired button still has type=crossTravel (gridColumnSpan=2)
+        // it would immediately collide once made visible. Reset it to the
+        // same type being applied to the primary role so it gets span=1.
+        final restoredType =
+            paired.type == ButtonType.crossTravel ? type : paired.type;
         buttons[paired.id] = paired.copyWith(
           visible: true,
           slotIndex: pairedSlot,
+          type: restoredType,
         );
       }
     }

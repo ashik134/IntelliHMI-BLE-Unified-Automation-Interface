@@ -1,10 +1,16 @@
 ﻿import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
+/// A reusable, production-grade industrial pushbutton with realistic
+/// mechanical feedback through visual compression and haptic response.
+///
+/// Supports two interaction modes:
+/// * `isSpringReturn: true` — active only while pressed/held, spring-returns
+///   to inactive on release. Mirrors a momentary spring-return button.
+/// * `isSpringReturn: false` with `isLatched: true` — tap once to activate,
+///   tap again to deactivate. Mirrors a maintained industrial latch button.
 class IndustrialSpringButton extends StatefulWidget {
   const IndustrialSpringButton({
     super.key,
@@ -20,26 +26,40 @@ class IndustrialSpringButton extends StatefulWidget {
     this.pressScale = 0.965,
     this.animationDuration = const Duration(milliseconds: 90),
     this.releaseDuration = const Duration(milliseconds: 150),
+    this.onChanged,
     this.onPressed,
     this.onReleased,
-    this.onTap,
   });
 
   final String label;
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+
+  /// External active state (controlled by parent)
   final bool isActive;
+
+  /// If true: spring-return (active only while held)
+  /// If false: latching (tap to toggle)
   final bool isSpringReturn;
+
+  /// Only used when isSpringReturn is false
   final bool isLatched;
+
   final bool enabled;
   final bool hapticFeedback;
   final double pressScale;
   final Duration animationDuration;
   final Duration releaseDuration;
+
+  /// Called when state changes (for latching mode)
+  final ValueChanged<bool>? onChanged;
+
+  /// Called when button is pressed down
   final VoidCallback? onPressed;
+
+  /// Called when button is released
   final VoidCallback? onReleased;
-  final VoidCallback? onTap;
 
   @override
   State<IndustrialSpringButton> createState() => _IndustrialSpringButtonState();
@@ -50,13 +70,15 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   late final AnimationController _pressCtrl;
   late final Animation<double> _pressAnim;
 
+  bool _pointerIsDown = false;
   bool _hovered = false;
   bool _focused = false;
-  bool _pointerIsDown = false;
+  bool _internalActive = false;
 
   @override
   void initState() {
     super.initState();
+    _internalActive = widget.isActive;
     _pressCtrl = AnimationController(
       vsync: this,
       duration: widget.animationDuration,
@@ -75,8 +97,13 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     _pressCtrl.duration = widget.animationDuration;
     _pressCtrl.reverseDuration = widget.releaseDuration;
 
+    // Update internal state if external isActive changes
+    if (widget.isActive != oldWidget.isActive) {
+      _internalActive = widget.isActive;
+    }
+
     if (!widget.enabled && oldWidget.enabled && _pointerIsDown) {
-      _finishPress(callRelease: true);
+      _finishPress();
     }
   }
 
@@ -97,19 +124,44 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     }
   }
 
+  void _setActive(bool value) {
+    if (_internalActive == value) return;
+    setState(() => _internalActive = value);
+    widget.onChanged?.call(value);
+  }
+
   void _handlePointerDown(PointerDownEvent _) {
     if (!widget.enabled || _pointerIsDown) return;
     _pointerIsDown = true;
     _triggerHaptic();
     _pressCtrl.forward();
-    widget.onPressed?.call();
+
+    // Spring return: activate immediately
+    if (widget.isSpringReturn) {
+      _setActive(true);
+      widget.onPressed?.call();
+    } else {
+      // Latching: will toggle on release
+      widget.onPressed?.call();
+    }
   }
 
-  void _handlePointerUp(PointerUpEvent _) => _finishPress(callRelease: true);
-  void _handlePointerCancel(PointerCancelEvent _) =>
-      _finishPress(callRelease: true);
+  void _handlePointerUp(PointerUpEvent _) {
+    final wasDown = _pointerIsDown;
+    _finishPress();
 
-  void _finishPress({required bool callRelease}) {
+    // Latching: toggle on release
+    if (wasDown && !widget.isSpringReturn) {
+      _setActive(!_internalActive);
+      if (!_internalActive) {
+        widget.onReleased?.call();
+      }
+    }
+  }
+
+  void _handlePointerCancel(PointerCancelEvent _) => _finishPress();
+
+  void _finishPress() {
     if (!_pointerIsDown) return;
     _pointerIsDown = false;
     _pressCtrl.animateBack(
@@ -117,7 +169,10 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
       duration: widget.releaseDuration,
       curve: Curves.easeOutBack,
     );
-    if (callRelease) {
+
+    // Spring return: deactivate on release
+    if (widget.isSpringReturn) {
+      _setActive(false);
       widget.onReleased?.call();
     }
   }
@@ -127,7 +182,7 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     return Semantics(
       button: true,
       enabled: widget.enabled,
-      toggled: widget.isActive,
+      toggled: _internalActive,
       label: widget.label,
       child: FocusableActionDetector(
         enabled: widget.enabled,
@@ -140,65 +195,44 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
             if (widget.enabled) setState(() => _hovered = true);
           },
           onExit: (_) => setState(() => _hovered = false),
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: _handlePointerDown,
-            onPointerUp: _handlePointerUp,
-            onPointerCancel: _handlePointerCancel,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: widget.enabled && !widget.isSpringReturn
-                  ? widget.onTap
-                  : null,
-              child: AnimatedBuilder(
-                animation: _pressAnim,
-                builder: (context, _) {
-                  final press = _pressAnim.value.clamp(0.0, 1.0);
-                  final isActive = widget.enabled && widget.isActive;
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
-                      final hasBoundedWidth = constraints.hasBoundedWidth;
-                      final hasBoundedHeight = constraints.hasBoundedHeight;
-                      final width = hasBoundedWidth
-                          ? constraints.maxWidth
-                          : 152.0;
-                      final height = hasBoundedHeight
-                          ? constraints.maxHeight
-                          : 184.0;
+          child: AnimatedBuilder(
+            animation: _pressAnim,
+            builder: (context, _) {
+              final press = _pressAnim.value.clamp(0.0, 1.0);
+              final isActive = widget.enabled && _internalActive;
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final hasBoundedWidth = constraints.hasBoundedWidth;
+                  final hasBoundedHeight = constraints.hasBoundedHeight;
+                  final width = hasBoundedWidth ? constraints.maxWidth : 152.0;
+                  final height = hasBoundedHeight ? constraints.maxHeight : 184.0;
 
-                      return SizedBox(
-                        width: hasBoundedWidth ? double.infinity : width,
-                        height: hasBoundedHeight ? double.infinity : height,
-                        child: RepaintBoundary(
-                          child: CustomPaint(
-                            painter: _IndustrialButtonPlatePainter(
-                              press: press,
-                              isActive: isActive,
-                              isHovered: _hovered,
-                              isFocused: _focused,
-                              isEnabled: widget.enabled,
-                              activeColor: widget.activeColor,
-                            ),
-                            child: _IndustrialButtonContent(
-                              label: widget.label,
-                              icon: widget.icon,
-                              activeColor: widget.activeColor,
-                              activeColorLight: widget.activeColorLight,
-                              press: press,
-                              pressScale: widget.pressScale,
-                              isActive: isActive,
-                              isSpringReturn: widget.isSpringReturn,
-                              isLatched: widget.isLatched,
-                              isEnabled: widget.enabled,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+                  return SizedBox(
+                    width: hasBoundedWidth ? double.infinity : width,
+                    height: hasBoundedHeight ? double.infinity : height,
+                    child: RepaintBoundary(
+                      child: _IndustrialButtonContent(
+                        label: widget.label,
+                        icon: widget.icon,
+                        activeColor: widget.activeColor,
+                        activeColorLight: widget.activeColorLight,
+                        press: press,
+                        pressScale: widget.pressScale,
+                        isActive: isActive,
+                        isSpringReturn: widget.isSpringReturn,
+                        isLatched: widget.isLatched,
+                        isEnabled: widget.enabled,
+                        isHovered: _hovered,
+                        isFocused: _focused,
+                        onPointerDown: _handlePointerDown,
+                        onPointerUp: _handlePointerUp,
+                        onPointerCancel: _handlePointerCancel,
+                      ),
+                    ),
                   );
                 },
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -218,6 +252,11 @@ class _IndustrialButtonContent extends StatelessWidget {
     required this.isSpringReturn,
     required this.isLatched,
     required this.isEnabled,
+    required this.isHovered,
+    required this.isFocused,
+    required this.onPointerDown,
+    required this.onPointerUp,
+    required this.onPointerCancel,
   });
 
   final String label;
@@ -230,8 +269,12 @@ class _IndustrialButtonContent extends StatelessWidget {
   final bool isSpringReturn;
   final bool isLatched;
   final bool isEnabled;
+  final bool isHovered;
+  final bool isFocused;
+  final void Function(PointerDownEvent) onPointerDown;
+  final void Function(PointerUpEvent) onPointerUp;
+  final void Function(PointerCancelEvent) onPointerCancel;
 
-  // Alpha helper with clamping
   int _alpha(double opacity) {
     return (opacity.clamp(0.0, 1.0) * 255).round();
   }
@@ -244,32 +287,31 @@ class _IndustrialButtonContent extends StatelessWidget {
     final statusLabel = isLocked
         ? 'LOCKED'
         : isActive
-        ? 'ACTIVE'
-        : isPressed
-        ? 'PRESSED'
-        : 'READY';
+            ? 'ACTIVE'
+            : isPressed
+                ? 'PRESSED'
+                : 'READY';
     final modeLabel = isSpringReturn
         ? 'HOLD'
         : isLatched
-        ? 'LATCHED'
-        : 'TAP';
+            ? 'LATCHED'
+            : 'TAP';
     final labelColor = isLocked
-        ? AppColors.darkTextSub.withAlpha(_alpha(0.55))
+        ? AppColors.darkTextMuted.withAlpha(_alpha(0.9))
         : isActive
-        ? activeColorLight
-        : AppColors.darkText;
+            ? activeColorLight
+            : AppColors.darkText;
     final mutedColor = isLocked
-        ? AppColors.darkTextSub.withAlpha(_alpha(0.45))
+        ? AppColors.darkTextMuted.withAlpha(_alpha(0.85))
         : isActive
-        ? activeColorLight
-        : isPressed
-        ? activeColor.withAlpha(_alpha(0.8))
-        : AppColors.darkTextMuted;
+            ? activeColorLight
+            : isPressed
+                ? activeColor.withAlpha(_alpha(0.8))
+                : AppColors.darkTextMuted;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact =
-            constraints.maxHeight < 180 || constraints.maxWidth < 150;
+        final compact = constraints.maxHeight < 180 || constraints.maxWidth < 150;
         final padding = compact
             ? const EdgeInsets.fromLTRB(10, 8, 10, 8)
             : const EdgeInsets.fromLTRB(16, 12, 16, 12);
@@ -277,7 +319,6 @@ class _IndustrialButtonContent extends StatelessWidget {
         final double modeFontSize = compact ? 8 : 10;
         final double labelFontSize = compact ? 14 : 17;
 
-        // Responsive spacing
         final double headerSpacing = compact ? 6 : 8;
         final double bottomSpacing = compact ? 5 : 7;
 
@@ -286,6 +327,7 @@ class _IndustrialButtonContent extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // ── Status Header ──────────────────────────────────────────
               SizedBox(
                 height: compact ? 20 : 24,
                 child: Row(
@@ -322,7 +364,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.darkTextSub.withAlpha(
-                          isEnabled ? _alpha(0.85) : _alpha(0.45),
+                          isEnabled ? _alpha(0.95) : _alpha(0.7),
                         ),
                         fontSize: modeFontSize,
                         fontWeight: FontWeight.w800,
@@ -340,6 +382,8 @@ class _IndustrialButtonContent extends StatelessWidget {
                 ),
               ),
               SizedBox(height: headerSpacing),
+
+              // ── Main Button ────────────────────────────────────────────
               Expanded(
                 child: Center(
                   child: LayoutBuilder(
@@ -356,60 +400,72 @@ class _IndustrialButtonContent extends StatelessWidget {
 
                       return SizedBox.square(
                         dimension: diameter,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            CustomPaint(
-                              painter: _IndustrialRoundButtonPainter(
-                                press: press,
-                                activeColor: activeColor,
-                                activeColorLight: activeColorLight,
-                                isActive: isActive,
-                                isEnabled: isEnabled,
-                              ),
-                              size: Size.square(diameter),
-                            ),
-                            Transform.scale(
-                              scale: visualScale,
-                              child: Icon(
-                                icon,
-                                size: diameter * 0.32,
-                                color: !isEnabled
-                                    ? AppColors.darkTextSub.withAlpha(
-                                        _alpha(0.45),
-                                      )
-                                    : isActive
-                                    ? Colors.white
-                                    : AppColors.darkText,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withAlpha(
-                                      isActive ? _alpha(0.6) : _alpha(0.4),
+                        child: ClipOval(
+                          child: Listener(
+                            behavior: HitTestBehavior.opaque,
+                            onPointerDown: onPointerDown,
+                            onPointerUp: onPointerUp,
+                            onPointerCancel: onPointerCancel,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // ── Custom Painted Button ──────────────
+                                CustomPaint(
+                                  painter: _IndustrialRoundButtonPainter(
+                                    press: press,
+                                    activeColor: activeColor,
+                                    activeColorLight: activeColorLight,
+                                    isActive: isActive,
+                                    isEnabled: isEnabled,
+                                  ),
+                                  size: Size.square(diameter),
+                                ),
+
+                                // ── Icon with Scale Animation ──────────
+                                Transform.scale(
+                                  scale: visualScale,
+                                  child: Icon(
+                                    icon,
+                                    size: diameter * 0.32,
+                                    color: !isEnabled
+                                        ? AppColors.darkTextSub.withAlpha(
+                                            _alpha(0.45),
+                                          )
+                                        : isActive
+                                            ? Colors.white
+                                            : AppColors.darkText,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withAlpha(
+                                          isActive ? _alpha(0.6) : _alpha(0.4),
+                                        ),
+                                        blurRadius: isActive ? 8 : 4,
+                                        offset: Offset(0, isActive ? 2 : 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // ── Lock Overlay ────────────────────────
+                                if (isLocked)
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black.withAlpha(_alpha(0.25)),
+                                      border: Border.all(
+                                        color: Colors.white.withAlpha(_alpha(0.08)),
+                                        width: 1.5,
+                                      ),
                                     ),
-                                    blurRadius: isActive ? 8 : 4,
-                                    offset: Offset(0, isActive ? 2 : 1),
+                                    child: Icon(
+                                      Icons.lock_outline_rounded,
+                                      size: diameter * 0.2,
+                                      color: Colors.white.withAlpha(_alpha(0.3)),
+                                    ),
                                   ),
-                                ],
-                              ),
+                              ],
                             ),
-                          
-                             if (isLocked)
-                              Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.black.withAlpha(_alpha(0.25)),
-                                  border: Border.all(
-                                    color: Colors.white.withAlpha(_alpha(0.08)),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.lock_outline_rounded,
-                                  size: diameter * 0.2,
-                                  color: Colors.white.withAlpha(_alpha(0.3)),
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       );
                     },
@@ -417,6 +473,8 @@ class _IndustrialButtonContent extends StatelessWidget {
                 ),
               ),
               SizedBox(height: bottomSpacing),
+
+              // ── Label ──────────────────────────────────────────────────
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
@@ -434,24 +492,25 @@ class _IndustrialButtonContent extends StatelessWidget {
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
-                        if (isActive)
-                          Shadow(
-                            color: activeColor.withAlpha(_alpha(0.3)),
-                            blurRadius: 12,
-                            offset: Offset.zero,
-                          ),
+                      if (isActive)
+                        Shadow(
+                          color: activeColor.withAlpha(_alpha(0.3)),
+                          blurRadius: 12,
+                          offset: Offset.zero,
+                        ),
                     ],
                   ),
                 ),
               ),
-              SizedBox(height: bottomSpacing*0.8),
+              SizedBox(height: bottomSpacing * 0.8),
+
+              // ── Status Rail ────────────────────────────────────────────
               _StatusRail(
                 color: activeColor,
                 isActive: isActive,
                 isPressed: isPressed,
                 isEnabled: isEnabled,
                 isCompact: compact,
-
               ),
             ],
           ),
@@ -471,6 +530,10 @@ class _IndicatorLed extends StatelessWidget {
   final Color color;
   final bool isActive;
   final bool isEnabled;
+
+  int _alpha(double opacity) {
+    return (opacity.clamp(0.0, 1.0) * 255).round();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -521,6 +584,10 @@ class _StatusRail extends StatelessWidget {
   final bool isEnabled;
   final bool isCompact;
 
+  int _alpha(double opacity) {
+    return (opacity.clamp(0.0, 1.0) * 255).round();
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isLocked = !isEnabled;
@@ -536,16 +603,16 @@ class _StatusRail extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(railHeight / 2),
           color: isLocked
-              ? Colors.grey.withValues(alpha: 0.15)
+              ? Colors.grey.withAlpha(_alpha(0.15))
               : isActive
-              ? color
-              : isPressed
-              ? color.withValues(alpha: 0.5)
-              : Colors.grey.withValues(alpha: 0.1),
+                  ? color
+                  : isPressed
+                      ? color.withAlpha(_alpha(0.5))
+                      : Colors.grey.withAlpha(_alpha(0.1)),
           boxShadow: (isActive || isPressed) && !isLocked
               ? [
                   BoxShadow(
-                    color: color.withValues(alpha: 0.3),
+                    color: color.withAlpha(_alpha(0.3)),
                     blurRadius: 4,
                     spreadRadius: 0,
                   ),
@@ -554,138 +621,6 @@ class _StatusRail extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _IndustrialButtonPlatePainter extends CustomPainter {
-  const _IndustrialButtonPlatePainter({
-    required this.press,
-    required this.isActive,
-    required this.isHovered,
-    required this.isFocused,
-    required this.isEnabled,
-    required this.activeColor,
-  });
-
-  final double press;
-  final bool isActive;
-  final bool isHovered;
-  final bool isFocused;
-  final bool isEnabled;
-  final Color activeColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final outer = RRect.fromRectAndRadius(
-      rect.deflate(1),
-      const Radius.circular(8),
-    );
-
-    final shadowAlpha = isEnabled ? 0.46 : 0.25;
-    canvas.drawRRect(
-      outer.shift(const Offset(0, 5)),
-      Paint()
-        ..color = Colors.black.withAlpha(_alpha(shadowAlpha))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
-    );
-
-    final bodyGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: isEnabled
-          ? const [Color(0xFF24394A), Color(0xFF142433), Color(0xFF0A141E)]
-          : const [Color(0xFF1B2631), Color(0xFF121C26), Color(0xFF090F15)],
-      stops: const [0, 0.52, 1],
-    );
-
-    canvas.drawRRect(outer, Paint()..shader = bodyGradient.createShader(rect));
-
-    final inner = outer.deflate(2);
-    canvas.drawRRect(
-      inner,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = Colors.white.withAlpha(_alpha(isEnabled ? 0.09 : 0.04)),
-    );
-
-    final bevelLight = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = Colors.white.withAlpha(_alpha(isEnabled ? 0.16 : 0.06));
-    final bevelDark = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..color = Colors.black.withAlpha(_alpha(0.44));
-
-    canvas.drawLine(
-      Offset(outer.left + 8, outer.top + 2),
-      Offset(outer.right - 8, outer.top + 2),
-      bevelLight,
-    );
-    canvas.drawLine(
-      Offset(outer.left + 2, outer.top + 8),
-      Offset(outer.left + 2, outer.bottom - 8),
-      bevelLight,
-    );
-    canvas.drawLine(
-      Offset(outer.left + 8, outer.bottom - 2),
-      Offset(outer.right - 8, outer.bottom - 2),
-      bevelDark,
-    );
-    canvas.drawLine(
-      Offset(outer.right - 2, outer.top + 8),
-      Offset(outer.right - 2, outer.bottom - 8),
-      bevelDark,
-    );
-
-    if (isHovered && isEnabled) {
-      canvas.drawRRect(
-        inner.deflate(1),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = Colors.white.withAlpha(_alpha(0.12)),
-      );
-    }
-
-    if (isActive) {
-      canvas.drawRRect(
-        inner.deflate(2),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.4
-          ..color = activeColor.withAlpha(_alpha(0.58)),
-      );
-    }
-
-    if (isFocused) {
-      canvas.drawRRect(
-        outer.deflate(1),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = AppColors.darkInfo.withAlpha(_alpha(0.75)),
-      );
-    }
-
-    if (!isEnabled) {
-      canvas.drawRRect(
-        outer,
-        Paint()..color = Colors.black.withAlpha(_alpha(0.22)),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _IndustrialButtonPlatePainter oldDelegate) {
-    return oldDelegate.press != press ||
-        oldDelegate.isActive != isActive ||
-        oldDelegate.isHovered != isHovered ||
-        oldDelegate.isFocused != isFocused ||
-        oldDelegate.isEnabled != isEnabled ||
-        oldDelegate.activeColor != activeColor;
   }
 }
 
@@ -713,6 +648,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
     final wellR = side * 0.36;
     final capR = side * (0.292 - press * 0.012);
 
+    // ── Active Glow ──────────────────────────────────────────────────────
     if (isActive && isEnabled) {
       canvas.drawCircle(
         center,
@@ -723,6 +659,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
       );
     }
 
+    // ── Shadow ──────────────────────────────────────────────────────────
     canvas.drawCircle(
       center + Offset(0, 3 + press * 2),
       bezelR * 0.98,
@@ -731,6 +668,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
     );
 
+    // ── Bezel ───────────────────────────────────────────────────────────
     final bezelRect = Rect.fromCircle(center: center, radius: bezelR);
     final bezelGradient = RadialGradient(
       center: const Alignment(-0.42, -0.50),
@@ -756,6 +694,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
       Paint()..shader = bezelGradient.createShader(bezelRect),
     );
 
+    // ── Bezel Borders ──────────────────────────────────────────────────
     canvas.drawCircle(
       center,
       bezelR - 1,
@@ -773,6 +712,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
         ..color = Colors.black.withAlpha(_alpha(0.32)),
     );
 
+    // ── Inner Well ──────────────────────────────────────────────────────
     final wellRect = Rect.fromCircle(center: center, radius: wellR);
     const wellGradient = RadialGradient(
       center: Alignment(0.28, 0.35),
@@ -786,6 +726,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
       Paint()..shader = wellGradient.createShader(wellRect),
     );
 
+    // ── Inner Ring ──────────────────────────────────────────────────────
     final ringColor = isEnabled
         ? activeColor.withAlpha(_alpha(isActive ? 0.95 : 0.24 + press * 0.18))
         : AppColors.disabled.withAlpha(_alpha(0.45));
@@ -809,6 +750,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
         ..color = ringColor,
     );
 
+    // ── Cap Shadow ─────────────────────────────────────────────────────
     canvas.drawCircle(
       center,
       capR + side * 0.035,
@@ -817,6 +759,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + press * 3),
     );
 
+    // ── Cap Gradient ────────────────────────────────────────────────────
     const idleBase = Color(0xFF566371);
     const idleLight = Color(0xFFA5AFBA);
     const idleDark = Color(0xFF1A242E);
@@ -853,6 +796,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
       Paint()..shader = capGradient.createShader(capRect),
     );
 
+    // ── Gloss Highlight ─────────────────────────────────────────────────
     final capPath = Path()..addOval(capRect);
     canvas.save();
     canvas.clipPath(capPath);
@@ -879,6 +823,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
     );
     canvas.restore();
 
+    // ── Cap Borders ─────────────────────────────────────────────────────
     canvas.drawCircle(
       center,
       capR,
@@ -896,6 +841,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
         ..color = Colors.black.withAlpha(_alpha(0.24 + press * 0.28)),
     );
 
+    // ── Press Depression Ring ──────────────────────────────────────────
     if (press > 0.03) {
       canvas.drawCircle(
         center,
@@ -908,6 +854,7 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
       );
     }
 
+    // ── Disabled Overlay ──────────────────────────────────────────────
     if (!isEnabled) {
       canvas.drawCircle(
         center,

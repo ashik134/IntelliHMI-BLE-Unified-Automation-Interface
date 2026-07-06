@@ -49,12 +49,14 @@ class LayoutTemplateService {
       widgetType: ControlWidgetType.pushButton,
       wiringConfig: PushButtonWiringConfig.offMomentary,
     );
+    const axisConfigs = AxisConfigSet(
+      hoist: axisCfg,
+      traverse: axisCfg,
+      travel: axisCfg,
+    );
     return const ControlLayoutConfig().copyWith(
-      axisConfigs: const AxisConfigSet(
-        hoist: axisCfg,
-        traverse: axisCfg,
-        travel: axisCfg,
-      ),
+      axisConfigs: axisConfigs,
+      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
     );
   }
 
@@ -64,13 +66,15 @@ class LayoutTemplateService {
       wiringConfig: PushButtonWiringConfig.offMomentary,
       heightScale: 1.35,
     );
+    const axisConfigs = AxisConfigSet(
+      hoist: axisCfg,
+      traverse: axisCfg,
+      travel: axisCfg,
+    );
     return const ControlLayoutConfig().copyWith(
-      axisConfigs: const AxisConfigSet(
-        hoist: axisCfg,
-        traverse: axisCfg,
-        travel: axisCfg,
-      ),
+      axisConfigs: axisConfigs,
       sizeConfig: const ControlWidgetSizeConfig(estopButtonHeightScale: 1.25),
+      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
     );
   }
 }

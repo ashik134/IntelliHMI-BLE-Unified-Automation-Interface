@@ -43,6 +43,10 @@ PlcOutputCommand composeFromButtonStates(Map<String, ControlState> states) {
       (states[role.name] ?? ControlState.idle) != ControlState.idle;
   bool fastFor(ControlRole role) =>
       (states[role.name] ?? ControlState.idle) == ControlState.fast;
+  // Independent 3-zone traverse sliders post to these virtual keys to set
+  // fastLr without activating a direction bit.
+  bool fastKeyActive(String key) =>
+      (states[key] ?? ControlState.idle) != ControlState.idle;
 
   return PlcOutputCommand.compose(
     estop: false,
@@ -53,7 +57,9 @@ PlcOutputCommand composeFromButtonStates(Map<String, ControlState> states) {
     right: activeFor(ControlRole.traverseRight),
     fastLr:
         fastFor(ControlRole.traverseLeft) ||
-        fastFor(ControlRole.traverseRight),
+        fastFor(ControlRole.traverseRight) ||
+        fastKeyActive(kTraverseLeftFastKey) ||
+        fastKeyActive(kTraverseRightFastKey),
     forward: activeFor(ControlRole.travelForward),
     reverse: activeFor(ControlRole.travelReverse),
     fastFb:

@@ -1,22 +1,23 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
-import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/push_control_button.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/control_slot_grid.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
@@ -24,7 +25,6 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
-import 'package:rev_crane_control_ops/widgets/customization/toggle_switch_button.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -35,13 +35,17 @@ class ControlScreen extends StatefulWidget {
 
 class _ControlScreenState extends State<ControlScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const List<ControlRole> _motionRoles = [
+    ControlRole.hoistUp,
+    ControlRole.hoistDown,
+  ];
+
   late final AnimationController _pulseController;
-  
+
   CraneController? _craneController;
 
-  // ── Mutual-exclusion: only one hoist direction active at a time ────────────
-  bool _upActive = false;
-  bool _downActive = false;
+  // ── Mutual-exclusion: local optimistic active state, keyed by button id ────
+  final Map<String, bool> _localActive = {};
   bool _isBackNavigating = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
@@ -55,7 +59,7 @@ class _ControlScreenState extends State<ControlScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-   
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -74,7 +78,9 @@ class _ControlScreenState extends State<ControlScreen>
   }
 
   void _dismissResetDialogIfVisible() {
-    if (!mounted || _resetDialogContext == null || _isDismissingResetDialog) return;
+    if (!mounted || _resetDialogContext == null || _isDismissingResetDialog) {
+      return;
+    }
     _isDismissingResetDialog = true;
     FocusManager.instance.primaryFocus?.unfocus();
     final dialogContext = _resetDialogContext;
@@ -188,10 +194,7 @@ class _ControlScreenState extends State<ControlScreen>
 
   void _resetLocalButtonStates() {
     if (!mounted) return;
-    setState(() {
-      _upActive = false;
-      _downActive = false;
-    });
+    setState(_localActive.clear);
   }
 
   // ── Customization Mode ──────────────────────────────────────────────────────
@@ -205,14 +208,17 @@ class _ControlScreenState extends State<ControlScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer3<CraneController, LayoutSettingsController, CustomizationModeController>(
+    return Consumer3<
+      CraneController,
+      LayoutSettingsController,
+      CustomizationModeController
+    >(
       builder: (ctx, controller, layoutCtrl, customCtrl, _) {
         final isEditing = customCtrl.isActive;
         final layoutCfg = isEditing ? customCtrl.draft : layoutCtrl.config;
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
-        final hoistAxisCfg = layoutCfg.axisConfigs.hoist;
         final metrics = ControlLayoutMetrics.compute(
           MediaQuery.of(ctx).size.height -
               kToolbarHeight -
@@ -296,7 +302,9 @@ class _ControlScreenState extends State<ControlScreen>
                 body: SafeArea(
                   maintainBottomViewPadding: true,
                   child: Padding(
-                    padding: metrics.bodyPadding,
+                    padding: metrics.bodyPadding.add(
+                      EdgeInsets.only(bottom: isEditing ? 84 : 0),
+                    ),
                     child: Column(
                       children: [
                         SafetyActionPanel(
@@ -319,7 +327,10 @@ class _ControlScreenState extends State<ControlScreen>
                                 ),
                               ),
                             ),
-                            child: SensorRow(a1: controller.a1, a2: controller.a2),
+                            child: SensorRow(
+                              a1: controller.a1,
+                              a2: controller.a2,
+                            ),
                           ),
                           SizedBox(height: metrics.itemSpacing),
                         ],
@@ -364,16 +375,64 @@ class _ControlScreenState extends State<ControlScreen>
                           ),
                           SizedBox(height: metrics.itemSpacing),
                         ],
-                        // ── Hoist controls – Expanded fills all remaining space
-                        // (prevents overflow on compact / landscape screens).
                         Expanded(
-                          child: _hoistControls(
-                            controller: controller,
-                            labels: labels,
-                            axisCfg: hoistAxisCfg,
-                            roleStyles: layoutCfg.roleStyles,
-                            sizing: sizing,
+                          child: ControlSlotGrid(
+                            layoutCfg: layoutCfg,
+                            roles: _motionRoles,
+                            slotCount: 2,
                             isEditing: isEditing,
+                            activeStateFor: (config) =>
+                                _activeStateForButton(controller, config),
+                            isDisabled: (config) =>
+                                controller.estopLatched ||
+                                !controller.isConnected ||
+                                !config.enabled ||
+                                _isMutuallyExcluded(config),
+                            onCommand: (id, state) {
+                              setState(() {
+                                _localActive[id] = state != ControlState.idle;
+                              });
+                              controller.setButtonCommand(
+                                buttonId: id,
+                                state: state,
+                              );
+                            },
+                            onEditButton: (config) {
+                              final role = config.role;
+                              if (role != null) {
+                                ButtonEditSheet.showForRole(context, role);
+                              }
+                            },
+                            onSlotDrop: isEditing
+                                ? (dragged, sourceSlot, target, targetSlot) {
+                                    final result = buildGridSlotDrop(
+                                      buttons: customCtrl.draft.resolvedButtons,
+                                      dragged: dragged,
+                                      sourceSlot: sourceSlot,
+                                      target: target,
+                                      targetSlot: targetSlot,
+                                      slotCount: 2,
+                                    );
+                                    if (!result.isValid) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            result.message ??
+                                                kCrossTravelSpanMessage,
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    customCtrl.applyDraftChange(
+                                      customCtrl.draft.copyWith(
+                                        buttons: result.buttons,
+                                      ),
+                                    );
+                                  }
+                                : null,
                           ),
                         ),
 
@@ -412,185 +471,44 @@ class _ControlScreenState extends State<ControlScreen>
     );
   }
 
-  Widget _hoistControls({
-    required CraneController controller,
-    required ControlLabelConfig labels,
-    required AxisControlConfig axisCfg,
-    required RoleStyleConfig roleStyles,
-    required ControlWidgetSizeConfig sizing,
-    required bool isEditing,
-  }) {
-    final isDisabled = controller.estopLatched || !controller.isConnected;
-    final upStyle = roleStyles.forRole(ControlRole.hoistUp);
-    final downStyle = roleStyles.forRole(ControlRole.hoistDown);
+  bool _isMutuallyExcluded(ButtonConfig config) {
+    // Cross-travel widgets manage both directions as a single unit; mutual
+    // exclusion with the paired role would incorrectly disable the widget
+    // mid-drag and leave it permanently stuck in the disabled state.
+    if (config.type == ButtonType.crossTravel ||
+        config.type == ButtonType.crossTravelSlowOnly) return false;
+    for (final excludedId in config.mutualExclusion.excludedButtonIds) {
+      if (_localActive[excludedId] == true) return true;
+    }
+    return false;
+  }
 
-    switch (axisCfg.widgetType) {
-      case ControlWidgetType.pushButton:
-        return Row(
-          children: [
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () =>
-                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
-                child: SizedBox(
-                  height: axisCfg.resolvedHeight,
-                  child: UpPushControlButton(
-                    label: labels.upLabel,
-                    isActive: controller.hoistState == HoistState.upSlow,
-                    isDisabled: isDisabled,
-                    isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
-                    colorOverride: upStyle.primaryColor,
-                    colorOverrideLight: upStyle.activeColor,
-                    onCommandChanged: (state) {
-                      setState(() => _upActive = state != ControlState.idle);
-                      controller.setHoistCommand(isUp: true, state: state);
-                    },
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () => ButtonEditSheet.showForRole(
-                  context,
-                  ControlRole.hoistDown,
-                ),
-                child: SizedBox(
-                  height: axisCfg.resolvedHeight,
-                  child: DownPushControlButton(
-                    label: labels.downLabel,
-                    isActive: controller.hoistState == HoistState.downSlow,
-                    isDisabled: isDisabled,
-                    isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
-                    colorOverride: downStyle.primaryColor,
-                    colorOverrideLight: downStyle.activeColor,
-                    onCommandChanged: (state) {
-                      setState(() => _downActive = state != ControlState.idle);
-                      controller.setHoistCommand(isUp: false, state: state);
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-
-      case ControlWidgetType.toggle:
-        return Row(
-          children: [
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () =>
-                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
-                child: ToggleSwitchButton(
-                  label: labels.upLabel,
-                  icon: Icons.arrow_upward_rounded,
-                  activeColor: upStyle.resolvePrimary(AppColors.upColor),
-                  activeColorLight: upStyle.resolveActive(AppColors.upColorLight),
-                  isActive: controller.hoistState == HoistState.upSlow,
-                  isDisabled: isDisabled || _downActive,
-                  isSpringReturn: axisCfg.wiringConfig.upIsSpringReturn,
-                  style: upStyle,
-                  onCommandChanged: (state) {
-                    setState(() => _upActive = state != ControlState.idle);
-                    controller.setHoistCommand(isUp: true, state: state);
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () => ButtonEditSheet.showForRole(
-                  context,
-                  ControlRole.hoistDown,
-                ),
-                child: ToggleSwitchButton(
-                  label: labels.downLabel,
-                  icon: Icons.arrow_downward_rounded,
-                  activeColor: downStyle.resolvePrimary(AppColors.downColor),
-                  activeColorLight: downStyle.resolveActive(
-                    AppColors.downColorLight,
-                  ),
-                  isActive: controller.hoistState == HoistState.downSlow,
-                  isDisabled: isDisabled || _upActive,
-                  isSpringReturn: axisCfg.wiringConfig.downIsSpringReturn,
-                  style: downStyle,
-                  onCommandChanged: (state) {
-                    setState(() => _downActive = state != ControlState.idle);
-                    controller.setHoistCommand(isUp: false, state: state);
-                  },
-                ),
-              ),
-            ),
-          ],
-        );
-
-      case ControlWidgetType.sliderButton:
-      case ControlWidgetType.joystick:
-      case ControlWidgetType.rotary:
-        return Row(
-          children: [
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () =>
-                    ButtonEditSheet.showForRole(context, ControlRole.hoistUp),
-                child: CraneSliderButton(
-                  label: labels.upLabel,
-                  icon: Icons.arrow_upward_rounded,
-                  isUp: true,
-                  axisColor: upStyle.primaryColor,
-                  // Disabled when e-stop is active, disconnected,
-                  // OR the DOWN button is currently active (mutual exclusion).
-                  isDisabled: isDisabled || _downActive,
-                  onCommandChanged: (state) {
-                    setState(() => _upActive = state != ControlState.idle);
-                    controller.setHoistCommand(isUp: true, state: state);
-                  },
-                  externalState: switch (controller.hoistState) {
-                    HoistState.upSlow => ControlState.slow,
-                    HoistState.upFast => ControlState.fast,
-                    _ => ControlState.idle,
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: EditableControlTile(
-                isEditing: isEditing,
-                onCustomize: () => ButtonEditSheet.showForRole(
-                  context,
-                  ControlRole.hoistDown,
-                ),
-                child: CraneSliderButton(
-                  label: labels.downLabel,
-                  icon: Icons.arrow_downward_rounded,
-                  isUp: false,
-                  axisColor: downStyle.primaryColor,
-                  // Disabled when e-stop is active, disconnected,
-                  // OR the UP button is currently active (mutual exclusion).
-                  isDisabled: isDisabled || _upActive,
-                  onCommandChanged: (state) {
-                    setState(() => _downActive = state != ControlState.idle);
-                    controller.setHoistCommand(isUp: false, state: state);
-                  },
-                  externalState: switch (controller.hoistState) {
-                    HoistState.downSlow => ControlState.slow,
-                    HoistState.downFast => ControlState.fast,
-                    _ => ControlState.idle,
-                  },
-                ),
-              ),
-            ),
-          ],
-        );
+  ControlState _activeStateForButton(
+    CraneController controller,
+    ButtonConfig config,
+  ) {
+    switch (config.plcMapping) {
+      case PlcMapping.up:
+        return switch (controller.hoistState) {
+          HoistState.upSlow => ControlState.slow,
+          HoistState.upFast => ControlState.fast,
+          _ => ControlState.idle,
+        };
+      case PlcMapping.down:
+        return switch (controller.hoistState) {
+          HoistState.downSlow => ControlState.slow,
+          HoistState.downFast => ControlState.fast,
+          _ => ControlState.idle,
+        };
+      case PlcMapping.left ||
+          PlcMapping.right ||
+          PlcMapping.forward ||
+          PlcMapping.reverse ||
+          PlcMapping.fastUd ||
+          PlcMapping.fastLr ||
+          PlcMapping.fastFb ||
+          PlcMapping.estop:
+        return ControlState.idle;
     }
   }
 }

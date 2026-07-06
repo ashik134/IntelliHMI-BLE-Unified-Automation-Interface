@@ -10,6 +10,8 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 
 enum _TravZone { idle, leftSlow, leftFast, rightSlow, rightFast }
 
+enum CrossTravelSliderVariant { fiveZone, threeZoneSlowOnly }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CrossTravelSlider
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,11 +44,16 @@ class CrossTravelSlider extends StatefulWidget {
   final void Function({required bool isLeft, required ControlState state})
       onCommandChanged;
 
+  /// Five-zone emits slow and fast. Three-zone emits idle/left-slow/right-slow
+  /// only, even at the far end of the track.
+  final CrossTravelSliderVariant variant;
+
   const CrossTravelSlider({
     super.key,
     this.isDisabled = false,
     this.leftLabel = 'LEFT',
     this.rightLabel = 'RIGHT',
+    this.variant = CrossTravelSliderVariant.fiveZone,
     required this.onCommandChanged,
   });
 
@@ -89,6 +96,13 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     // Snap to centre whenever the widget becomes disabled (e-stop / disconnect).
     if (widget.isDisabled && !old.isDisabled) {
       _springCtrl.stop();
+      // If disabled mid-drag, emit idle before clearing _isDragging.
+      // Without this, _release() will bail on `if (!_isDragging) return`
+      // and the parent's _localActive entry stays permanently true, which
+      // keeps isDisabled=true even after the operator releases the slider.
+      if (_isDragging && _lastEmitted != _TravZone.idle) {
+        widget.onCommandChanged(isLeft: true, state: ControlState.idle);
+      }
       setState(() {
         _value = 0.0;
         _isDragging = false;
@@ -112,7 +126,13 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     final abs = v.abs();
     if (abs < _deadZone) return _TravZone.idle;
     if (v < 0) {
+      if (widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly) {
+        return _TravZone.leftSlow;
+      }
       return abs >= _fastZone ? _TravZone.leftFast : _TravZone.leftSlow;
+    }
+    if (widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly) {
+      return _TravZone.rightSlow;
     }
     return v >= _fastZone ? _TravZone.rightFast : _TravZone.rightSlow;
   }
@@ -201,6 +221,8 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
       final isFast = zone == _TravZone.leftFast || zone == _TravZone.rightFast;
       final isLeft = zone == _TravZone.leftSlow || zone == _TravZone.leftFast;
       final isRight = zone == _TravZone.rightSlow || zone == _TravZone.rightFast;
+      final slowOnly =
+          widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly;
 
       final Color trackColor = widget.isDisabled
           ? AppColors.idleColor
@@ -223,33 +245,55 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
               // ── Zone labels (top row) ─────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Row(
-                  children: [
-                    _zoneLabel(
-                      '< ${widget.leftLabel} FAST',
-                      zone == _TravZone.leftFast,
-                      AppColors.fastColor,
-                    ),
-                    const Spacer(),
-                    _zoneLabel(
-                      'SLOW',
-                      zone == _TravZone.leftSlow,
-                      AppColors.traverseColor,
-                    ),
-                    const SizedBox(width: 10),
-                    _zoneLabel(
-                      'SLOW',
-                      zone == _TravZone.rightSlow,
-                      AppColors.traverseColor,
-                    ),
-                    const Spacer(),
-                    _zoneLabel(
-                      'FAST ${widget.rightLabel} >',
-                      zone == _TravZone.rightFast,
-                      AppColors.fastColor,
-                    ),
-                  ],
-                ),
+                child: slowOnly
+                    ? Row(
+                        children: [
+                          _zoneLabel(
+                            '< ${widget.leftLabel}',
+                            zone == _TravZone.leftSlow,
+                            AppColors.traverseColor,
+                          ),
+                          const Spacer(),
+                          _zoneLabel(
+                            'SLOW ONLY',
+                            isLeft || isRight,
+                            AppColors.traverseColor,
+                          ),
+                          const Spacer(),
+                          _zoneLabel(
+                            '${widget.rightLabel} >',
+                            zone == _TravZone.rightSlow,
+                            AppColors.traverseColor,
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          _zoneLabel(
+                            '< ${widget.leftLabel} FAST',
+                            zone == _TravZone.leftFast,
+                            AppColors.fastColor,
+                          ),
+                          const Spacer(),
+                          _zoneLabel(
+                            'SLOW',
+                            zone == _TravZone.leftSlow,
+                            AppColors.traverseColor,
+                          ),
+                          const SizedBox(width: 10),
+                          _zoneLabel(
+                            'SLOW',
+                            zone == _TravZone.rightSlow,
+                            AppColors.traverseColor,
+                          ),
+                          const Spacer(),
+                          _zoneLabel(
+                            'FAST ${widget.rightLabel} >',
+                            zone == _TravZone.rightFast,
+                            AppColors.fastColor,
+                          ),
+                        ],
+                      ),
               ),
               const SizedBox(height: 5),
 
@@ -269,6 +313,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                         halfTrack: halfTrack,
                         deadZone: _deadZone,
                         fastZone: _fastZone,
+                        showFastMarkers: !slowOnly,
                         fillColor: widget.isDisabled
                             ? AppColors.idleColor.withAlpha(70)
                             : trackColor.withAlpha(200),
@@ -367,6 +412,7 @@ class _TrackPainter extends CustomPainter {
     required this.halfTrack,
     required this.deadZone,
     required this.fastZone,
+    required this.showFastMarkers,
     required this.fillColor,
     required this.isActive,
   });
@@ -375,6 +421,7 @@ class _TrackPainter extends CustomPainter {
   final double halfTrack;
   final double deadZone;
   final double fastZone;
+  final bool showFastMarkers;
   final Color fillColor;
   final bool isActive;
 
@@ -417,9 +464,11 @@ class _TrackPainter extends CustomPainter {
       // Dead zone edge
       final dx = cx + sign * deadZone * halfTrack;
       canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), markerPaint);
-      // Fast zone edge
-      final fx = cx + sign * fastZone * halfTrack;
-      canvas.drawLine(Offset(fx, 0), Offset(fx, size.height), markerPaint);
+      if (showFastMarkers) {
+        // Fast zone edge
+        final fx = cx + sign * fastZone * halfTrack;
+        canvas.drawLine(Offset(fx, 0), Offset(fx, size.height), markerPaint);
+      }
     }
 
     // ── Centre tick ───────────────────────────────────────────────────────
@@ -435,6 +484,7 @@ class _TrackPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TrackPainter old) =>
       old.value != value ||
+      old.showFastMarkers != showFastMarkers ||
       old.fillColor != fillColor ||
       old.isActive != isActive;
 }

@@ -611,7 +611,7 @@ class RectSliderThumbShape extends SliderComponentShape {
 
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: center, width: width, height: height),
-      Radius.elliptical(60.0,90.0),
+      const Radius.elliptical(60.0, 90.0),
     );
     canvas.drawRRect(rect, paint);
   }

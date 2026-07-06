@@ -2,19 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart' show Color, FontWeight;
 
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetType
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum ControlWidgetType {
-  sliderButton,
-  pushButton,
-  toggle,
-  joystick,
-  rotary,
-}
+enum ControlWidgetType { sliderButton, pushButton, toggle, joystick, rotary }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetSizeConfig
@@ -197,9 +192,7 @@ class AxisConfigSet {
           ? AxisControlConfig.fromJson(json['hoist'] as Map<String, dynamic>)
           : const AxisControlConfig(),
       traverse: json['traverse'] != null
-          ? AxisControlConfig.fromJson(
-              json['traverse'] as Map<String, dynamic>,
-            )
+          ? AxisControlConfig.fromJson(json['traverse'] as Map<String, dynamic>)
           : const AxisControlConfig(),
       travel: json['travel'] != null
           ? AxisControlConfig.fromJson(json['travel'] as Map<String, dynamic>)
@@ -666,26 +659,58 @@ class ControlLayoutConfig {
     this.axisConfigs = const AxisConfigSet(),
     this.roleStyles = const RoleStyleConfig(),
     this.axisOrder = kDefaultAxisOrder,
+    this.buttons = const <String, ButtonConfig>{},
   });
 
-  /// Schema version, bumped whenever a persisted-shape-breaking field is
-  /// added/removed. Not serialized into JSON itself — tracked here purely
-  /// as a marker for the SharedPreferences key version
-  /// (see AppConstants.prefsKeyLayoutConfig).
-  static const int schemaVersion = 2;
+  /// Schema version. Bumped 2 → 3 by the button-centric refactor: adds the
+  /// `buttons` map AND, for the first time, this field is actually written
+  /// into the JSON itself (previously only tracked as an in-code marker for
+  /// the SharedPreferences key name — see AppConstants.prefsKeyLayoutConfig,
+  /// which stays unchanged so existing saved layouts keep loading). Future
+  /// schema changes should prefer bumping this in-JSON field over renaming
+  /// the prefs key, which would silently discard existing user layouts.
+  static const int schemaVersion = 4;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
   final ControlArrangementConfig arrangementConfig;
 
   /// Per-axis control type, spring/latch wiring, and height scale.
+  /// LEGACY (v2 shape) — kept permanently as the migration source for old
+  /// saved JSON; no longer the live source of truth once the button-centric
+  /// screens/edit sheet are fully switched over (see [buttons]).
   final AxisConfigSet axisConfigs;
 
   /// Per-role cosmetic overrides (color, corner radius, icon size, ...).
+  /// LEGACY (v2 shape) — see [axisConfigs] doc comment.
   final RoleStyleConfig roleStyles;
 
   /// Display order of the three motion axes. Meaningful on PLC38 only.
   final List<AxisKind> axisOrder;
+
+  /// Button-centric configs, keyed by [ButtonConfig.id] (== `ControlRole.name`
+  /// for all 8 legacy buttons). Populated either explicitly (new-format
+  /// JSON) or synthesized from [axisConfigs]/[roleStyles]/[labelConfig] on
+  /// load when absent (old-format JSON) — see [fromJson].
+  final Map<String, ButtonConfig> buttons;
+
+  /// Fallback default buttons map, used only when [buttons] lacks an entry
+  /// for a role — this happens exclusively for `const ControlLayoutConfig()`
+  /// (whose `buttons` defaults to `{}`), since every config loaded through
+  /// [fromJson] always has `buttons` populated for all 8 roles via
+  /// [_synthesizeButtonsFromLegacy]. This is the SINGLE fallback point for
+  /// the whole app — screens and the edit sheet call [buttonFor] and treat
+  /// its result as always non-null for the 8 closed ControlRole values,
+  /// rather than each maintaining its own "effectiveX" resolver per field.
+  Map<String, ButtonConfig> get resolvedButtons => {
+    ..._synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig),
+    ...buttons,
+  };
+
+  ButtonConfig? buttonFor(ControlRole role) => resolvedButtons[role.name];
+
+  ControlLayoutConfig withButton(String id, ButtonConfig config) =>
+      copyWith(buttons: {...resolvedButtons, id: config});
 
   ControlLayoutConfig copyWith({
     ControlWidgetSizeConfig? sizeConfig,
@@ -694,6 +719,7 @@ class ControlLayoutConfig {
     AxisConfigSet? axisConfigs,
     RoleStyleConfig? roleStyles,
     List<AxisKind>? axisOrder,
+    Map<String, ButtonConfig>? buttons,
   }) {
     return ControlLayoutConfig(
       sizeConfig: sizeConfig ?? this.sizeConfig,
@@ -702,17 +728,71 @@ class ControlLayoutConfig {
       axisConfigs: axisConfigs ?? this.axisConfigs,
       roleStyles: roleStyles ?? this.roleStyles,
       axisOrder: axisOrder ?? this.axisOrder,
+      buttons: buttons ?? this.buttons,
     );
   }
 
   Map<String, dynamic> toJson() => {
+    'schemaVersion': schemaVersion,
     'sizeConfig': sizeConfig.toJson(),
     'labelConfig': labelConfig.toJson(),
     'arrangementConfig': arrangementConfig.toJson(),
     'axisConfigs': axisConfigs.toJson(),
     'roleStyles': roleStyles.toJson(),
     'axisOrder': axisOrder.map((a) => a.name).toList(),
+    'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
   };
+
+  /// Synthesizes the button-centric `buttons` map from the legacy per-axis/
+  /// per-role/per-label fields. Pure and idempotent — invoked by [fromJson]
+  /// whenever old-format JSON (no `buttons` key) is parsed, so old saved
+  /// layouts silently upgrade in memory on load with zero user action, and
+  /// get persisted in the new format on the very next save.
+  static Map<String, ButtonConfig> _synthesizeButtonsFromLegacy(
+    AxisConfigSet axisConfigs,
+    RoleStyleConfig roleStyles,
+    ControlLabelConfig labelConfig,
+  ) {
+    String legacyLabelFor(ControlRole role) => switch (role) {
+      ControlRole.hoistUp => labelConfig.upLabel,
+      ControlRole.hoistDown => labelConfig.downLabel,
+      ControlRole.traverseLeft => labelConfig.leftLabel,
+      ControlRole.traverseRight => labelConfig.rightLabel,
+      ControlRole.travelForward => labelConfig.forwardLabel,
+      ControlRole.travelReverse => labelConfig.reverseLabel,
+      ControlRole.estop => role.defaultLabel,
+      ControlRole.resetEstop => labelConfig.resetEstopLabel,
+    };
+
+    final result = <String, ButtonConfig>{};
+    for (final role in ControlRole.values) {
+      if (role == ControlRole.estop) {
+        result[role.name] = ButtonConfig.estopDefault();
+        continue;
+      }
+      if (role == ControlRole.resetEstop) {
+        result[role.name] = ButtonConfig.resetEstopDefault(
+          legacyLabelFor(role),
+          style: roleStyles.resetEstop,
+        );
+        continue;
+      }
+      final axis = role.axis!;
+      result[role.name] = ButtonConfig.fromLegacyAxis(
+        role: role,
+        axisConfig: axisConfigs.forAxis(axis),
+        style: roleStyles.forRole(role),
+        label: legacyLabelFor(role),
+      );
+    }
+    return result;
+  }
+
+  static Map<String, ButtonConfig> buttonsFromLegacy({
+    AxisConfigSet axisConfigs = const AxisConfigSet(),
+    RoleStyleConfig roleStyles = const RoleStyleConfig(),
+    ControlLabelConfig labelConfig = const ControlLabelConfig(),
+  }) => _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
 
   static AxisKind? _tryParseAxisKind(dynamic name) {
     for (final a in AxisKind.values) {
@@ -723,10 +803,7 @@ class ControlLayoutConfig {
 
   static List<AxisKind> _parseAxisOrder(dynamic raw) {
     if (raw is! List) return kDefaultAxisOrder;
-    final parsed = raw
-        .map(_tryParseAxisKind)
-        .whereType<AxisKind>()
-        .toList();
+    final parsed = raw.map(_tryParseAxisKind).whereType<AxisKind>().toList();
     // Defensive fallback: must be exactly the 3 axis kinds, each once —
     // otherwise a corrupted/hand-edited value silently reverts to default
     // rather than producing a partial or duplicated axis list.
@@ -737,29 +814,55 @@ class ControlLayoutConfig {
   }
 
   factory ControlLayoutConfig.fromJson(Map<String, dynamic> json) {
+    final axisConfigs = json['axisConfigs'] != null
+        ? AxisConfigSet.fromJson(json['axisConfigs'] as Map<String, dynamic>)
+        : const AxisConfigSet();
+    final roleStyles = json['roleStyles'] != null
+        ? RoleStyleConfig.fromJson(json['roleStyles'] as Map<String, dynamic>)
+        : const RoleStyleConfig();
+    final labelConfig = json['labelConfig'] != null
+        ? ControlLabelConfig.fromJson(
+            json['labelConfig'] as Map<String, dynamic>,
+          )
+        : const ControlLabelConfig();
+
+    // No `buttons` key => pre-v3 JSON (schemaVersion was never itself
+    // serialized before this refactor, so v1 and v2 are indistinguishable
+    // and handled identically here). Silently upgrade in memory; this gets
+    // persisted in the new format on the very next save.
+    final legacyButtons = _synthesizeButtonsFromLegacy(
+      axisConfigs,
+      roleStyles,
+      labelConfig,
+    );
+    final buttons = json['buttons'] != null
+        ? {
+            ...legacyButtons,
+            ...(json['buttons'] as Map<String, dynamic>).map(
+              (id, v) => MapEntry(
+                id,
+                ButtonConfig.fromJson(v as Map<String, dynamic>),
+              ),
+            ),
+          }
+        : legacyButtons;
+
     return ControlLayoutConfig(
       sizeConfig: json['sizeConfig'] != null
           ? ControlWidgetSizeConfig.fromJson(
               json['sizeConfig'] as Map<String, dynamic>,
             )
           : const ControlWidgetSizeConfig(),
-      labelConfig: json['labelConfig'] != null
-          ? ControlLabelConfig.fromJson(
-              json['labelConfig'] as Map<String, dynamic>,
-            )
-          : const ControlLabelConfig(),
+      labelConfig: labelConfig,
       arrangementConfig: json['arrangementConfig'] != null
           ? ControlArrangementConfig.fromJson(
               json['arrangementConfig'] as Map<String, dynamic>,
             )
           : const ControlArrangementConfig(),
-      axisConfigs: json['axisConfigs'] != null
-          ? AxisConfigSet.fromJson(json['axisConfigs'] as Map<String, dynamic>)
-          : const AxisConfigSet(),
-      roleStyles: json['roleStyles'] != null
-          ? RoleStyleConfig.fromJson(json['roleStyles'] as Map<String, dynamic>)
-          : const RoleStyleConfig(),
+      axisConfigs: axisConfigs,
+      roleStyles: roleStyles,
       axisOrder: _parseAxisOrder(json['axisOrder']),
+      buttons: buttons,
     );
   }
 
@@ -783,6 +886,17 @@ class ControlLayoutConfig {
     return true;
   }
 
+  static bool _buttonsEqual(
+    Map<String, ButtonConfig> a,
+    Map<String, ButtonConfig> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -792,7 +906,8 @@ class ControlLayoutConfig {
           other.arrangementConfig == arrangementConfig &&
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
-          _axisOrderEquals(other.axisOrder, axisOrder);
+          _axisOrderEquals(other.axisOrder, axisOrder) &&
+          _buttonsEqual(other.resolvedButtons, resolvedButtons);
 
   @override
   int get hashCode => Object.hash(
@@ -802,6 +917,9 @@ class ControlLayoutConfig {
     axisConfigs,
     roleStyles,
     Object.hashAll(axisOrder),
+    Object.hashAllUnordered(
+      resolvedButtons.entries.map((e) => Object.hash(e.key, e.value)),
+    ),
   );
 }
 

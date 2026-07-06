@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
@@ -67,6 +68,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   ControlState _p38TravState = ControlState.idle;
   bool _p38TripIsForward = true;
   ControlState _p38TripState = ControlState.idle;
+
+  // ── Button-centric PLC38 state ────────────────────────────────────────────
+  // buttonId -> ControlState. Independent of the legacy _p38* fields above —
+  // populated only when the button-centric screens call setButtonCommand.
+  // The two paths are mutually exclusive in practice (a screen either fully
+  // uses the legacy per-axis setters or fully uses setButtonCommand), but
+  // both compose into the same PlcOutputCommand shape so either can be live
+  // during the incremental migration (see CraneController.setButtonCommand).
+  final Map<String, ControlState> _p38ButtonStates = {};
   // bool _conflictActive = false;
   // bool _upActive = false;
   // bool _downActive = false;
@@ -201,7 +211,9 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   AppScreen get currentScreen => switch (_transportConnState.status) {
     BleConnectionStatus.authenticated =>
-      _pendingEnrollmentOffer ? AppScreen.authentication : _getControlScreenForPlcType(),
+      _pendingEnrollmentOffer
+          ? AppScreen.authentication
+          : _getControlScreenForPlcType(),
 
     BleConnectionStatus.awaitingAuthentication ||
     BleConnectionStatus.authenticating => AppScreen.authentication,
@@ -212,24 +224,28 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   };
 
   AppScreen _getControlScreenForPlcType() {
-  final plcType = connectedPlcType;
-  
-  // If PLC type is unknown, default to generic control
-  if (plcType == PlcType.unknown) {
-    _logger.w('⚠️ Unknown PLC type detected, defaulting to generic control screen');
+    final plcType = connectedPlcType;
+
+    // If PLC type is unknown, default to generic control
+    if (plcType == PlcType.unknown) {
+      _logger.w(
+        '⚠️ Unknown PLC type detected, defaulting to generic control screen',
+      );
+      return AppScreen.control;
+    }
+
+    // Navigate to PLC38-specific screen for PLC38
+    if (plcType == PlcType.plc38) {
+      _logger.i('✅ PLC38 detected - navigating to PLC38 control screen');
+      return AppScreen.plc38Control;
+    }
+
+    // PLC14 and PLC21 use generic control screen
+    _logger.i(
+      '✅ ${plcType.displayName} detected - navigating to generic control screen',
+    );
     return AppScreen.control;
   }
-  
-  // Navigate to PLC38-specific screen for PLC38
-  if (plcType == PlcType.plc38) {
-    _logger.i('✅ PLC38 detected - navigating to PLC38 control screen');
-    return AppScreen.plc38Control;
-  }
-  
-  // PLC14 and PLC21 use generic control screen
-  _logger.i('✅ ${plcType.displayName} detected - navigating to generic control screen');
-  return AppScreen.control;
-}
 
   // Future<void> sendCommand({
   //   required bool estop,
@@ -534,6 +550,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   // ── Command helpers ───────────────────────────────────────────────────────
 
   Future<void> _sendCommand(PlcOutputCommand command) async {
+    // Defense-in-depth: mutual exclusion is enforced upstream (UI-level
+    // isDisabled gating, plus button-centric config validation), so an
+    // invalid command should be unreachable here. Refusing to transmit one
+    // is strictly safer than the alternative and matches existing intent —
+    // this is additive, not a behavior change to any valid, reachable
+    // command.
+    assert(command.isValid, 'Refusing to compose an invalid PlcOutputCommand');
+    if (!command.isValid) return;
+
     _activeCommand = command;
     notifyListeners();
     final bytes = command.wireBytesFor(connectedPlcType).toList();
@@ -610,6 +635,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _p38VertState = ControlState.idle;
     _p38TravState = ControlState.idle;
     _p38TripState = ControlState.idle;
+    _p38ButtonStates.clear();
     await _sendCommand(PlcOutputCommand.idle());
   }
 
@@ -710,6 +736,75 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       forward: _p38TripIsForward && _p38TripState != ControlState.idle,
       reverse: !_p38TripIsForward && _p38TripState != ControlState.idle,
       fastFb: _p38TripState == ControlState.fast,
+    );
+  }
+
+  /// Button-centric analogue of setHoistCommand/setTraverseCommand/
+  /// setTravelCommand — the generalized composition entry point for the
+  /// button-centric screens. [buttonId] is a ButtonConfig.id (== a
+  /// ControlRole.name value; the closed set is enforced by callers, which
+  /// only ever pass ids sourced from ControlLayoutConfig.buttons, itself
+  /// derived from the closed ControlRole enum).
+  ///
+  /// PLC14 (single hoist axis, no independent per-axis state needed today)
+  /// delegates to the existing setHoistCommand for hoistUp/hoistDown ids,
+  /// keeping PLC14's single source of truth exactly where it is today.
+  Future<void> setButtonCommand({
+    required String buttonId,
+    required ControlState state,
+  }) async {
+    if (_estopLatched || !isConnected) return;
+
+    if (connectedPlcType != PlcType.plc38) {
+      if (buttonId == ControlRole.hoistUp.name) {
+        await setHoistCommand(isUp: true, state: state);
+      } else if (buttonId == ControlRole.hoistDown.name) {
+        await setHoistCommand(isUp: false, state: state);
+      }
+      return;
+    }
+
+    _p38ButtonStates[buttonId] = state;
+    await _sendCommand(_composeFromButtonStates());
+  }
+
+  /// Generalizes _composePlc38Command(): derives each PlcOutputCommand field
+  /// from whichever button state maps to it via ControlRole.plcMapping,
+  /// instead of the three hardcoded IsX/State field pairs. Produces
+  /// byte-identical output to _composePlc38Command() for every reachable
+  /// state because the derivation rule is unchanged: a field is true iff its
+  /// role's ControlState != idle; a fast flag is true iff its role's
+  /// ControlState == fast.
+  PlcOutputCommand _composeFromButtonStates() {
+    bool activeFor(ControlRole role) =>
+        (_p38ButtonStates[role.name] ?? ControlState.idle) != ControlState.idle;
+    bool fastFor(ControlRole role) =>
+        (_p38ButtonStates[role.name] ?? ControlState.idle) == ControlState.fast;
+
+    bool fastKeyActive(String key) =>
+        (_p38ButtonStates[key] ?? ControlState.idle) != ControlState.idle;
+
+    return PlcOutputCommand.compose(
+      estop: false,
+      up: activeFor(ControlRole.hoistUp),
+      down: activeFor(ControlRole.hoistDown),
+      fastUd: fastFor(ControlRole.hoistUp) || fastFor(ControlRole.hoistDown),
+      left: activeFor(ControlRole.traverseLeft),
+      right: activeFor(ControlRole.traverseRight),
+      // fastLr is set by the 5-zone slider's fast state (traverseLeft/Right
+      // at ControlState.fast) OR by either independent 3-zone slider's
+      // inward drag, which posts to kTraverseLeftFastKey / kTraverseRightFastKey
+      // rather than activating a direction bit.
+      fastLr:
+          fastFor(ControlRole.traverseLeft) ||
+          fastFor(ControlRole.traverseRight) ||
+          fastKeyActive(kTraverseLeftFastKey) ||
+          fastKeyActive(kTraverseRightFastKey),
+      forward: activeFor(ControlRole.travelForward),
+      reverse: activeFor(ControlRole.travelReverse),
+      fastFb:
+          fastFor(ControlRole.travelForward) ||
+          fastFor(ControlRole.travelReverse),
     );
   }
 

@@ -1,3 +1,5 @@
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlRole / AxisKind
 //
@@ -63,6 +65,20 @@ extension ControlRoleInfo on ControlRole {
     ControlRole.estop => 'STOP',
     ControlRole.resetEstop => 'RESET E-STOP',
   };
+
+  /// The PlcOutputCommand field this role drives. `resetEstop` has no field
+  /// of its own (it's a controller-level action — CraneController.resetEStop
+  /// — not a composed packet bit), so it maps to null.
+  PlcMapping? get plcMapping => switch (this) {
+    ControlRole.hoistUp => PlcMapping.up,
+    ControlRole.hoistDown => PlcMapping.down,
+    ControlRole.traverseLeft => PlcMapping.left,
+    ControlRole.traverseRight => PlcMapping.right,
+    ControlRole.travelForward => PlcMapping.forward,
+    ControlRole.travelReverse => PlcMapping.reverse,
+    ControlRole.estop => PlcMapping.estop,
+    ControlRole.resetEstop => null,
+  };
 }
 
 extension AxisKindInfo on AxisKind {
@@ -84,3 +100,12 @@ extension AxisKindInfo on AxisKind {
     AxisKind.travel => 'TRAVEL',
   };
 }
+
+/// Virtual button-state keys used by the independent 3-zone cross-travel
+/// sliders to assert the [fastLr] PLC field without activating either
+/// direction bit. These are NOT [ButtonConfig] IDs — they exist only in
+/// [CraneController]'s runtime button-state map and in
+/// [CrossTravelSlowOnlyStrategy]'s command dispatch. Each slider owns its
+/// own key so that one releasing does not clear the other's contribution.
+const String kTraverseLeftFastKey = 'traverseLeftFast';
+const String kTraverseRightFastKey = 'traverseRightFast';
