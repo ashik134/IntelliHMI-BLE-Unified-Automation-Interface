@@ -1,0 +1,55 @@
+import 'package:flutter/material.dart';
+
+import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SliderButtonStrategy
+//
+// Wraps CraneSliderButton (reused verbatim, zero changes). One ButtonConfig
+// = one direction, matching today's per-direction instantiation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class SliderButtonStrategy extends ButtonTypeStrategy {
+  const SliderButtonStrategy();
+
+  @override
+  ButtonType get type => ButtonType.sliderButton;
+
+  /// CraneSliderButton's `isUp` is purely cosmetic (drag-gesture orientation
+  /// default) — derived here from plcMapping's "primary" vs "secondary"
+  /// direction (up/left/forward vs down/right/reverse), mirroring how each
+  /// axis is oriented on the control screens today.
+  bool _isUp(PlcMapping mapping) => switch (mapping) {
+    PlcMapping.up || PlcMapping.left || PlcMapping.forward => true,
+    _ => false,
+  };
+
+  @override
+  Widget build({
+    required BuildContext context,
+    required ButtonConfig config,
+    required ControlState activeState,
+    required bool isDisabled,
+    required ButtonCommandCallback onCommand,
+  }) {
+    final role = config.role;
+    final icon =
+        config.icon ??
+        (role != null ? iconForRole(role) : Icons.radio_button_checked);
+
+    return CraneSliderButton(
+      label: config.label,
+      icon: icon,
+      isUp: _isUp(config.plcMapping),
+      isDisabled: isDisabled,
+      externalState: activeState,
+      axisColor: config.style.primaryColor,
+      onCommandChanged: (state) => onCommand(config.id, state),
+    );
+  }
+}
