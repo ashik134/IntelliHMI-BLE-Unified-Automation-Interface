@@ -931,48 +931,65 @@ class ControlLayoutConfig {
 // used in industrial HMI panel design.
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum PushButtonWiringConfig { offMomentary, offLatched }
+enum PushButtonWiringConfig {
+  // ── Two-position (push button + toggle) ──────────────────────────────────
+  offMomentary,             // O-T  spring-return one side
+  offLatched,               // O-R  latching one side
+  // ── Three-position (toggle switch only) ──────────────────────────────────
+  springReturnBoth,         // R-O-R  neutral center, both sides spring-return
+  latchingBoth,             // T-O-T  neutral center, both sides latch
+  mixedLeftLatchRightSpring, // T-O-R  left latches, right spring-returns
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PushButtonWiringConfig helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 extension PushButtonWiringConfigInfo on PushButtonWiringConfig {
-  String get label {
-    switch (this) {
-      case PushButtonWiringConfig.offMomentary:
-        return '0-T  ·  Off → Momentary';
-      case PushButtonWiringConfig.offLatched:
-        return '0-R  ·  Off → Latched';
-    }
-  }
+  String get label => switch (this) {
+    PushButtonWiringConfig.offMomentary           => '0-T  ·  Off → Momentary',
+    PushButtonWiringConfig.offLatched             => '0-R  ·  Off → Latched',
+    PushButtonWiringConfig.springReturnBoth       => 'R-O-R  ·  Spring Return Both',
+    PushButtonWiringConfig.latchingBoth           => 'T-O-T  ·  Latching Both Sides',
+    PushButtonWiringConfig.mixedLeftLatchRightSpring => 'T-O-R  ·  Mixed  (Latch ← O → Spring)',
+  };
 
-  String get description {
-    switch (this) {
-      case PushButtonWiringConfig.offMomentary:
-        return 'Hold either button to run. Release to stop. Both directions spring-return.';
-      case PushButtonWiringConfig.offLatched:
-        return 'Tap UP to start lifting; tap again to stop. Same for DOWN. Independent latching.';
-    }
-  }
+  String get description => switch (this) {
+    PushButtonWiringConfig.offMomentary =>
+        'Hold to activate. Release to stop. Spring-returns to OFF.',
+    PushButtonWiringConfig.offLatched =>
+        'Tap to latch ON. Tap again to latch OFF. Maintains state after release.',
+    PushButtonWiringConfig.springReturnBoth =>
+        'Hold top for first direction, hold bottom for second. '
+        'Both sides spring-return to neutral on release. Toggle Switch only.',
+    PushButtonWiringConfig.latchingBoth =>
+        'Tap top or bottom to latch that direction. '
+        'Tap the active side again to return to neutral. Toggle Switch only.',
+    PushButtonWiringConfig.mixedLeftLatchRightSpring =>
+        'Top side latches (maintained). '
+        'Bottom side is momentary (spring-returns). Toggle Switch only.',
+  };
 
-  bool get upIsSpringReturn {
-    switch (this) {
-      case PushButtonWiringConfig.offMomentary:
-        return true;
-      case PushButtonWiringConfig.offLatched:
-        return false;
-    }
-  }
+  /// Whether the UP / top side is spring-return.
+  /// For three-position toggle-only modes the push-button fallback is false.
+  bool get upIsSpringReturn => switch (this) {
+    PushButtonWiringConfig.offMomentary => true,
+    _                                   => false,
+  };
 
   bool get isSpringReturn => upIsSpringReturn;
 
-  bool get downIsSpringReturn {
-    switch (this) {
-      case PushButtonWiringConfig.offMomentary:
-        return true;
-      case PushButtonWiringConfig.offLatched:
-        return false;
-    }
-  }
+  bool get downIsSpringReturn => switch (this) {
+    PushButtonWiringConfig.offMomentary => true,
+    _                                   => false,
+  };
+
+  /// True for modes that only make visual sense on a Toggle Switch widget.
+  /// The behavior tab hides these options when the button type is not toggle.
+  bool get isToggleOnly => switch (this) {
+    PushButtonWiringConfig.springReturnBoth ||
+    PushButtonWiringConfig.latchingBoth ||
+    PushButtonWiringConfig.mixedLeftLatchRightSpring => true,
+    _ => false,
+  };
 }

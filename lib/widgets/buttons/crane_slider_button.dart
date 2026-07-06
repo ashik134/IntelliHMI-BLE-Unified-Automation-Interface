@@ -8,317 +8,210 @@ class CraneSliderButton extends StatefulWidget {
   final IconData icon;
   final bool isUp;
   final bool isDisabled;
-
-  final void Function(ControlState state) onCommandChanged;
   final ControlState externalState;
-
-  /// Optional color override for the slow/active state.
-  /// When provided, replaces the default [isUp]-based color selection.
-  /// The fast color always uses [AppColors.fastColor].
   final Color? axisColor;
-
+  final ValueChanged<ControlState> onCommandChanged;
   const CraneSliderButton({
     super.key,
     required this.label,
     required this.icon,
     required this.isUp,
     this.isDisabled = false,
-    required this.onCommandChanged,
     this.externalState = ControlState.idle,
     this.axisColor,
+    required this.onCommandChanged,
   });
 
   @override
   State<CraneSliderButton> createState() => _CraneSliderButtonState();
 }
 
-class _CraneSliderButtonState extends State<CraneSliderButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulsecontroller;
-  late Animation<double> _pulseAnim;
+class _CraneSliderButtonState extends State<CraneSliderButton> {
+  static const double _fastThreshold = 0.55;
+  static const double _idleDeadZone = 0.01;
 
   ControlState _state = ControlState.idle;
-  double _sliderValue = 0.0; // 0.0 = idle, 0.0-0.55 = slow, 0.55-1.0 = fast
+  double _sliderValue = 0.0;
   bool _isTouching = false;
-
-  static const double _fastThreshold = 0.55;
 
   @override
   void initState() {
     super.initState();
-    _state = widget.externalState;
-    _pulsecontroller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _pulseAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _pulsecontroller, curve: Curves.easeInOut),
-    );
-    _syncAnimation();
+    _syncFromExternalState(widget.externalState);
   }
 
   @override
-  void didUpdateWidget(CraneSliderButton old) {
-    super.didUpdateWidget(old);
-    if (widget.isDisabled && !old.isDisabled) {
-      setState(() {
-        _isTouching = false;
-        _sliderValue = 0.0;
-        _state = ControlState.idle;
-      });
-      _syncAnimation();
+  void didUpdateWidget(covariant CraneSliderButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.isDisabled && !oldWidget.isDisabled) {
+      _resetLocalState();
       return;
     }
-    if (widget.externalState != old.externalState && !_isTouching) {
-      setState(() {
-        _state = widget.externalState;
-        _sliderValue = _state == ControlState.fast
-            ? 1.0
-            : _state == ControlState.slow
-            ? 0.5
-            : 0.0;
-      });
-      _syncAnimation();
+
+    if (!_isTouching && widget.externalState != oldWidget.externalState) {
+      _syncFromExternalState(widget.externalState);
     }
   }
 
-  void _syncAnimation() {
-    switch (_state) {
+  void _syncFromExternalState(ControlState state) {
+    _state = state;
+    _sliderValue = _sliderValueForState(state);
+  }
+
+  void _resetLocalState() {
+    setState(() {
+      _isTouching = false;
+      _state = ControlState.idle;
+      _sliderValue = 0.0;
+    });
+  }
+
+  double _sliderValueForState(ControlState state) {
+    switch (state) {
       case ControlState.idle:
-        _pulsecontroller.stop();
-        _pulsecontroller.value = 0;
-        break;
+        return 0.0;
       case ControlState.slow:
-        _pulsecontroller.repeat(
-          reverse: true,
-          period: const Duration(milliseconds: 900),
-        );
-        break;
+        return 0.5;
       case ControlState.fast:
-        _pulsecontroller.repeat(
-          reverse: true,
-          period: const Duration(milliseconds: 420),
-        );
-        break;
+        return 1.0;
     }
   }
 
-  ControlState _getStateFromSlider(double value) {
-    if (value <= 0.01) return ControlState.idle;
+  ControlState _stateFromSlider(double value) {
+    if (value <= _idleDeadZone) return ControlState.idle;
     if (value < _fastThreshold) return ControlState.slow;
     return ControlState.fast;
-  }
-
-  void _emitCommand(ControlState newState) {
-    if (_state == newState) return;
-    setState(() {
-      _state = newState;
-    });
-    _syncAnimation();
-    widget.onCommandChanged(newState);
-
-    switch (newState) {
-      case ControlState.idle:
-        Vibration.vibrate(duration: 15);
-        debugPrint("${widget.label} command: IDLE");
-        break;
-      case ControlState.slow:
-        Vibration.vibrate(duration: 25, amplitude: 100);
-        debugPrint("${widget.label} command: SLOW");
-        break;
-      case ControlState.fast:
-        Vibration.vibrate(duration: 55, amplitude: 255);
-        debugPrint("${widget.label} command: FAST");
-        break;
-    }
   }
 
   void _onSliderChanged(double value) {
     if (widget.isDisabled) return;
 
+    final nextState = _stateFromSlider(value);
+    final hasStateChanged = nextState != _state;
+
     setState(() {
       _sliderValue = value;
       _isTouching = true;
+      _state = nextState;
     });
 
-    final newState = _getStateFromSlider(value);
-    _emitCommand(newState);
-
-    debugPrint(
-      "${widget.label} slider: ${(value * 100).toStringAsFixed(1)}% - ${newState.name}",
-    );
-  }
-
-  void _onSliderChangeStart(double value) {
-    if (widget.isDisabled) return;
-    _isTouching = true;
-    debugPrint("Slider touch started: ${widget.label}");
-  }
-
-  void _onSliderChangeEnd(double value) {
-    _isTouching = false;
-    setState(() {
-      _sliderValue = 0.0;
-    });
-    _emitCommand(ControlState.idle);
-    _pulsecontroller.forward(from: 0.0);
-    debugPrint("Slider released: ${widget.label}");
-  }
-
-  Color get _primaryColor {
-    if (widget.isDisabled) return Colors.grey.shade400;
-
-    switch (_state) {
-      case ControlState.idle:
-        return AppColors.idleColor;
-      case ControlState.slow:
-        return widget.axisColor ??
-            (widget.isUp ? AppColors.upColor : AppColors.downColor);
-      case ControlState.fast:
-        return AppColors.fastColor;
+    if (hasStateChanged) {
+      _notifyState(nextState);
     }
   }
 
-  Color get _activeAxisColor =>
+  void _onSliderChangeStart(double _) {
+    if (widget.isDisabled) return;
+    _isTouching = true;
+  }
+
+  void _onSliderChangeEnd(double _) {
+    if (widget.isDisabled) return;
+
+    final shouldNotifyIdle = _state != ControlState.idle;
+
+    setState(() {
+      _isTouching = false;
+      _sliderValue = 0.0;
+      _state = ControlState.idle;
+    });
+
+    if (shouldNotifyIdle) {
+      _notifyState(ControlState.idle);
+    }
+  }
+
+  void _notifyState(ControlState state) {
+    widget.onCommandChanged(state);
+    _vibrateForState(state);
+
+    assert(() {
+      debugPrint('${widget.label} command: ${state.name.toUpperCase()}');
+      return true;
+    }());
+  }
+
+  void _vibrateForState(ControlState state) {
+    switch (state) {
+      case ControlState.idle:
+        Vibration.vibrate(duration: 15);
+        break;
+      case ControlState.slow:
+        Vibration.vibrate(duration: 25, amplitude: 100);
+        break;
+      case ControlState.fast:
+        Vibration.vibrate(duration: 55, amplitude: 255);
+        break;
+    }
+  }
+
+  Color get _axisColor =>
       widget.axisColor ??
       (widget.isUp ? AppColors.upColor : AppColors.downColor);
 
-  // ignore: unused_element
-  Color get _bgColor {
-    if (widget.isDisabled) return AppColors.idleColor.withAlpha(25);
+  Color get _activeSliderColor {
+    if (widget.isDisabled) return Colors.grey.shade400;
+    return _sliderValue >= _fastThreshold ? AppColors.fastColor : _axisColor;
+  }
+
+  Color get _overlayColor {
+    if (widget.isDisabled) return Colors.transparent;
 
     switch (_state) {
       case ControlState.idle:
-        return AppColors.panelAlt;
+        return AppColors.idleColor.withAlpha(35);
       case ControlState.slow:
-        return _activeAxisColor.withAlpha((0.25 * 255).toInt());
+        return _axisColor.withAlpha(50);
       case ControlState.fast:
-        return AppColors.fastColorLight.withAlpha((0.33 * 255).toInt());
+        return AppColors.fastColor.withAlpha(55);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulseAnim,
-      builder: (context, _) {
-        // ignore: unused_local_variable
-        final glow = _state != ControlState.idle
-            ? _primaryColor.withAlpha(
-                (0.14 + 0.26 * _pulseAnim.value * 255).toInt(),
-              )
-            : Colors.transparent;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 140.0;
+        final height = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 120.0;
 
-        return Column(
+        final showIndicator = width >= 92 && height >= 88;
+        final sliderWidth = (showIndicator ? width - 68 : width).clamp(
+          0.0,
+          54.0,
+        );
+        final trackLength = (height - 6).clamp(0.0, 160.0);
+
+        return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(6, 0, 6, 0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // _stageDots(),
-                  // const SizedBox(height: 10),
-                  // Icon(widget.icon, size: 16, color: _primaryColor),
-                  // const SizedBox(height: 3),
-                  // Text(
-                  //   widget.label,
-                  //   textAlign: TextAlign.center,
-                  //   style: TextStyle(
-                  //     fontSize: 13,
-                  //     fontWeight: FontWeight.bold,
-                  //     color: _primaryColor,
-                  //     letterSpacing: 0.5,
-                  //     height: 1.25,
-                  //   ),
-                  // ),
-                  // const SizedBox(height: 6),
-                  // _statusBadge(),
-                ],
+            if (showIndicator)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
+                child: _SliderIndicator(
+                  value: _sliderValue,
+                  isUp: widget.isUp,
+                  isTouching: _isTouching,
+                  axisColor: _axisColor,
+                  fastThreshold: _fastThreshold,
+                  maxHeight: height,
+                ),
               ),
-            ),
-
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth.isFinite
-                      ? constraints.maxWidth
-                      : 140.0;
-                  final height = constraints.maxHeight.isFinite
-                      ? constraints.maxHeight
-                      : 120.0;
-                  final showIndicator = width >= 92 && height >= 88;
-                  final availableSliderWidth = showIndicator
-                      ? width - 68
-                      : width;
-                  final sliderWidth = availableSliderWidth.clamp(0.0, 54.0);
-                  final trackLength = (height - 12).clamp(0.0, 144.0);
-
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (showIndicator)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
-                          child: _sliderIndicator(maxHeight: height),
-                        ),
-                      SizedBox(
-                        width: sliderWidth,
-                        child: Center(
-                          child: RotatedBox(
-                            quarterTurns: widget.isUp ? -1 : 1,
-                            child: SizedBox(
-                              width: trackLength,
-                              height: sliderWidth,
-                              child: SliderTheme(
-                                data: SliderThemeData(
-                                  trackHeight: (sliderWidth * 0.32).clamp(
-                                    0.0,
-                                    16.0,
-                                  ),
-                                  thumbShape: RectSliderThumbShape(
-                                    width: (sliderWidth * 0.38).clamp(
-                                      0.0,
-                                      20.0,
-                                    ),
-                                    height: (sliderWidth * 0.64).clamp(
-                                      0.0,
-                                      34.0,
-                                    ),
-                                    borderRadius: 5,
-                                  ),
-                                  overlayShape: RoundSliderOverlayShape(
-                                    overlayRadius: (sliderWidth * 0.22).clamp(
-                                      0.0,
-                                      10.0,
-                                    ),
-                                  ),
-                                  activeTrackColor:
-                                      _sliderValue >= _fastThreshold
-                                      ? AppColors.fastColor
-                                      : _activeAxisColor,
-                                  inactiveTrackColor: Colors.grey.shade200,
-                                  thumbColor: _sliderValue >= _fastThreshold
-                                      ? AppColors.fastColor
-                                      : _activeAxisColor,
-                                  overlayColor: _primaryColor.withAlpha(50),
-                                ),
-                                child: Slider(
-                                  value: _sliderValue,
-                                  onChanged: widget.isDisabled
-                                      ? null
-                                      : _onSliderChanged,
-                                  onChangeStart: _onSliderChangeStart,
-                                  onChangeEnd: _onSliderChangeEnd,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+            SizedBox(
+              width: sliderWidth,
+              child: Center(
+                child: RotatedBox(
+                  quarterTurns: widget.isUp ? -1 : 1,
+                  child: SizedBox(
+                    width: trackLength,
+                    height: sliderWidth,
+                    child: _buildSliderTheme(sliderWidth),
+                  ),
+                ),
               ),
             ),
           ],
@@ -327,223 +220,85 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
     );
   }
 
-  // Widget _stageDots() {
-  //   final slowColor = widget.isUp ? AppColors.upColor : AppColors.downColor;
-  //   final slowactive =
-  //       _state == ControlState.slow || _state == ControlState.fast;
-  //   final fastactive = _state == ControlState.fast;
+  Widget _buildSliderTheme(double sliderWidth) {
+    return SliderTheme(
+      data: SliderThemeData(
+        trackHeight: (sliderWidth * 0.32).clamp(0.0, 16.0),
+        thumbShape: RectSliderThumbShape(
+          width: (sliderWidth * 0.38).clamp(0.0, 20.0),
+          height: (sliderWidth * 0.64).clamp(0.0, 34.0),
+          borderRadius: 5,
+        ),
+        overlayShape: RoundSliderOverlayShape(
+          overlayRadius: (sliderWidth * 0.22).clamp(0.0, 10.0),
+        ),
+        activeTrackColor: _activeSliderColor,
+        inactiveTrackColor: Colors.grey.shade200,
+        thumbColor: _activeSliderColor,
+        overlayColor: _overlayColor,
+      ),
+      child: Slider(
+        value: _sliderValue,
+        onChanged: widget.isDisabled ? null : _onSliderChanged,
+        onChangeStart: widget.isDisabled ? null : _onSliderChangeStart,
+        onChangeEnd: widget.isDisabled ? null : _onSliderChangeEnd,
+      ),
+    );
+  }
+}
 
-  //   return Row(
-  //     mainAxisAlignment: MainAxisAlignment.center,
-  //     children: [
-  //       _dot(label: 'Slow', active: slowactive, color: slowColor),
-  //       const SizedBox(width: 8),
-  //       _dot(label: 'Fast', active: fastactive, color: AppColors.fastColor),
-  //     ],
-  //   );
-  // }
+class _SliderIndicator extends StatelessWidget {
+  final double value;
+  final bool isUp;
+  final bool isTouching;
+  final Color axisColor;
+  final double fastThreshold;
+  final double maxHeight;
 
-  // Widget _dot({
-  //   required String label,
-  //   required bool active,
-  //   required Color color,
-  // }) {
-  //   return Column(
-  //     children: [
-  //       AnimatedContainer(
-  //         duration: const Duration(milliseconds: 200),
-  //         width: 10,
-  //         height: 10,
-  //         decoration: BoxDecoration(
-  //           color: active ? color : Colors.grey.shade300,
-  //           shape: BoxShape.circle,
-  //           boxShadow: active
-  //               ? [
-  //                   BoxShadow(
-  //                     color: color.withAlpha((0.5 * 255).toInt()),
-  //                     blurRadius: 5,
-  //                   ),
-  //                 ]
-  //               : [],
-  //         ),
-  //       ),
-  //       const SizedBox(height: 2),
-  //       Text(
-  //         label,
-  //         style: TextStyle(
-  //           fontSize: 8,
-  //           fontWeight: FontWeight.w600,
-  //           color: active ? color : Colors.grey.shade400,
-  //         ),
-  //       ),
-  //     ],
-  //   );
-  // }
+  const _SliderIndicator({
+    required this.value,
+    required this.isUp,
+    required this.isTouching,
+    required this.axisColor,
+    required this.fastThreshold,
+    required this.maxHeight,
+  });
 
-  // Widget _statusBadge() {
+  Color get _indicatorColor =>
+      value >= fastThreshold ? AppColors.fastColor : axisColor;
 
-  //   String label;
-  //   Color color;
-  //   switch (_state) {
-  //     case ControlState.idle:
-  //       label = "IDLE";
-  //       color = AppColors.idleColor;
-  //       break;
-  //     case ControlState.slow:
-  //       label = "SLOW";
-  //       color = widget.isUp ? AppColors.upColor : AppColors.downColor;
-  //       break;
-  //     case ControlState.fast:
-  //       label = "FAST";
-  //       color = AppColors.fastColor;
-  //       break;
-  //   }
-
-  //   return Text(
-  //     label,
-  //     style: TextStyle(
-  //       color: color,
-  //       fontSize: 8,
-  //       fontWeight: FontWeight.bold,
-  //       letterSpacing: 0.5,
-  //     ),
-  //   );
-  // }
-
-  Widget _sliderIndicator({required double maxHeight}) {
-    final pct = (_sliderValue * 100).toInt();
-    final indicatorColor = _sliderValue >= _fastThreshold
-        ? AppColors.fastColor
-        : (widget.isUp ? AppColors.upColor : AppColors.downColor);
-    final isUpDirection = widget.isUp;
+  @override
+  Widget build(BuildContext context) {
     final barHeight = (maxHeight - 42).clamp(38.0, 70.0);
+    final percent = (value * 100).round();
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          width: 28,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: isUpDirection
-                ? [
-                    // UP: IDLE (top) → FAST (bottom)
-                    _buildLabel(
-                      'IDLE',
-                      active: _sliderValue <= 0.01,
-                      color: AppColors.darkTextSub,
-                    ),
-                    _buildLabel(
-                      'SLOW',
-                      active:
-                          _sliderValue > 0.01 && _sliderValue < _fastThreshold,
-                      color: indicatorColor,
-                    ),
-                    _buildLabel(
-                      'FAST',
-                      active: _sliderValue >= _fastThreshold,
-                      color: AppColors.fastColor,
-                    ),
-                  ]
-                : [
-                    // DOWN: FAST (top) → IDLE (bottom)
-                    _buildLabel(
-                      'FAST',
-                      active: _sliderValue >= _fastThreshold,
-                      color: AppColors.fastColor,
-                    ),
-                    _buildLabel(
-                      'SLOW',
-                      active:
-                          _sliderValue > 0.01 && _sliderValue < _fastThreshold,
-                      color: indicatorColor,
-                    ),
-                    _buildLabel(
-                      'IDLE',
-                      active: _sliderValue <= 0.01,
-                      color: AppColors.darkTextSub,
-                    ),
-                  ],
-          ),
-        ),
-
+        SizedBox(width: 28, child: _buildLabels()),
         const SizedBox(width: 6),
-
-        // ── Vertical Progress Bar with Threshold Lines ──
-        // Fixed-width SizedBox prevents the Column from resizing as the
-        // '$pct%' text changes character count (e.g. "0%" → "100%"), which
-        // was the root cause of the horizontal shift/jitter.
         SizedBox(
           width: 22,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Direction icon
               Icon(
-                isUpDirection ? Icons.arrow_upward : Icons.arrow_downward,
+                isUp ? Icons.arrow_upward : Icons.arrow_downward,
                 size: 10,
-                color: _sliderValue > 0.01
-                    ? indicatorColor
-                    : AppColors.darkTextMuted,
+                color: value > 0.01 ? _indicatorColor : AppColors.darkTextMuted,
               ),
               const SizedBox(height: 2),
-
-              // Progress bar
-              Container(
-                width: 6,
-                height: barHeight,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Stack(
-                  children: [
-                    // Fast threshold line (at 55%)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: isUpDirection
-                          ? barHeight * (1 - _fastThreshold)
-                          : barHeight * _fastThreshold,
-                      child: Container(
-                        height: 1,
-                        color: AppColors.fastColor.withAlpha(
-                          (0.3 * 255).toInt(),
-                        ),
-                      ),
-                    ),
-                    // Fill
-                    Align(
-                      alignment: isUpDirection
-                          ? Alignment.bottomCenter
-                          : Alignment.topCenter,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        curve: Curves.easeOutCubic,
-                        width:
-                            6, // explicit width — prevents implicit resize inside Stack
-                        height: barHeight * _sliderValue,
-                        decoration: BoxDecoration(
-                          color: indicatorColor,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
+              _buildProgressBar(barHeight),
               const SizedBox(height: 2),
-
               Text(
-                '$pct%',
+                '$percent%',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.bold,
-                  color: _isTouching ? indicatorColor : AppColors.darkTextMuted,
+                  color: isTouching ? _indicatorColor : AppColors.darkTextMuted,
                 ),
               ),
             ],
@@ -553,11 +308,97 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
     );
   }
 
-  Widget _buildLabel(
-    String text, {
-    required bool active,
-    required Color color,
-  }) {
+  Widget _buildLabels() {
+    final labels = isUp
+        ? <Widget>[
+            _ScaleLabel(
+              text: 'IDLE',
+              active: value <= 0.01,
+              activeColor: AppColors.darkTextSub,
+            ),
+            _ScaleLabel(
+              text: 'SLOW',
+              active: value > 0.01 && value < fastThreshold,
+              activeColor: _indicatorColor,
+            ),
+            _ScaleLabel(
+              text: 'FAST',
+              active: value >= fastThreshold,
+              activeColor: AppColors.fastColor,
+            ),
+          ]
+        : <Widget>[
+            _ScaleLabel(
+              text: 'FAST',
+              active: value >= fastThreshold,
+              activeColor: AppColors.fastColor,
+            ),
+            _ScaleLabel(
+              text: 'SLOW',
+              active: value > 0.01 && value < fastThreshold,
+              activeColor: _indicatorColor,
+            ),
+            _ScaleLabel(
+              text: 'IDLE',
+              active: value <= 0.01,
+              activeColor: AppColors.darkTextSub,
+            ),
+          ];
+
+    return Column(mainAxisSize: MainAxisSize.min, children: labels);
+  }
+
+  Widget _buildProgressBar(double height) {
+    return Container(
+      width: 6,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            top: isUp ? height * (1 - fastThreshold) : height * fastThreshold,
+            child: Container(
+              height: 1,
+              color: AppColors.fastColor.withAlpha(77),
+            ),
+          ),
+          Align(
+            alignment: isUp ? Alignment.bottomCenter : Alignment.topCenter,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              width: 6,
+              height: height * value,
+              decoration: BoxDecoration(
+                color: _indicatorColor,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScaleLabel extends StatelessWidget {
+  final String text;
+  final bool active;
+  final Color activeColor;
+
+  const _ScaleLabel({
+    required this.text,
+    required this.active,
+    required this.activeColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Text(
@@ -566,51 +407,10 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
         style: TextStyle(
           fontSize: 8,
           fontWeight: active ? FontWeight.bold : FontWeight.normal,
-          color: active ? color : AppColors.idleColor,
+          color: active ? activeColor : AppColors.idleColor,
         ),
       ),
     );
-  }
-
-  // Widget _plcOutputDisplay() {
-  //   // final List<int> output = widget.inConflict
-  //   //     ? plcConflict
-  //   //     :
-  //   final List<int> output = widget.isUp ? plcOutputUp[_state]! : plcOutputDown[_state]!;
-
-  //   return Row(
-  //     mainAxisAlignment: MainAxisAlignment.center,
-  //     children: [
-  //       ...output.map((bit) {
-  //         final active = bit == 1;
-  //         return Container(
-  //           margin: const EdgeInsets.only(right: 3),
-  //           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-  //           decoration: BoxDecoration(
-  //             color: active
-  //                 ? _primaryColor.withAlpha((0.2 * 255).toInt())
-  //                 : Colors.grey.shade200,
-  //             borderRadius: BorderRadius.circular(3),
-  //           ),
-  //           child: Text(
-  //             '$bit',
-  //             style: TextStyle(
-  //               fontSize: 9,
-  //               fontWeight: FontWeight.bold,
-  //               color: active ? _primaryColor : Colors.grey.shade400,
-  //               fontFamily: 'monospace',
-  //             ),
-  //           ),
-  //         );
-  //       }),
-  //     ],
-  //   );
-  // }
-
-  @override
-  void dispose() {
-    _pulsecontroller.dispose();
-    super.dispose();
   }
 }
 
@@ -643,15 +443,15 @@ class RectSliderThumbShape extends SliderComponentShape {
     required double textScaleFactor,
     required Size sizeWithOverflow,
   }) {
-    final canvas = context.canvas;
     final paint = Paint()
       ..color = sliderTheme.thumbColor ?? Colors.grey
       ..style = PaintingStyle.fill;
 
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: center, width: width, height: height),
-      const Radius.elliptical(60.0, 90.0),
+      Radius.circular(borderRadius),
     );
-    canvas.drawRRect(rect, paint);
+
+    context.canvas.drawRRect(rect, paint);
   }
 }

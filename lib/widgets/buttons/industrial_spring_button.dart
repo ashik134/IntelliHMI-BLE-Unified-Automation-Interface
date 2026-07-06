@@ -505,13 +505,13 @@ class _IndustrialButtonContent extends StatelessWidget {
               SizedBox(height: bottomSpacing * 0.8),
 
               // ── Status Rail ────────────────────────────────────────────
-              _StatusRail(
-                color: activeColor,
-                isActive: isActive,
-                isPressed: isPressed,
-                isEnabled: isEnabled,
-                isCompact: compact,
-              ),
+              // _StatusRail(
+              //   color: activeColor,
+              //   isActive: isActive,
+              //   isPressed: isPressed,
+              //   isEnabled: isEnabled,
+              //   isCompact: compact,
+              // ),
             ],
           ),
         );

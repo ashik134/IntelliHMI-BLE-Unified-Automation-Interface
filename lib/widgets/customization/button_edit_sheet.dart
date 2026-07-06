@@ -1385,18 +1385,22 @@ class _BehaviorCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     for (final cfg in PushButtonWiringConfig.values)
-                      _WiringTile(
-                        cfg: cfg,
-                        isSelected: config.behavior.wiring == cfg,
-                        onTap: () => customCtrl.applyDraftChange(
-                          draft.withButton(
-                            role.name,
-                            config.copyWith(
-                              behavior: config.behavior.copyWith(wiring: cfg),
+                      // Three-position modes only make sense for Toggle Switch.
+                      if (!cfg.isToggleOnly ||
+                          config.type == ButtonType.toggle)
+                        _WiringTile(
+                          cfg: cfg,
+                          isSelected: config.behavior.wiring == cfg,
+                          onTap: () => customCtrl.applyDraftChange(
+                            draft.withButton(
+                              role.name,
+                              config.copyWith(
+                                behavior:
+                                    config.behavior.copyWith(wiring: cfg),
+                              ),
                             ),
                           ),
                         ),
-                      ),
                   ],
                 )
               : const _InfoNote(
