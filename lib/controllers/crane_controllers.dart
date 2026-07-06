@@ -5,6 +5,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
@@ -77,6 +78,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   // both compose into the same PlcOutputCommand shape so either can be live
   // during the incremental migration (see CraneController.setButtonCommand).
   final Map<String, ControlState> _p38ButtonStates = {};
+
+  // ── Shared-field ownership ────────────────────────────────────────────────
+  // PlcMapping field → the buttonId that currently owns (actively asserts)
+  // that field. Enforces the invariant that each PLC field is driven by at
+  // most one button at a time. A second button attempting to activate the
+  // same field while it is already owned is silently discarded; the UI layer
+  // reads isFieldBlockedForButton() to clamp the slider before the drag
+  // reaches the zone boundary, giving a physical "stuck" sensation.
+  final Map<PlcMapping, String> _fieldOwners = {};
   // bool _conflictActive = false;
   // bool _upActive = false;
   // bool _downActive = false;
@@ -596,6 +606,11 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _p38VertState = ControlState.idle;
     _p38TravState = ControlState.idle;
     _p38TripState = ControlState.idle;
+    // Clear button-centric state and field ownership so buttons are not stuck
+    // in a blocked state after estop is cleared (since setButtonCommand is
+    // guarded by _estopLatched, the normal idle-on-release path never runs).
+    _p38ButtonStates.clear();
+    _fieldOwners.clear();
     final cmd = PlcOutputCommand.emergencyStop();
     _activeCommand = cmd;
     notifyListeners();
@@ -636,6 +651,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _p38TravState = ControlState.idle;
     _p38TripState = ControlState.idle;
     _p38ButtonStates.clear();
+    _fieldOwners.clear();
     await _sendCommand(PlcOutputCommand.idle());
   }
 
@@ -764,8 +780,81 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    _p38ButtonStates[buttonId] = state;
+    if (state == ControlState.idle) {
+      // Release all fields this button currently owns, then mark it idle.
+      _fieldOwners.removeWhere((_, owner) => owner == buttonId);
+      _p38ButtonStates[buttonId] = state;
+    } else {
+      final previousState = _p38ButtonStates[buttonId] ?? ControlState.idle;
+      final previousFields = _fieldsFor(buttonId, previousState);
+      final newFields      = _fieldsFor(buttonId, state);
+
+      // Only check fields being NEWLY claimed (not already owned by this button).
+      final addedFields = newFields.difference(previousFields);
+      final blocked = addedFields.any(
+        (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
+      );
+
+      if (!blocked) {
+        // Release fields no longer needed by the new state.
+        for (final f in previousFields.difference(newFields)) {
+          _fieldOwners.remove(f);
+        }
+        // Claim the newly added fields.
+        for (final f in addedFields) {
+          _fieldOwners[f] = buttonId;
+        }
+        _p38ButtonStates[buttonId] = state;
+      }
+      // Blocked commands are silently discarded; the slider's physical clamp
+      // (isFieldBlockedForButton) prevents the gesture from reaching here in
+      // normal operation.
+    }
     await _sendCommand(_composeFromButtonStates());
+  }
+
+  // ── Shared-field ownership helpers ────────────────────────────────────────
+
+  /// Returns the set of PLC fields that [buttonId] would assert when its
+  /// state is [state]. Used to check ownership before accepting a command and
+  /// to release ownership when a button goes idle.
+  Set<PlcMapping> _fieldsFor(String buttonId, ControlState state) {
+    if (state == ControlState.idle) return const {};
+
+    // Virtual fast-modifier keys (traverse-only for now; extend via
+    // kVirtualFastKeyFields for future axes).
+    final virtualField = kVirtualFastKeyFields[buttonId];
+    if (virtualField != null) return {virtualField};
+
+    // Standard ControlRole buttons matched by role name.
+    ControlRole? role;
+    for (final r in ControlRole.values) {
+      if (r.name == buttonId) {
+        role = r;
+        break;
+      }
+    }
+    final mapping = role?.plcMapping;
+    if (mapping == null) return const {};
+
+    final fields = <PlcMapping>{mapping};
+    // Fast state also claims the axis speed-modifier field.
+    if (state == ControlState.fast) {
+      final fastField = role!.axis?.fastMapping;
+      if (fastField != null) fields.add(fastField);
+    }
+    return fields;
+  }
+
+  /// Returns true if any PLC field that [buttonId] would activate is
+  /// currently owned by a DIFFERENT button. The UI layer calls this to
+  /// apply a per-zone drag clamp on the slider (physical "stuck" sensation)
+  /// before the drag enters the blocked zone.
+  bool isFieldBlockedForButton(String buttonId) {
+    final fields = _fieldsFor(buttonId, ControlState.slow); // representative non-idle state
+    return fields.any(
+      (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
+    );
   }
 
   /// Generalizes _composePlc38Command(): derives each PlcOutputCommand field

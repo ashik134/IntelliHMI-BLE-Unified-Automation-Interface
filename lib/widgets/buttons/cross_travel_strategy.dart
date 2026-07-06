@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
@@ -45,12 +47,25 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
     // fallback. Screens with both LEFT/RIGHT configs available should call
     // buildPaired instead (see plc38_control_screen.dart's traverse axis).
     final endpoints = _traverseEndpointsFor(config);
+
+    bool isLeftZoneBlocked  = false;
+    bool isRightZoneBlocked = false;
+    if (!isDisabled) {
+      final ctrl = _tryReadController(context);
+      if (ctrl != null) {
+        isLeftZoneBlocked  = ctrl.isFieldBlockedForButton(endpoints.leftId);
+        isRightZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.rightId);
+      }
+    }
+
     return buildPaired(
       leftId: endpoints.leftId,
       rightId: endpoints.rightId,
       leftLabel: endpoints.leftLabel,
       rightLabel: endpoints.rightLabel,
       isDisabled: isDisabled,
+      isLeftZoneBlocked: isLeftZoneBlocked,
+      isRightZoneBlocked: isRightZoneBlocked,
       onCommand: onCommand,
     );
   }
@@ -66,11 +81,15 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
     required String rightLabel,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    bool isLeftZoneBlocked  = false,
+    bool isRightZoneBlocked = false,
   }) {
     return CrossTravelSlider(
       leftLabel: leftLabel,
       rightLabel: rightLabel,
       isDisabled: isDisabled,
+      isLeftZoneBlocked: isLeftZoneBlocked,
+      isRightZoneBlocked: isRightZoneBlocked,
       onCommandChanged: ({required bool isLeft, required ControlState state}) {
         if (state == ControlState.idle) {
           onCommand(leftId, ControlState.idle);
@@ -122,10 +141,25 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
     required ButtonCommandCallback onCommand,
   }) {
     final endpoints = _traverseEndpointsFor(config);
+
+    // Per-zone blocking: prevents this slider from entering the zone that
+    // would claim a PLC field already owned by another button.
+    bool isLeftZoneBlocked  = false;
+    bool isRightZoneBlocked = false;
+    if (!isDisabled) {
+      final ctrl = _tryReadController(context);
+      if (ctrl != null) {
+        isLeftZoneBlocked  = ctrl.isFieldBlockedForButton(endpoints.leftId);
+        isRightZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.rightId);
+      }
+    }
+
     return CrossTravelSlider(
       leftLabel: endpoints.leftLabel,
       rightLabel: endpoints.rightLabel,
       isDisabled: isDisabled,
+      isLeftZoneBlocked: isLeftZoneBlocked,
+      isRightZoneBlocked: isRightZoneBlocked,
       variant: CrossTravelSliderVariant.threeZoneSlowOnly,
       onCommandChanged: ({required bool isLeft, required ControlState state}) {
         if (state == ControlState.idle) {
@@ -177,5 +211,19 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
       leftLabel: config.label,
       rightLabel: config.label,
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared utility
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Tries to read [CraneController] from [context] without throwing.
+/// Returns null when the provider is absent (editing mode, tests, canvas).
+CraneController? _tryReadController(BuildContext context) {
+  try {
+    return context.read<CraneController>();
+  } catch (_) {
+    return null;
   }
 }

@@ -99,6 +99,13 @@ extension AxisKindInfo on AxisKind {
     AxisKind.traverse => 'TRAVERSE',
     AxisKind.travel => 'TRAVEL',
   };
+
+  /// The PLC speed-modifier field for this axis.
+  PlcMapping get fastMapping => switch (this) {
+    AxisKind.hoist    => PlcMapping.fastUd,
+    AxisKind.traverse => PlcMapping.fastLr,
+    AxisKind.travel   => PlcMapping.fastFb,
+  };
 }
 
 /// Virtual button-state keys used by the independent 3-zone cross-travel
@@ -109,3 +116,11 @@ extension AxisKindInfo on AxisKind {
 /// own key so that one releasing does not clear the other's contribution.
 const String kTraverseLeftFastKey = 'traverseLeftFast';
 const String kTraverseRightFastKey = 'traverseRightFast';
+
+/// Maps every virtual fast-key button ID to the single PLC field it asserts.
+/// CraneController._fieldsFor and CrossTravelSlowOnlyStrategy both consult
+/// this table so the mapping is defined in one place.
+const Map<String, PlcMapping> kVirtualFastKeyFields = {
+  kTraverseLeftFastKey:  PlcMapping.fastLr,
+  kTraverseRightFastKey: PlcMapping.fastLr,
+};

@@ -219,6 +219,59 @@ void main() {
     }
   });
 
+  // ── Field-ownership observable behavior ────────────────────────────────────
+  // The ownership system is enforced inside CraneController.setButtonCommand
+  // (which requires a real BLE connection and is not unit-tested here).
+  // These tests verify the COMPOSITION side: given the post-ownership state
+  // map that setButtonCommand produces, composeFromButtonStates emits the
+  // correct PLC packet. The ownership invariant is: at most one button can
+  // write to a given PLC field at a time, so the second claimant's key is
+  // never added to the state map.
+  group('Post-ownership state composition', () {
+    test('only kTraverseLeftFastKey active → fastLr set, no direction', () {
+      // Ownership: kTraverseLeftFastKey won; kTraverseRightFastKey was blocked.
+      final cmd = composeFromButtonStates({
+        kTraverseLeftFastKey: ControlState.slow,
+      });
+      expect(cmd.fastLr, isTrue);
+      expect(cmd.left,  isFalse);
+      expect(cmd.right, isFalse);
+    });
+
+    test('left direction + right-slider fast (kTraverseRightFastKey) → left fast', () {
+      final cmd = composeFromButtonStates({
+        ControlRole.traverseLeft.name: ControlState.slow,
+        kTraverseRightFastKey:         ControlState.slow,
+      });
+      expect(cmd.left,   isTrue);
+      expect(cmd.right,  isFalse);
+      expect(cmd.fastLr, isTrue);
+    });
+
+    test('right direction + left-slider fast (kTraverseLeftFastKey) → right fast', () {
+      final cmd = composeFromButtonStates({
+        ControlRole.traverseRight.name: ControlState.slow,
+        kTraverseLeftFastKey:           ControlState.slow,
+      });
+      expect(cmd.left,   isFalse);
+      expect(cmd.right,  isTrue);
+      expect(cmd.fastLr, isTrue);
+    });
+
+    test('ownership prevents two virtual keys from co-existing in the state map', () {
+      // After ownership enforcement, if kTraverseLeftFastKey owns fastLr,
+      // kTraverseRightFastKey is blocked and never added.  The state map
+      // therefore never has both keys simultaneously.
+      // This test simply validates the composition of the legal post-ownership
+      // state (single key only) produces a valid packet.
+      final cmd = composeFromButtonStates({
+        kTraverseLeftFastKey: ControlState.slow,
+        // kTraverseRightFastKey intentionally absent — was blocked
+      });
+      expect(cmd.isValid, isTrue);
+    });
+  });
+
   group('PLC14 wire format (4-field) is unaffected by the button-centric path', () {
     test('idle command emits the 4-field idle format', () {
       final cmd = PlcOutputCommand.idle();

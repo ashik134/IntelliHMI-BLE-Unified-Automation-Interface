@@ -48,12 +48,22 @@ class CrossTravelSlider extends StatefulWidget {
   /// only, even at the far end of the track.
   final CrossTravelSliderVariant variant;
 
+  /// When true, the drag is physically clamped at the dead-zone boundary in
+  /// the corresponding direction. The thumb cannot enter that zone — it feels
+  /// "stuck" — because the PLC field it would assert is currently owned by
+  /// another button. No visual change to the button is made; only the gesture
+  /// is constrained.
+  final bool isLeftZoneBlocked;
+  final bool isRightZoneBlocked;
+
   const CrossTravelSlider({
     super.key,
     this.isDisabled = false,
     this.leftLabel = 'LEFT',
     this.rightLabel = 'RIGHT',
     this.variant = CrossTravelSliderVariant.fiveZone,
+    this.isLeftZoneBlocked = false,
+    this.isRightZoneBlocked = false,
     required this.onCommandChanged,
   });
 
@@ -73,6 +83,11 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   // ── Thresholds (fraction of half-track from centre) ──────────────────────
   static const double _deadZone = 0.12; // ±12 % → idle dead band
   static const double _fastZone = 0.62; // beyond ±62 % → fast
+
+  // Margin applied when clamping to the dead-zone boundary so the value stays
+  // strictly INSIDE the idle region (abs < _deadZone), preventing the zone
+  // check from firing at the exact boundary value.
+  static const double _zoneClampMargin = 0.001;
 
   // ── Thumb / track geometry ────────────────────────────────────────────────
   static const double _thumbW = 36.0;
@@ -108,6 +123,25 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
         _isDragging = false;
         _lastEmitted = _TravZone.idle;
       });
+      return;
+    }
+
+    // Push the thumb back inside the dead zone if a zone just became blocked
+    // mid-drag (e.g. the other traverse slider claimed ownership of fast_lr).
+    // The ownership system prevents two sliders from both being in their
+    // blocked zones simultaneously, so this path is a defensive safeguard.
+    if (_isDragging) {
+      var clamped = _value;
+      if (widget.isRightZoneBlocked && _value >= _deadZone) {
+        clamped = _deadZone - _zoneClampMargin;
+      }
+      if (widget.isLeftZoneBlocked && _value <= -_deadZone) {
+        clamped = -_deadZone + _zoneClampMargin;
+      }
+      if (clamped != _value) {
+        setState(() => _value = clamped);
+        _emitZone(_zoneFor(clamped)); // emits idle since clamped < _deadZone
+      }
     }
   }
 
@@ -192,7 +226,20 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   void _dragUpdate(DragUpdateDetails details, double halfTrack) {
     if (!_isDragging || widget.isDisabled) return;
     final delta = halfTrack > 0 ? details.delta.dx / halfTrack : 0.0;
-    setState(() => _value = (_value + delta).clamp(-1.0, 1.0));
+    var newValue = (_value + delta).clamp(-1.0, 1.0);
+
+    // Clamp at the dead-zone boundary when the zone is locked by another
+    // button's ownership of the same PLC field. Keeping the value strictly
+    // inside the dead zone (abs < _deadZone) ensures the zone check returns
+    // idle so no command is emitted in the blocked direction.
+    if (widget.isRightZoneBlocked && newValue >= _deadZone) {
+      newValue = _deadZone - _zoneClampMargin;
+    }
+    if (widget.isLeftZoneBlocked && newValue <= -_deadZone) {
+      newValue = -_deadZone + _zoneClampMargin;
+    }
+
+    setState(() => _value = newValue);
     _emitZone(_zoneFor(_value));
   }
 
