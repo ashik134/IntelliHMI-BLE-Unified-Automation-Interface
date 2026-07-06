@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -62,18 +64,58 @@ class ConfigurableButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strategy = kButtonTypeStrategies[config.type]!;
-    final child = SizedBox(
-      height: height ?? config.resolvedHeight,
-      child: strategy.build(
-        context: context,
-        config: config,
-        activeState: activeState,
-        isDisabled: isDisabled,
-        onCommand: onCommand,
+
+    Widget button({double? width, double? childHeight}) {
+      return SizedBox(
+        width: width,
+        height: childHeight ?? height ?? config.resolvedHeight,
+        child: strategy.build(
+          context: context,
+          config: config,
+          activeState: activeState,
+          isDisabled: isDisabled,
+          onCommand: onCommand,
+        ),
+      );
+    }
+
+    final outerHeight = height ?? config.resolvedHeight;
+    if (config.rotation.quarterTurns == 0) {
+      return SizedBox(
+        height: outerHeight,
+        child: button(childHeight: outerHeight),
+      );
+    }
+
+    return SizedBox(
+      height: outerHeight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableWidth = constraints.maxWidth;
+          final availableHeight = constraints.maxHeight;
+          if (!availableWidth.isFinite || !availableHeight.isFinite) {
+            return Center(
+              child: Transform.rotate(
+                angle: config.rotation.turns * 2 * math.pi,
+                child: button(childHeight: outerHeight),
+              ),
+            );
+          }
+
+          final isSideways = config.rotation.quarterTurns.isOdd;
+          final childWidth = isSideways ? availableHeight : availableWidth;
+          final childHeight = isSideways ? availableWidth : availableHeight;
+
+          return ClipRect(
+            child: Center(
+              child: Transform.rotate(
+                angle: config.rotation.turns * 2 * math.pi,
+                child: button(width: childWidth, childHeight: childHeight),
+              ),
+            ),
+          );
+        },
       ),
     );
-
-    if (config.rotation.quarterTurns == 0) return child;
-    return RotatedBox(quarterTurns: config.rotation.quarterTurns, child: child);
   }
 }

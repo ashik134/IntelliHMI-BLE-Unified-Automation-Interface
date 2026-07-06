@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
@@ -204,6 +205,46 @@ class _ControlScreenState extends State<ControlScreen>
     await context.read<CustomizationModeController>().enter();
   }
 
+  Future<void> _confirmDeleteSelectedButton(
+    CustomizationModeController customCtrl,
+  ) async {
+    final button = customCtrl.selectedButton;
+    if (button == null) return;
+    final name = button.label.isEmpty ? button.id : button.label;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: const Text(
+          'Delete button?',
+          style: TextStyle(color: AppColors.darkText),
+        ),
+        content: Text(
+          'Remove $name from the grid? The adjacent button will fill the row when possible.',
+          style: const TextStyle(color: AppColors.darkTextSub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.eStopColor),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    final result = customCtrl.deleteSelectedButton(slotCount: 2);
+    if (!result.isValid && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Could not delete button.')),
+      );
+    }
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
@@ -231,6 +272,7 @@ class _ControlScreenState extends State<ControlScreen>
         final screenTitle = labels.screenTitle.isNotEmpty
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
+        final selectedButton = customCtrl.selectedButton;
 
         return Stack(
           children: [
@@ -277,7 +319,33 @@ class _ControlScreenState extends State<ControlScreen>
                     ],
                   ),
                   actions: isEditing
-                      ? const []
+                      ? [
+                          IconButton(
+                            icon: const Icon(Icons.screen_rotation_rounded),
+                            color: selectedButton == null
+                                ? AppColors.disabled
+                                : AppColors.darkTextSub,
+                            tooltip: selectedButton == null
+                                ? 'Select a button to rotate'
+                                : 'Rotate to ${selectedButton.rotation.next.label}',
+                            onPressed: selectedButton == null
+                                ? null
+                                : customCtrl.rotateSelectedButton,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            color: selectedButton == null
+                                ? AppColors.disabled
+                                : AppColors.eStopColor,
+                            tooltip: 'Delete selected button',
+                            onPressed:
+                                selectedButton == null ||
+                                    !customCtrl.canDeleteSelectedButton
+                                ? null
+                                : () =>
+                                      _confirmDeleteSelectedButton(customCtrl),
+                          ),
+                        ]
                       : [
                           IconButton(
                             icon: const Icon(
@@ -403,6 +471,10 @@ class _ControlScreenState extends State<ControlScreen>
                                 ButtonEditSheet.showForRole(context, role);
                               }
                             },
+                            selectedRole: customCtrl.selectedRole,
+                            onSelectButton: isEditing
+                                ? customCtrl.selectButton
+                                : null,
                             onSlotDrop: isEditing
                                 ? (dragged, sourceSlot, target, targetSlot) {
                                     final result = buildGridSlotDrop(
@@ -476,7 +548,9 @@ class _ControlScreenState extends State<ControlScreen>
     // exclusion with the paired role would incorrectly disable the widget
     // mid-drag and leave it permanently stuck in the disabled state.
     if (config.type == ButtonType.crossTravel ||
-        config.type == ButtonType.crossTravelSlowOnly) return false;
+        config.type == ButtonType.crossTravelSlowOnly) {
+      return false;
+    }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
       if (_localActive[excludedId] == true) return true;
     }

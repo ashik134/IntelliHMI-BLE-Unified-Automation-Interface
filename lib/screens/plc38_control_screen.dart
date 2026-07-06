@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:vibration/vibration.dart';
@@ -209,7 +210,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     // mid-drag (when the paired role's _localActive entry is set), which
     // in turn causes the slider to get stuck in a permanently disabled state.
     if (config.type == ButtonType.crossTravel ||
-        config.type == ButtonType.crossTravelSlowOnly) return false;
+        config.type == ButtonType.crossTravelSlowOnly) {
+      return false;
+    }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
       if (_localActive[excludedId] == true) return true;
     }
@@ -221,6 +224,46 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   Future<void> _enterCustomizationMode() async {
     _resetLocalButtonStates();
     await context.read<CustomizationModeController>().enter();
+  }
+
+  Future<void> _confirmDeleteSelectedButton(
+    CustomizationModeController customCtrl,
+  ) async {
+    final button = customCtrl.selectedButton;
+    if (button == null) return;
+    final name = button.label.isEmpty ? button.id : button.label;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: const Text(
+          'Delete button?',
+          style: TextStyle(color: AppColors.darkText),
+        ),
+        content: Text(
+          'Remove $name from the grid? The adjacent button will fill the row when possible.',
+          style: const TextStyle(color: AppColors.darkTextSub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.eStopColor),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    final result = customCtrl.deleteSelectedButton();
+    if (!result.isValid && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Could not delete button.')),
+      );
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -252,6 +295,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
         final screenTitle = labels.screenTitle.isNotEmpty
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
+        final selectedButton = customCtrl.selectedButton;
 
         return Stack(
           children: [
@@ -298,7 +342,33 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                     ],
                   ),
                   actions: isEditing
-                      ? const []
+                      ? [
+                          IconButton(
+                            icon: const Icon(Icons.screen_rotation_rounded),
+                            color: selectedButton == null
+                                ? AppColors.disabled
+                                : AppColors.darkTextSub,
+                            tooltip: selectedButton == null
+                                ? 'Select a button to rotate'
+                                : 'Rotate to ${selectedButton.rotation.next.label}',
+                            onPressed: selectedButton == null
+                                ? null
+                                : customCtrl.rotateSelectedButton,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            color: selectedButton == null
+                                ? AppColors.disabled
+                                : AppColors.eStopColor,
+                            tooltip: 'Delete selected button',
+                            onPressed:
+                                selectedButton == null ||
+                                    !customCtrl.canDeleteSelectedButton
+                                ? null
+                                : () =>
+                                      _confirmDeleteSelectedButton(customCtrl),
+                          ),
+                        ]
                       : [
                           IconButton(
                             icon: const Icon(
@@ -460,6 +530,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                 ButtonEditSheet.showForRole(context, role);
                               }
                             },
+                            selectedRole: customCtrl.selectedRole,
+                            onSelectButton: isEditing
+                                ? customCtrl.selectButton
+                                : null,
                             onSlotDrop: isEditing
                                 ? (dragged, sourceSlot, target, targetSlot) {
                                     final result = buildGridSlotDrop(

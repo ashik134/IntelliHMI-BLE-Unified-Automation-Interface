@@ -2,9 +2,12 @@ import 'package:flutter/foundation.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CustomizationModeController
@@ -42,6 +45,20 @@ class CustomizationModeController extends ChangeNotifier {
   bool get isActive => _isActive;
   ControlLayoutConfig get draft => _draft;
   ControlRole? get selectedRole => _selectedRole;
+  ButtonConfig? get selectedButton {
+    final role = _selectedRole;
+    if (role == null) return null;
+    final button = _draft.buttonFor(role);
+    if (button == null || !button.visible) return null;
+    return button;
+  }
+
+  bool get canDeleteSelectedButton {
+    final button = selectedButton;
+    final role = button?.role;
+    return button != null && role != null && role.isMotionControl;
+  }
+
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
   bool get hasUnsavedChanges => _draft != _layoutSettings.config;
@@ -67,6 +84,38 @@ class CustomizationModeController extends ChangeNotifier {
   void selectRole(ControlRole? role) {
     _selectedRole = role;
     notifyListeners();
+  }
+
+  void selectButton(ButtonConfig? button) => selectRole(button?.role);
+
+  void rotateSelectedButton() {
+    final button = selectedButton;
+    if (!_isActive || button == null) return;
+    applyDraftChange(
+      _draft.withButton(
+        button.id,
+        button.copyWith(rotation: button.rotation.next),
+      ),
+    );
+  }
+
+  GridMutationResult deleteSelectedButton({
+    int slotCount = ButtonConfig.controlSlotCount,
+  }) {
+    final button = selectedButton;
+    if (!_isActive || button == null) {
+      return const GridMutationResult.invalid('Select a button first.');
+    }
+    final result = buildButtonDelete(
+      buttons: _draft.resolvedButtons,
+      selected: button,
+      slotCount: slotCount,
+    );
+    if (!result.isValid) return result;
+    applyDraftChange(_draft.copyWith(buttons: result.buttons));
+    _selectedRole = null;
+    notifyListeners();
+    return result;
   }
 
   /// Pushes the current draft onto the undo stack, clears the redo stack,

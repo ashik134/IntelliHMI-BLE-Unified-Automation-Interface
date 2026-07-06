@@ -706,20 +706,20 @@ class _LeverBody extends StatelessWidget {
 
               // ── Knob (driven by AnimationController via Align) ───────────
               Align(
-  alignment: Alignment(
-    0.0,
-    knobY.clamp(-_kKnobVisualLimit, _kKnobVisualLimit),
-  ),
-  child: _Knob(
-    size: knobSz,
-    isOn: isOn,
-    activeColor: activeColor,
-    activeDark: Color.alphaBlend(
-      Colors.black.withAlpha(65),
-      activeColor,
-    ),
-  ),
-),
+                alignment: Alignment(
+                  0.0,
+                  knobY.clamp(-_kKnobVisualLimit, _kKnobVisualLimit),
+                ),
+                child: _Knob(
+                  size: knobSz,
+                  isOn: isOn,
+                  activeColor: activeColor,
+                  activeDark: Color.alphaBlend(
+                    Colors.black.withAlpha(65),
+                    activeColor,
+                  ),
+                ),
+              ),
             ],
           ),
         );

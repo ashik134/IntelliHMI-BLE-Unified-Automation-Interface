@@ -277,33 +277,30 @@ class _SliderIndicator extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(width: 28, child: _buildLabels()),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 22,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(
-                isUp ? Icons.arrow_upward : Icons.arrow_downward,
-                size: 10,
-                color: value > 0.01 ? _indicatorColor : AppColors.darkTextMuted,
-              ),
-              const SizedBox(height: 2),
-              _buildProgressBar(barHeight),
-              const SizedBox(height: 2),
-              Text(
-                '$percent%',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                  color: isTouching ? _indicatorColor : AppColors.darkTextMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
+        // const SizedBox(width: 6),
+        // Column(
+        //   mainAxisSize: MainAxisSize.min,
+        //   crossAxisAlignment: CrossAxisAlignment.center,
+        //   children: [
+        //     Icon(
+        //       isUp ? Icons.arrow_upward : Icons.arrow_downward,
+        //       size: 10,
+        //       color: value > 0.01 ? _indicatorColor : AppColors.darkTextMuted,
+        //     ),
+        //     // const SizedBox(height: 2),
+        //     // _buildProgressBar(barHeight),
+        //     const SizedBox(height: 2),
+        //     Text(
+        //       '$percent%',
+        //       textAlign: TextAlign.center,
+        //       style: TextStyle(
+        //         fontSize: 8,
+        //         fontWeight: FontWeight.bold,
+        //         color: isTouching ? _indicatorColor : AppColors.darkTextMuted,
+        //       ),
+        //     ),
+        //   ],
+        // ),
       ],
     );
   }
@@ -348,42 +345,42 @@ class _SliderIndicator extends StatelessWidget {
     return Column(mainAxisSize: MainAxisSize.min, children: labels);
   }
 
-  Widget _buildProgressBar(double height) {
-    return Container(
-      width: 6,
-      height: height,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            right: 0,
-            top: isUp ? height * (1 - fastThreshold) : height * fastThreshold,
-            child: Container(
-              height: 1,
-              color: AppColors.fastColor.withAlpha(77),
-            ),
-          ),
-          Align(
-            alignment: isUp ? Alignment.bottomCenter : Alignment.topCenter,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              curve: Curves.easeOutCubic,
-              width: 6,
-              height: height * value,
-              decoration: BoxDecoration(
-                color: _indicatorColor,
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildProgressBar(double height) {
+  //   return Container(
+  //     width: 6,
+  //     height: height,
+  //     decoration: BoxDecoration(
+  //       color: Colors.grey.shade200,
+  //       borderRadius: BorderRadius.circular(3),
+  //     ),
+  //     child: Stack(
+  //       children: [
+  //         Positioned(
+  //           left: 0,
+  //           right: 0,
+  //           top: isUp ? height * (1 - fastThreshold) : height * fastThreshold,
+  //           child: Container(
+  //             height: 1,
+  //             color: AppColors.fastColor.withAlpha(77),
+  //           ),
+  //         ),
+  //         Align(
+  //           alignment: isUp ? Alignment.bottomCenter : Alignment.topCenter,
+  //           child: AnimatedContainer(
+  //             duration: const Duration(milliseconds: 150),
+  //             curve: Curves.easeOutCubic,
+  //             width: 6,
+  //             height: height * value,
+  //             decoration: BoxDecoration(
+  //               color: _indicatorColor,
+  //               borderRadius: BorderRadius.circular(3),
+  //             ),
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 }
 
 class _ScaleLabel extends StatelessWidget {

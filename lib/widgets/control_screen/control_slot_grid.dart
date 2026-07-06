@@ -15,6 +15,7 @@ typedef ButtonDisabledResolver = bool Function(ButtonConfig config);
 typedef ButtonCommandDispatcher =
     void Function(String buttonId, ControlState state);
 typedef ButtonEditorLauncher = void Function(ButtonConfig config);
+typedef ButtonSelectionHandler = void Function(ButtonConfig? config);
 typedef ButtonSlotDropHandler =
     void Function(
       ButtonConfig dragged,
@@ -33,6 +34,8 @@ class ControlSlotGrid extends StatelessWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    this.selectedRole,
+    this.onSelectButton,
     this.onSlotDrop,
     this.slotCount = ButtonConfig.controlSlotCount,
     this.spacing = 10,
@@ -47,6 +50,8 @@ class ControlSlotGrid extends StatelessWidget {
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
+  final ControlRole? selectedRole;
+  final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
   final int slotCount;
   final double spacing;
@@ -81,6 +86,8 @@ class ControlSlotGrid extends StatelessWidget {
             isDisabled: isDisabled,
             onCommand: onCommand,
             onEditButton: onEditButton,
+            selectedRole: selectedRole,
+            onSelectButton: onSelectButton,
             onSlotDrop: onSlotDrop,
           ),
         );
@@ -200,6 +207,8 @@ class _SlotGridBody extends StatelessWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    required this.selectedRole,
+    required this.onSelectButton,
     required this.onSlotDrop,
   });
 
@@ -212,6 +221,8 @@ class _SlotGridBody extends StatelessWidget {
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
+  final ControlRole? selectedRole;
+  final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
 
   @override
@@ -251,6 +262,8 @@ class _SlotGridBody extends StatelessWidget {
                       isDisabled: isDisabled,
                       onCommand: onCommand,
                       onEditButton: onEditButton,
+                      selectedRole: selectedRole,
+                      onSelectButton: onSelectButton,
                       onSlotDrop: onSlotDrop,
                     ),
                   ),
@@ -266,6 +279,8 @@ class _SlotGridBody extends StatelessWidget {
                   isDisabled: isDisabled,
                   onCommand: onCommand,
                   onEditButton: onEditButton,
+                  selectedRole: selectedRole,
+                  onSelectButton: onSelectButton,
                   onSlotDrop: onSlotDrop,
                 ),
               ),
@@ -316,6 +331,8 @@ class _SlotTarget extends StatefulWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    required this.selectedRole,
+    required this.onSelectButton,
     required this.onSlotDrop,
   });
 
@@ -326,6 +343,8 @@ class _SlotTarget extends StatefulWidget {
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
+  final ControlRole? selectedRole;
+  final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
 
   @override
@@ -341,6 +360,7 @@ class _SlotTargetState extends State<_SlotTarget> {
       return _SlotFrame(
         isEditing: false,
         isHighlighted: false,
+        isSelected: false,
         child: widget.item == null
             ? const SizedBox.shrink()
             : _ButtonBody(
@@ -372,9 +392,13 @@ class _SlotTargetState extends State<_SlotTarget> {
       },
       builder: (context, candidates, rejects) {
         final highlighted = _hovered || candidates.isNotEmpty;
+        final selected =
+            widget.item?.config.role != null &&
+            widget.item!.config.role == widget.selectedRole;
         return _SlotFrame(
           isEditing: true,
           isHighlighted: highlighted,
+          isSelected: selected,
           child: widget.item == null
               ? _EmptySlot(slotIndex: widget.slotIndex)
               : _DraggableSlotContent(
@@ -383,6 +407,8 @@ class _SlotTargetState extends State<_SlotTarget> {
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
                   onEditButton: widget.onEditButton,
+                  isSelected: selected,
+                  onSelectButton: widget.onSelectButton,
                 ),
         );
       },
@@ -394,11 +420,13 @@ class _SlotFrame extends StatelessWidget {
   const _SlotFrame({
     required this.isEditing,
     required this.isHighlighted,
+    required this.isSelected,
     required this.child,
   });
 
   final bool isEditing;
   final bool isHighlighted;
+  final bool isSelected;
   final Widget child;
 
   @override
@@ -412,10 +440,12 @@ class _SlotFrame extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: isEditing
             ? Border.all(
-                color: isHighlighted
+                color: isSelected
+                    ? AppColors.darkSuccess
+                    : isHighlighted
                     ? AppColors.accent
                     : AppColors.darkBorder.withAlpha(170),
-                width: isHighlighted ? 2 : 1,
+                width: isSelected || isHighlighted ? 2 : 1,
               )
             : null,
       ),
@@ -431,6 +461,8 @@ class _DraggableSlotContent extends StatelessWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    required this.isSelected,
+    required this.onSelectButton,
   });
 
   final _SlotItem item;
@@ -438,38 +470,59 @@ class _DraggableSlotContent extends StatelessWidget {
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
+  final bool isSelected;
+  final ButtonSelectionHandler? onSelectButton;
 
   @override
   Widget build(BuildContext context) {
-    final body = Stack(
-      children: [
-        Positioned.fill(
-          child: AbsorbPointer(
-            child: _ButtonBody(
-              config: item.config,
-              activeState: activeState,
-              isDisabled: true,
-              onCommand: onCommand,
+    final body = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onSelectButton?.call(item.config),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: _ButtonBody(
+                config: item.config,
+                activeState: activeState,
+                isDisabled: true,
+                onCommand: onCommand,
+              ),
             ),
           ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: CustomizationBadge(
-            icon: Icons.edit_rounded,
-            color: AppColors.accent,
-            onTap: () => onEditButton(item.config),
-            tooltip: 'Customize',
+          if (isSelected)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.darkSuccess.withAlpha(230),
+                      width: 2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: CustomizationBadge(
+              icon: Icons.edit_rounded,
+              color: AppColors.accent,
+              onTap: () => onEditButton(item.config),
+              tooltip: 'Customize',
+            ),
           ),
-        ),
-        const Positioned(left: 8, top: 8, child: _DragHandle()),
-      ],
+          const Positioned(left: 8, top: 8, child: _DragHandle()),
+        ],
+      ),
     );
 
     return LongPressDraggable<_DraggedSlot>(
       key: ValueKey(item.config.id),
       data: _DraggedSlot(config: item.config, sourceSlot: item.visualSlot),
+      onDragStarted: () => onSelectButton?.call(item.config),
       feedback: Material(
         color: Colors.transparent,
         child: SizedBox(

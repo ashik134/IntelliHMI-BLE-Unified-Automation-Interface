@@ -174,6 +174,68 @@ GridMutationResult buildGridSlotDrop({
   return GridMutationResult.valid(next);
 }
 
+GridMutationResult buildButtonDelete({
+  required Map<String, ButtonConfig> buttons,
+  required ButtonConfig selected,
+  int slotCount = ButtonConfig.controlSlotCount,
+  int columns = ButtonConfig.controlGridColumns,
+}) {
+  final role = selected.role;
+  if (role == null || !role.isMotionControl) {
+    return const GridMutationResult.invalid(
+      'Safety controls cannot be deleted from the motion grid.',
+    );
+  }
+
+  final sourceSlot = selected.slotIndex;
+  if (sourceSlot == null) {
+    return const GridMutationResult.invalid(
+      'Selected button has no grid slot.',
+    );
+  }
+
+  final next = {...buttons};
+  next[selected.id] = selected.copyWith(visible: false, columnSpan: 1);
+
+  final rowStart = (sourceSlot ~/ columns) * columns;
+  final rowSlots = List<int>.generate(
+    columns,
+    (index) => rowStart + index,
+  ).where((slot) => slot >= 0 && slot < slotCount).toSet();
+  final neighbor = buttons.values.cast<ButtonConfig?>().firstWhere((button) {
+    if (button == null ||
+        button.id == selected.id ||
+        !button.visible ||
+        button.role?.isMotionControl != true ||
+        isRedundantCrossTravelConfig(button, buttons)) {
+      return false;
+    }
+    final occupied = occupiedGridSlotsFor(
+      button,
+      slotCount: slotCount,
+      columns: columns,
+    );
+    return occupied != null && occupied.any(rowSlots.contains);
+  }, orElse: () => null);
+
+  if (neighbor != null && neighbor.type != ButtonType.crossTravel) {
+    next[neighbor.id] = neighbor.copyWith(
+      slotIndex: rowStart,
+      columnSpan: columns,
+    );
+  }
+
+  final errors = validateGridOccupancy(
+    next,
+    slotCount: slotCount,
+    columns: columns,
+  );
+  if (errors.isNotEmpty) {
+    return GridMutationResult.invalid(_messageForErrors(errors, selected));
+  }
+  return GridMutationResult.valid(next);
+}
+
 LayoutMutationResult buildButtonTypeChange({
   required ControlLayoutConfig draft,
   required ControlRole role,
@@ -246,8 +308,9 @@ LayoutMutationResult buildButtonTypeChange({
         // If the paired button still has type=crossTravel (gridColumnSpan=2)
         // it would immediately collide once made visible. Reset it to the
         // same type being applied to the primary role so it gets span=1.
-        final restoredType =
-            paired.type == ButtonType.crossTravel ? type : paired.type;
+        final restoredType = paired.type == ButtonType.crossTravel
+            ? type
+            : paired.type;
         buttons[paired.id] = paired.copyWith(
           visible: true,
           slotIndex: pairedSlot,

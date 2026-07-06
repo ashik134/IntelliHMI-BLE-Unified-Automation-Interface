@@ -53,6 +53,7 @@ class ButtonConfig {
     this.customProperties = const <String, dynamic>{},
     this.visible = true,
     this.widthScale = 1.0,
+    this.columnSpan = 1,
     this.enabled = true,
     this.locked = false,
     this.canvasX = 0.0,
@@ -132,6 +133,7 @@ class ButtonConfig {
   /// 100).round())`, so the default `1.0` reproduces today's bare
   /// `Expanded(child:)` (implicit flex 1) exactly.
   final double widthScale;
+  final int columnSpan;
 
   /// Distinct from [visible]. `visible = false` -> not rendered at all.
   /// `enabled = false` -> still rendered/still occupies layout space, but
@@ -157,13 +159,10 @@ class ButtonConfig {
 
   double get resolvedHeight => AxisControlConfig.baseHeight * heightScale;
 
-  int get gridColumnSpan => switch (type) {
-    ButtonType.crossTravel => 2,
-    ButtonType.pushButton ||
-    ButtonType.toggle ||
-    ButtonType.sliderButton ||
-    ButtonType.crossTravelSlowOnly => 1,
-  };
+  int get gridColumnSpan {
+    if (type == ButtonType.crossTravel) return 2;
+    return columnSpan.clamp(1, controlGridColumns);
+  }
 
   int get gridRowSpan => 1;
 
@@ -293,6 +292,7 @@ class ButtonConfig {
     Map<String, dynamic>? customProperties,
     bool? visible,
     double? widthScale,
+    int? columnSpan,
     bool? enabled,
     bool? locked,
     double? canvasX,
@@ -318,6 +318,7 @@ class ButtonConfig {
       customProperties: customProperties ?? this.customProperties,
       visible: visible ?? this.visible,
       widthScale: widthScale ?? this.widthScale,
+      columnSpan: columnSpan ?? this.columnSpan,
       enabled: enabled ?? this.enabled,
       locked: locked ?? this.locked,
       canvasX: canvasX ?? this.canvasX,
@@ -334,7 +335,7 @@ class ButtonConfig {
     'label': label,
     'icon': icon?.codePoint,
     'heightScale': heightScale,
-    'rotation': rotation.name,
+    'rotation': rotation.degrees,
     'style': style.toJson(),
     'behavior': behavior.toJson(),
     'mutualExclusion': mutualExclusion.toJson(),
@@ -342,6 +343,7 @@ class ButtonConfig {
     'customProperties': customProperties,
     'visible': visible,
     'widthScale': widthScale,
+    'columnSpan': columnSpan,
     'enabled': enabled,
     'locked': locked,
     'canvasX': canvasX,
@@ -374,10 +376,7 @@ class ButtonConfig {
       // layer's hardcoded per-role default is used instead, matching
       // migration's own behavior. See ButtonConfig.icon doc comment.
       heightScale: (json['heightScale'] as num?)?.toDouble() ?? 1.0,
-      rotation: ButtonRotation.values.firstWhere(
-        (e) => e.name == json['rotation'],
-        orElse: () => ButtonRotation.none,
-      ),
+      rotation: buttonRotationFromJson(json['rotation']),
       style: json['style'] != null
           ? ButtonStyleConfig.fromJson(json['style'] as Map<String, dynamic>)
           : const ButtonStyleConfig(),
@@ -397,6 +396,7 @@ class ButtonConfig {
           const <String, dynamic>{},
       visible: json['visible'] as bool? ?? true,
       widthScale: (json['widthScale'] as num?)?.toDouble() ?? 1.0,
+      columnSpan: _parseColumnSpan(json['columnSpan']),
       enabled: json['enabled'] as bool? ?? true,
       locked: json['locked'] as bool? ?? false,
       canvasX: (json['canvasX'] as num?)?.toDouble() ?? defaultX,
@@ -426,6 +426,7 @@ class ButtonConfig {
           _mapEquals(other.customProperties, customProperties) &&
           other.visible == visible &&
           other.widthScale == widthScale &&
+          other.columnSpan == columnSpan &&
           other.enabled == enabled &&
           other.locked == locked &&
           other.canvasX == canvasX &&
@@ -446,7 +447,15 @@ class ButtonConfig {
     behavior,
     mutualExclusion,
     group,
-    Object.hash(visible, widthScale, enabled, locked, canvasX, canvasY),
+    Object.hash(
+      visible,
+      widthScale,
+      columnSpan,
+      enabled,
+      locked,
+      canvasX,
+      canvasY,
+    ),
     slotIndex,
   );
 }
@@ -472,6 +481,12 @@ bool _mapEquals(Map<String, dynamic> a, Map<String, dynamic> b) {
     }
   }
   return true;
+}
+
+int _parseColumnSpan(dynamic value) {
+  final parsed = value is num ? value.toInt() : int.tryParse('$value');
+  if (parsed == null) return 1;
+  return parsed.clamp(1, ButtonConfig.controlGridColumns);
 }
 
 extension _FirstWhereOrNull<T> on List<T> {

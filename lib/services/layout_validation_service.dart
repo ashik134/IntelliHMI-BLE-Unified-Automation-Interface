@@ -194,6 +194,13 @@ class LayoutValidationService {
       ButtonConfig.maxWidthScale,
       errors,
     );
+    if (config.columnSpan < 1 ||
+        config.columnSpan > ButtonConfig.controlGridColumns) {
+      errors.add(
+        '$name column span must be between 1 and '
+        '${ButtonConfig.controlGridColumns} (got ${config.columnSpan}).',
+      );
+    }
     _checkMinTouchTarget(name, config.resolvedHeight, errors);
     _checkUnitRange('$name canvasX', config.canvasX, errors);
     _checkUnitRange('$name canvasY', config.canvasY, errors);
