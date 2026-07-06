@@ -238,49 +238,87 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
               ),
             ),
 
-            // Vertical Slider Section
             Expanded(
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
-                    child: _sliderIndicator(),
-                  ),
-                  Center(
-                    child: RotatedBox(
-                      quarterTurns: widget.isUp ? -1 : 1, //
-                      child: SliderTheme(
-                        data: SliderThemeData(
-                          trackHeight: 16,
-                          thumbShape: const RectSliderThumbShape(
-                            width: 20,
-                            height: 34,
-                            borderRadius: 5,
-                          ),
-                          overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 10,
-                          ),
-                          activeTrackColor: _sliderValue >= _fastThreshold
-                              ? AppColors.fastColor
-                              : _activeAxisColor,
-                          inactiveTrackColor: Colors.grey.shade200,
-                          thumbColor: _sliderValue >= _fastThreshold
-                              ? AppColors.fastColor
-                              : _activeAxisColor,
-                          overlayColor: _primaryColor.withAlpha(50),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : 140.0;
+                  final height = constraints.maxHeight.isFinite
+                      ? constraints.maxHeight
+                      : 120.0;
+                  final showIndicator = width >= 92 && height >= 88;
+                  final availableSliderWidth = showIndicator
+                      ? width - 68
+                      : width;
+                  final sliderWidth = availableSliderWidth.clamp(0.0, 54.0);
+                  final trackLength = (height - 12).clamp(0.0, 144.0);
+
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (showIndicator)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(6, 3, 6, 7),
+                          child: _sliderIndicator(maxHeight: height),
                         ),
-                        child: Slider(
-                          value: _sliderValue,
-                          onChanged: widget.isDisabled
-                              ? null
-                              : _onSliderChanged,
-                          onChangeStart: _onSliderChangeStart,
-                          onChangeEnd: _onSliderChangeEnd,
+                      SizedBox(
+                        width: sliderWidth,
+                        child: Center(
+                          child: RotatedBox(
+                            quarterTurns: widget.isUp ? -1 : 1,
+                            child: SizedBox(
+                              width: trackLength,
+                              height: sliderWidth,
+                              child: SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: (sliderWidth * 0.32).clamp(
+                                    0.0,
+                                    16.0,
+                                  ),
+                                  thumbShape: RectSliderThumbShape(
+                                    width: (sliderWidth * 0.38).clamp(
+                                      0.0,
+                                      20.0,
+                                    ),
+                                    height: (sliderWidth * 0.64).clamp(
+                                      0.0,
+                                      34.0,
+                                    ),
+                                    borderRadius: 5,
+                                  ),
+                                  overlayShape: RoundSliderOverlayShape(
+                                    overlayRadius: (sliderWidth * 0.22).clamp(
+                                      0.0,
+                                      10.0,
+                                    ),
+                                  ),
+                                  activeTrackColor:
+                                      _sliderValue >= _fastThreshold
+                                      ? AppColors.fastColor
+                                      : _activeAxisColor,
+                                  inactiveTrackColor: Colors.grey.shade200,
+                                  thumbColor: _sliderValue >= _fastThreshold
+                                      ? AppColors.fastColor
+                                      : _activeAxisColor,
+                                  overlayColor: _primaryColor.withAlpha(50),
+                                ),
+                                child: Slider(
+                                  value: _sliderValue,
+                                  onChanged: widget.isDisabled
+                                      ? null
+                                      : _onSliderChanged,
+                                  onChangeStart: _onSliderChangeStart,
+                                  onChangeEnd: _onSliderChangeEnd,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -372,12 +410,13 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
   //   );
   // }
 
-  Widget _sliderIndicator() {
+  Widget _sliderIndicator({required double maxHeight}) {
     final pct = (_sliderValue * 100).toInt();
     final indicatorColor = _sliderValue >= _fastThreshold
         ? AppColors.fastColor
         : (widget.isUp ? AppColors.upColor : AppColors.downColor);
     final isUpDirection = widget.isUp;
+    final barHeight = (maxHeight - 42).clamp(38.0, 70.0);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -454,7 +493,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
               // Progress bar
               Container(
                 width: 6,
-                height: 70,
+                height: barHeight,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade200,
                   borderRadius: BorderRadius.circular(3),
@@ -466,8 +505,8 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                       left: 0,
                       right: 0,
                       top: isUpDirection
-                          ? 70 * (1 - _fastThreshold)
-                          : 70 * _fastThreshold,
+                          ? barHeight * (1 - _fastThreshold)
+                          : barHeight * _fastThreshold,
                       child: Container(
                         height: 1,
                         color: AppColors.fastColor.withAlpha(
@@ -485,7 +524,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton>
                         curve: Curves.easeOutCubic,
                         width:
                             6, // explicit width — prevents implicit resize inside Stack
-                        height: 70 * _sliderValue,
+                        height: barHeight * _sliderValue,
                         decoration: BoxDecoration(
                           color: indicatorColor,
                           borderRadius: BorderRadius.circular(3),
