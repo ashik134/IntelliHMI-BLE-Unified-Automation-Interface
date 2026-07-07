@@ -262,7 +262,7 @@ class ConnectedDeviceCard extends StatelessWidget {
                   ],
                 ),
                 child: Image.asset(
-                  'assets/icons/plc.png',
+                  'assets/icons/Connector.png',
                   color: AppColors.connPrimary,
                   width: 20,
                   height: 20,
@@ -333,12 +333,12 @@ class ConnectedDeviceCard extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 0),
+          // const SizedBox(height: 0),
 
-          ///////////////////////////
-          _RSSIBar(rssi: device.rssi),
+          // ///////////////////////////
+          // // _RSSIBar(rssi: device.rssi),
 
-          const SizedBox(height: 0),
+          // const SizedBox(height: 0),
 
           ///////////////////////////
           SizedBox(
@@ -499,27 +499,27 @@ class _RSSIBar extends StatelessWidget {
                   ),
                 ),
               ),
-              Expanded(child: SizedBox(width: (w * 0.015).clamp(4.0, 8.0))),
+              // Expanded(child: SizedBox(width: (w * 0.015).clamp(4.0, 8.0))),
               // Signal percentage badge
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: (w * 0.015).clamp(4.0, 7.0),
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: _signalColor.withAlpha(20),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  '${(_signalStrength * 100).toInt()}%',
-                  style: TextStyle(
-                    color: _signalColor,
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w800,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
+              // Container(
+              //   padding: EdgeInsets.symmetric(
+              //     horizontal: (w * 0.015).clamp(4.0, 7.0),
+              //     vertical: 2,
+              //   ),
+              //   decoration: BoxDecoration(
+              //     color: _signalColor.withAlpha(20),
+              //     borderRadius: BorderRadius.circular(6),
+              //   ),
+              //   child: Text(
+              //     '${(_signalStrength * 100).toInt()}%',
+              //     style: TextStyle(
+              //       color: _signalColor,
+              //       fontSize: fontSize,
+              //       fontWeight: FontWeight.w800,
+              //       fontFamily: 'monospace',
+              //     ),
+              //   ),
+              // ),
             ],
           ),
         );

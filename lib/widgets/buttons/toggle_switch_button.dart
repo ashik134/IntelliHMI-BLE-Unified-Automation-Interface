@@ -844,13 +844,13 @@ class _HintLabel extends StatelessWidget {
   String get _text {
     final isOn = pos != ToggleSwitchPosition.center;
     return switch (mode) {
-      ToggleSwitchMode.springReturnOneSide => isOn ? '⚡ ACTIVE' : 'HOLD',
+      ToggleSwitchMode.springReturnOneSide => isOn ? 'ACTIVE' : 'HOLD',
       ToggleSwitchMode.latchingOneSide => isOn ? 'ON · TAP' : 'OFF · TAP',
-      ToggleSwitchMode.springReturnBoth => isOn ? '⚡ ACTIVE' : 'HOLD EITHER',
+      ToggleSwitchMode.springReturnBoth => isOn ? 'ACTIVE' : 'HOLD EITHER',
       ToggleSwitchMode.latchingBoth => isOn ? 'ON · TAP OFF' : 'TAP EITHER',
       ToggleSwitchMode.mixed => switch (pos) {
         ToggleSwitchPosition.left => 'ON · TAP',
-        ToggleSwitchPosition.right => '⚡ ACTIVE',
+        ToggleSwitchPosition.right => 'ACTIVE',
         ToggleSwitchPosition.center => 'TAP / HOLD',
       },
     };
