@@ -36,7 +36,7 @@ class CustomizationBadge extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(8),
-            child: Icon(icon, size: 16, color: Colors.white),
+            child: Icon(icon, size: 12, color: Colors.white),
           ),
         ),
       ),

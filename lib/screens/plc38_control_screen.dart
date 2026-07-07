@@ -296,6 +296,12 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? 'PLC38');
         final selectedButton = customCtrl.selectedButton;
+        final customizationBarMinTop =
+            MediaQuery.of(ctx).padding.top +
+            kToolbarHeight +
+            metrics.bodyPadding.top +
+            metrics.estopHeight +
+            metrics.itemSpacing;
 
         return Stack(
           children: [
@@ -393,9 +399,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                 body: SafeArea(
                   maintainBottomViewPadding: true,
                   child: Padding(
-                    padding: metrics.bodyPadding.add(
-                      EdgeInsets.only(bottom: isEditing ? 84 : 0),
-                    ),
+                    padding: metrics.bodyPadding,
                     child: Column(
                       children: [
                         // ── E-Stop / Reset ──────────────────────────────────────
@@ -585,11 +589,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               ),
             ),
             if (isEditing)
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: CustomizationModeBar(),
+              Positioned.fill(
+                child: DraggableCustomizationModeBar(
+                  minTop: customizationBarMinTop,
+                ),
               ),
           ],
         );

@@ -431,14 +431,18 @@ class _SlotFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showEditFrame = isEditing && (isHighlighted || isSelected);
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeOut,
-      padding: EdgeInsets.all(isEditing ? 5 : 0),
+      padding: EdgeInsets.zero,
       decoration: BoxDecoration(
-        color: isEditing ? AppColors.panel.withAlpha(120) : Colors.transparent,
+        color: showEditFrame
+            ? AppColors.panel.withAlpha(120)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
-        border: isEditing
+        border: showEditFrame
             ? Border.all(
                 color: isSelected
                     ? AppColors.darkSuccess
@@ -509,7 +513,7 @@ class _DraggableSlotContent extends StatelessWidget {
             right: 8,
             child: CustomizationBadge(
               icon: Icons.edit_rounded,
-              color: AppColors.accent,
+              color: AppColors.darkBg,
               onTap: () => onEditButton(item.config),
               tooltip: 'Customize',
             ),
@@ -603,7 +607,7 @@ class _DragHandle extends StatelessWidget {
         child: const Padding(
           padding: EdgeInsets.all(8),
           child: Icon(
-            Icons.drag_indicator_rounded,
+            Icons.drag_indicator,
             size: 16,
             color: AppColors.darkText,
           ),

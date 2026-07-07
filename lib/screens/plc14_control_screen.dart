@@ -273,6 +273,12 @@ class _ControlScreenState extends State<ControlScreen>
             ? labels.screenTitle
             : (controller.connectedDeviceName ?? BLEConstants.deviceName);
         final selectedButton = customCtrl.selectedButton;
+        final customizationBarMinTop =
+            MediaQuery.of(ctx).padding.top +
+            kToolbarHeight +
+            metrics.bodyPadding.top +
+            metrics.estopHeight +
+            metrics.itemSpacing;
 
         return Stack(
           children: [
@@ -370,9 +376,7 @@ class _ControlScreenState extends State<ControlScreen>
                 body: SafeArea(
                   maintainBottomViewPadding: true,
                   child: Padding(
-                    padding: metrics.bodyPadding.add(
-                      EdgeInsets.only(bottom: isEditing ? 84 : 0),
-                    ),
+                    padding: metrics.bodyPadding,
                     child: Column(
                       children: [
                         SafetyActionPanel(
@@ -531,11 +535,10 @@ class _ControlScreenState extends State<ControlScreen>
               ),
             ),
             if (isEditing)
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: CustomizationModeBar(),
+              Positioned.fill(
+                child: DraggableCustomizationModeBar(
+                  minTop: customizationBarMinTop,
+                ),
               ),
           ],
         );
