@@ -60,7 +60,18 @@ class PushButtonStrategy extends ButtonTypeStrategy {
         onReleased: isSpringReturn
             ? () => onCommand(config.id, ControlState.idle)
             : null,
-       
+        // Latching mode toggles and reports its new value exclusively through
+        // onChanged (see IndustrialSpringButton._handlePointerUp) — onPressed/
+        // onReleased are wired to null above since they're the spring-return
+        // path. Without this, a latching push button flips its own visual
+        // state locally but never calls onCommand, so no PLC output is sent
+        // and the LED/status indicator never reflects the tap.
+        onChanged: isSpringReturn
+            ? null
+            : (value) => onCommand(
+                config.id,
+                value ? ControlState.slow : ControlState.idle,
+              ),
       ),
     );
   }
