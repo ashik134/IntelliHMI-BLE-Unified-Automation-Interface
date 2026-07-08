@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 class CraneSliderButton extends StatefulWidget {
   final String label;
@@ -35,6 +36,12 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
   double _sliderValue = 0.0;
   bool _isTouching = false;
 
+  // Set the instant a local release returns this slider to idle, cleared on
+  // the next fresh touch. While true, external state updates (which may be a
+  // stale/delayed PLC status echo of the drag just released) must not resync
+  // this slider active again; only a new physical touch may do that.
+  bool _suppressExternalReactivation = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,12 +57,28 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
       return;
     }
 
-    if (!_isTouching && widget.externalState != oldWidget.externalState) {
-      _syncFromExternalState(widget.externalState);
+    if (_isTouching || widget.externalState == oldWidget.externalState) {
+      return;
     }
+
+    if (_suppressExternalReactivation &&
+        widget.externalState != ControlState.idle) {
+      ButtonStateLog.log(
+        'PLC_STATUS_ACTIVE ignored (stale, post-release) [${widget.label}]',
+      );
+      return;
+    }
+
+    _syncFromExternalState(widget.externalState);
   }
 
   void _syncFromExternalState(ControlState state) {
+    if (state != _state) {
+      ButtonStateLog.log(
+        '${state == ControlState.idle ? 'VISUAL_IDLE' : 'VISUAL_ACTIVE'} '
+        '[${widget.label}] (external) -> ${state.name}',
+      );
+    }
     _state = state;
     _sliderValue = _sliderValueForState(state);
   }
@@ -104,11 +127,14 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
 
   void _onSliderChangeStart(double _) {
     if (widget.isDisabled) return;
+    ButtonStateLog.log('USER_DOWN [${widget.label}]');
     _isTouching = true;
+    _suppressExternalReactivation = false;
   }
 
   void _onSliderChangeEnd(double _) {
     if (widget.isDisabled) return;
+    ButtonStateLog.log('USER_UP [${widget.label}]');
 
     final shouldNotifyIdle = _state != ControlState.idle;
 
@@ -117,6 +143,9 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
       _sliderValue = 0.0;
       _state = ControlState.idle;
     });
+    // Arm the guard: a stale PLC_STATUS echo for the drag just released must
+    // not resync this slider active again until a fresh USER_DOWN.
+    _suppressExternalReactivation = true;
 
     if (shouldNotifyIdle) {
       _notifyState(ControlState.idle);

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleSwitchMode
@@ -178,6 +179,18 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   int _lastDragMicros = 0;
   ToggleSwitchPosition? _pendingPos;
 
+  // Identifies the single pointer currently driving this lever so late/
+  // duplicate events from any other pointer can't reactivate or re-release
+  // it (duplicate-gesture-emission guard).
+  int? _activePointerId;
+
+  // Set the instant a local release/cancel returns a spring side to centre,
+  // cleared on the next fresh pointer-down. While true, external
+  // isActive/position updates (which may be a stale/delayed PLC status echo
+  // of the press just released) must not resync this lever off centre again;
+  // only a new physical pointer down may reactivate it.
+  bool _suppressExternalReactivation = false;
+
   // ── Animation controllers ─────────────────────────────────────────────────
   late final AnimationController
   _knobCtrl; // unbounded: drives knob y-alignment
@@ -211,7 +224,40 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   @override
   void didUpdateWidget(ToggleSwitchButton old) {
     super.didUpdateWidget(old);
+
+    // A gesture already in progress on this button always wins. Rebuilds
+    // triggered by unrelated buttons (or BLE/status stream ticks feeding the
+    // same shared ChangeNotifier) must never yank the lever out from under
+    // an active press/drag, and must never be queued to replay afterwards.
+    final gestureInProgress =
+        _topHeld || _bottomHeld || _pendingPos != null || _dragStartDy != null;
+    if (gestureInProgress) return;
+
+    // Only resync from external state when it actually changed for *this*
+    // button — not on every rebuild of the shared parent. This is what
+    // stops sibling buttons (and unrelated notifyListeners() calls) from
+    // forcing a stale/no-op resync that fights this button's own state.
+    if (widget.position == old.position &&
+        widget.isActive == old.isActive &&
+        widget.isThreePosition == old.isThreePosition) {
+      return;
+    }
+
     final want = _wantedPosition();
+
+    // A lever just locally released must stay at centre until a new
+    // physical press; a late/stale external "active" echo (e.g. a delayed
+    // PLC status notification for the press just released) is ignored so it
+    // can't flip the lever off centre again on its own.
+    if (_suppressExternalReactivation &&
+        want != null &&
+        want != ToggleSwitchPosition.center) {
+      ButtonStateLog.log(
+        'PLC_STATUS_ACTIVE ignored (stale, post-release) [${widget.label}]',
+      );
+      return;
+    }
+
     if (want != null && want != _pos) {
       setState(() => _pos = want);
       _springTo(_knobYForPos(want));
@@ -288,6 +334,10 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   void _moveTo(ToggleSwitchPosition next) {
     if (_pos == next) return;
     setState(() => _pos = next);
+    ButtonStateLog.log(
+      '${next == ToggleSwitchPosition.center ? 'VISUAL_IDLE' : 'VISUAL_ACTIVE'} '
+      '[${widget.label}] -> ${next.name}',
+    );
     widget.onPositionChanged?.call(next);
     widget.onCommandChanged(_commandFor(next));
   }
@@ -310,6 +360,14 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
   void _onPointerDown(PointerDownEvent event, double areaH, double leverH) {
     if (!_enabled) return;
+    // A pointer already driving this lever owns the gesture; ignore a
+    // second/late pointer trying to start a new one on top of it.
+    if (_activePointerId != null) return;
+    _activePointerId = event.pointer;
+    _suppressExternalReactivation = false;
+    ButtonStateLog.log(
+      'USER_DOWN [${widget.label}] pointer=${event.pointer}',
+    );
     _dragStartDy = event.localPosition.dy;
     _dragStartKnobY = _knobCtrl.value;
     _dragVelocityPxS = 0.0;
@@ -347,6 +405,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
   void _onPointerMove(PointerMoveEvent event, double areaH, double leverH) {
     if (!_enabled || _dragStartDy == null) return;
+    if (event.pointer != _activePointerId) return;
 
     final dy = event.localPosition.dy;
     final delta = dy - _dragStartDy!;
@@ -411,8 +470,14 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
   void _onPointerUp(PointerUpEvent event, double areaH) {
     if (!_enabled) return;
+    // Late/duplicate pointer-up for a pointer id that never started this
+    // gesture is ignored — it cannot reactivate or re-release this lever.
+    if (event.pointer != _activePointerId) return;
+    ButtonStateLog.log('USER_UP [${widget.label}] pointer=${event.pointer}');
+    _activePointerId = null;
     _pressUp();
     final vel = _alignVelocity;
+    final wasSpringHeld = _topHeld || _bottomHeld;
 
     if (_topHeld) {
       _topHeld = false;
@@ -433,14 +498,26 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
       _springTo(_knobYForPos(_pos), velocity: vel);
     }
 
+    // Arm the guard only for the spring-return sides: a stale PLC_STATUS
+    // echo for the side just released must not resync the lever off centre
+    // again until a fresh USER_DOWN. Latching sides are untouched — their
+    // position is toggle-driven, not spring-driven.
+    if (wasSpringHeld) _suppressExternalReactivation = true;
+
     _pendingPos = null;
     _dragStartDy = null;
     _dragVelocityPxS = 0.0;
     _lastDragMicros = 0;
   }
 
-  void _onPointerCancel() {
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _activePointerId) return;
+    ButtonStateLog.log(
+      'USER_CANCEL [${widget.label}] pointer=${event.pointer}',
+    );
+    _activePointerId = null;
     _pressUp();
+    final wasSpringHeld = _topHeld || _bottomHeld;
     if (_topHeld) {
       _topHeld = false;
       _moveTo(ToggleSwitchPosition.center);
@@ -451,6 +528,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
       _moveTo(ToggleSwitchPosition.center);
       widget.onReleased?.call();
     }
+    if (wasSpringHeld) _suppressExternalReactivation = true;
     _springTo(_knobYForPos(_pos));
     _pendingPos = null;
     _dragStartDy = null;
@@ -499,7 +577,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                       onPointerDown: (e) => _onPointerDown(e, areaH, leverH),
                       onPointerMove: (e) => _onPointerMove(e, areaH, leverH),
                       onPointerUp: (e) => _onPointerUp(e, areaH),
-                      onPointerCancel: (_) => _onPointerCancel(),
+                      onPointerCancel: (e) => _onPointerCancel(e),
                       child: SizedBox.expand(
                         child: Center(
                           // AnimatedBuilder: rebuilds on every spring frame

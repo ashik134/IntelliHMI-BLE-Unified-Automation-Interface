@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 /// A reusable, production-grade industrial pushbutton with realistic
 /// mechanical feedback through visual compression and haptic response.
@@ -71,9 +72,19 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   late final Animation<double> _pressAnim;
 
   bool _pointerIsDown = false;
+  int? _activePointerId;
   bool _hovered = false;
   bool _focused = false;
   bool _internalActive = false;
+
+  // Set the instant a local release/cancel fires, cleared on the next fresh
+  // pointer-down. While true, external `isActive` updates (which may be a
+  // stale/delayed echo of the press that was just released — see
+  // PLC_STATUS_* in the shared control-screen pipeline) must not force this
+  // spring-return button visually active again; only a new physical pointer
+  // down may do that. Latching buttons are untouched by this guard since
+  // their active state is toggle-driven, not spring-driven.
+  bool _suppressExternalReactivation = false;
 
   @override
   void initState() {
@@ -97,13 +108,30 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     _pressCtrl.duration = widget.animationDuration;
     _pressCtrl.reverseDuration = widget.releaseDuration;
 
-    // Update internal state if external isActive changes
+    // Update internal state if external isActive changes — but a spring-
+    // return button that was just locally released must stay idle until a
+    // new physical press; late/stale external "active" feedback is ignored.
     if (widget.isActive != oldWidget.isActive) {
-      _internalActive = widget.isActive;
+      final isStaleReactivation = widget.isSpringReturn &&
+          widget.isActive &&
+          _suppressExternalReactivation;
+      if (isStaleReactivation) {
+        ButtonStateLog.log(
+          'PLC_STATUS_ACTIVE ignored (stale, post-release) [${widget.label}]',
+        );
+      } else {
+        _internalActive = widget.isActive;
+      }
     }
 
     if (!widget.enabled && oldWidget.enabled && _pointerIsDown) {
-      _finishPress();
+      // This runs mid-build (didUpdateWidget), so _finishPress() cannot
+      // synchronously invoke onReleased -> a parent's setState() here would
+      // hit "setState() called during build". Defer to right after the
+      // current frame, when it's safe to mark ancestors dirty again.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _finishPress();
+      });
     }
   }
 
@@ -127,12 +155,20 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   void _setActive(bool value) {
     if (_internalActive == value) return;
     setState(() => _internalActive = value);
+    ButtonStateLog.log(
+      '${value ? 'VISUAL_ACTIVE' : 'VISUAL_IDLE'} [${widget.label}]',
+    );
     widget.onChanged?.call(value);
   }
 
-  void _handlePointerDown(PointerDownEvent _) {
+  void _handlePointerDown(PointerDownEvent event) {
+    // A pointer already down owns this press; ignore any second/late pointer
+    // trying to start a new one on top of it (duplicate-emission guard).
     if (!widget.enabled || _pointerIsDown) return;
     _pointerIsDown = true;
+    _activePointerId = event.pointer;
+    _suppressExternalReactivation = false;
+    ButtonStateLog.log('USER_DOWN [${widget.label}] pointer=${event.pointer}');
     _triggerHaptic();
     _pressCtrl.forward();
 
@@ -146,8 +182,13 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     }
   }
 
-  void _handlePointerUp(PointerUpEvent _) {
+  void _handlePointerUp(PointerUpEvent event) {
+    // Late/duplicate pointer-up events for a pointer id that isn't the one
+    // that started this press are ignored — they cannot reactivate or
+    // re-release a button they never pressed.
+    if (event.pointer != _activePointerId) return;
     final wasDown = _pointerIsDown;
+    ButtonStateLog.log('USER_UP [${widget.label}] pointer=${event.pointer}');
     _finishPress();
 
     // Latching: toggle on release
@@ -159,19 +200,29 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     }
   }
 
-  void _handlePointerCancel(PointerCancelEvent _) => _finishPress();
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _activePointerId) return;
+    ButtonStateLog.log(
+      'USER_CANCEL [${widget.label}] pointer=${event.pointer}',
+    );
+    _finishPress();
+  }
 
   void _finishPress() {
     if (!_pointerIsDown) return;
     _pointerIsDown = false;
+    _activePointerId = null;
     _pressCtrl.animateBack(
       0.0,
       duration: widget.releaseDuration,
       curve: Curves.easeOutBack,
     );
 
-    // Spring return: deactivate on release
+    // Spring return: deactivate on release, and arm the guard so a stale
+    // PLC_STATUS_ACTIVE echo for the press just released can't flip this
+    // button visually active again until a fresh USER_DOWN occurs.
     if (widget.isSpringReturn) {
+      _suppressExternalReactivation = true;
       _setActive(false);
       widget.onReleased?.call();
     }

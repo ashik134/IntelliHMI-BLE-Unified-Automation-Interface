@@ -5,12 +5,12 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
@@ -45,8 +45,16 @@ class _ControlScreenState extends State<ControlScreen>
 
   CraneController? _craneController;
 
-  // ── Mutual-exclusion: local optimistic active state, keyed by button id ────
-  final Map<String, bool> _localActive = {};
+  // ── Local touch-driven active state, keyed by button id ─────────────────────
+  //
+  // Single source of truth for every button's VISUAL active/idle state.
+  // Written only by the onCommand callback below, which fires synchronously
+  // on USER_DOWN/USER_UP/USER_CANCEL — never by PLC feedback. PLC status
+  // (controller.hoistState) arrives asynchronously over BLE and can echo a
+  // command that has already been released locally, so it must never drive
+  // a button's own visual state back to active. PLC feedback stays visible
+  // through status/output indicators (LEDs, status chip) elsewhere.
+  final Map<String, ControlState> _localActive = {};
   bool _isBackNavigating = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
@@ -461,8 +469,13 @@ class _ControlScreenState extends State<ControlScreen>
                                 !config.enabled ||
                                 _isMutuallyExcluded(config),
                             onCommand: (id, state) {
+                              ButtonStateLog.log(
+                                state == ControlState.idle
+                                    ? 'SEND_IDLE  [$id] (PLC14)'
+                                    : 'SEND_ACTIVE [$id] -> ${state.name} (PLC14)',
+                              );
                               setState(() {
-                                _localActive[id] = state != ControlState.idle;
+                                _localActive[id] = state;
                               });
                               controller.setButtonCommand(
                                 buttonId: id,
@@ -555,37 +568,23 @@ class _ControlScreenState extends State<ControlScreen>
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if (_localActive[excludedId] == true) return true;
+      if ((_localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+        return true;
+      }
     }
     return false;
   }
 
+  /// Resolves the VISUAL active state for [config]. Local-touch state only
+  /// (see [_localActive]) — PLC feedback (`controller.hoistState`) intentionally
+  /// never feeds into a button's own visual state; it stays visible only
+  /// through status/output indicators (LEDs, status chip) elsewhere on
+  /// screen. estop latch forces idle regardless of local state.
   ControlState _activeStateForButton(
     CraneController controller,
     ButtonConfig config,
   ) {
-    switch (config.plcMapping) {
-      case PlcMapping.up:
-        return switch (controller.hoistState) {
-          HoistState.upSlow => ControlState.slow,
-          HoistState.upFast => ControlState.fast,
-          _ => ControlState.idle,
-        };
-      case PlcMapping.down:
-        return switch (controller.hoistState) {
-          HoistState.downSlow => ControlState.slow,
-          HoistState.downFast => ControlState.fast,
-          _ => ControlState.idle,
-        };
-      case PlcMapping.left ||
-          PlcMapping.right ||
-          PlcMapping.forward ||
-          PlcMapping.reverse ||
-          PlcMapping.fastUd ||
-          PlcMapping.fastLr ||
-          PlcMapping.fastFb ||
-          PlcMapping.estop:
-        return ControlState.idle;
-    }
+    if (controller.estopLatched) return ControlState.idle;
+    return _localActive[config.id] ?? ControlState.idle;
   }
 }

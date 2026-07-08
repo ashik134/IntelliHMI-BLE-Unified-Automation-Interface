@@ -5,6 +5,7 @@ import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 // ── Internal zone ─────────────────────────────────────────────────────────────
 
@@ -174,6 +175,10 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   void _emitZone(_TravZone zone) {
     if (zone == _lastEmitted) return;
     _lastEmitted = zone;
+    ButtonStateLog.log(
+      '${zone == _TravZone.idle ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
+      '[${widget.leftLabel}/${widget.rightLabel}] -> ${zone.name}',
+    );
     switch (zone) {
       case _TravZone.idle:
         widget.onCommandChanged(isLeft: true, state: ControlState.idle);
@@ -219,6 +224,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
 
   void _dragStart(DragStartDetails _, double halfTrack) {
     if (widget.isDisabled) return;
+    ButtonStateLog.log('USER_DOWN [${widget.leftLabel}/${widget.rightLabel}]');
     _springCtrl.stop();
     setState(() => _isDragging = true);
   }
@@ -243,8 +249,17 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     _emitZone(_zoneFor(_value));
   }
 
-  void _dragEnd(DragEndDetails _) => _release();
-  void _dragCancel() => _release();
+  void _dragEnd(DragEndDetails _) {
+    ButtonStateLog.log('USER_UP [${widget.leftLabel}/${widget.rightLabel}]');
+    _release();
+  }
+
+  void _dragCancel() {
+    ButtonStateLog.log(
+      'USER_CANCEL [${widget.leftLabel}/${widget.rightLabel}]',
+    );
+    _release();
+  }
 
   void _release() {
     if (!_isDragging) return;

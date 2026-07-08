@@ -16,6 +16,7 @@ import 'package:rev_crane_control_ops/services/permission_service.dart';
 import 'package:rev_crane_control_ops/services/secure_credential_store.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/preferences.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   final BleService _bleService = BleService();
@@ -384,6 +385,19 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
     _statusSubscription = _bleService.statusStream.listen((command) {
+      // This is the PLC's own hardware echo, arriving asynchronously over
+      // BLE — it can lag behind a command the operator has already released
+      // locally. It updates `_activeCommand`/`hoistState` for status/output
+      // indicators (LEDs, status chip) ONLY. Button VISUAL active state is
+      // sourced from each control screen's local touch state
+      // (_activeStateForButton / _localActive), never from this stream, so
+      // a late/stale echo here cannot flicker a button back to active.
+      ButtonStateLog.log(
+        command.estop || command.up || command.down || command.left ||
+                command.right || command.forward || command.reverse
+            ? 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)'
+            : 'PLC_STATUS_IDLE (hardware echo, status/LED only)',
+      );
       _activeCommand = command;
       if (command.estop) _estopLatched = true;
       notifyListeners();

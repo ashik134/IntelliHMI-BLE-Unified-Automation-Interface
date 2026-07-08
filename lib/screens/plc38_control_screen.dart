@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -12,6 +11,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
@@ -52,8 +52,18 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   late final AnimationController _pulseController;
   CraneController? _craneController;
 
-  // ── Local optimistic active state, keyed by button id ───────────────────────
-  final Map<String, bool> _localActive = {};
+  // ── Local touch-driven active state, keyed by button id ─────────────────────
+  //
+  // This is the single source of truth for every button's VISUAL active/idle
+  // state. It is written only by _onCommand(), which fires synchronously on
+  // USER_DOWN/USER_UP/USER_CANCEL — never by PLC feedback. PLC status
+  // (controller.activeCommand / hoistState) arrives asynchronously over BLE
+  // and can be stale by the time it's observed (the hardware's echo of a
+  // command sent moments ago), so it must never be allowed to drive a
+  // button's own visual state back to active after the user has released it.
+  // PLC feedback remains fully visible elsewhere (LEDs, status chip) — just
+  // not here.
+  final Map<String, ControlState> _localActive = {};
 
   bool _isBackNavigating = false;
   bool _isDismissingResetDialog = false;
@@ -214,7 +224,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if (_localActive[excludedId] == true) return true;
+      if ((_localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+        return true;
+      }
     }
     return false;
   }
@@ -601,77 +613,26 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   }
 
   void _onCommand(CraneController controller, String id, ControlState state) {
-    setState(() => _localActive[id] = state != ControlState.idle);
+    ButtonStateLog.log(
+      state == ControlState.idle
+          ? 'SEND_IDLE  [$id] (PLC38)'
+          : 'SEND_ACTIVE [$id] -> ${state.name} (PLC38)',
+    );
+    setState(() => _localActive[id] = state);
     controller.setButtonCommand(buttonId: id, state: state);
   }
 
+  /// Resolves the VISUAL active state for [config]. This is local-touch
+  /// state only (see [_localActive]) — PLC feedback (`controller.activeCommand`)
+  /// intentionally never feeds into a button's own visual state; it stays
+  /// visible only through status/output indicators (LEDs, status chip)
+  /// elsewhere on screen. estop latch forces idle regardless of local state
+  /// since the crane physically cannot be moving in that condition.
   ControlState _activeStateForButton(
     CraneController controller,
     ButtonConfig config,
   ) {
-    switch (config.plcMapping) {
-      case PlcMapping.up:
-        return _externalVertState(controller, isUp: true);
-      case PlcMapping.down:
-        return _externalVertState(controller, isUp: false);
-      case PlcMapping.left:
-        return _externalTravState(controller, isLeft: true);
-      case PlcMapping.right:
-        return _externalTravState(controller, isLeft: false);
-      case PlcMapping.forward:
-        return _externalTripState(controller, isForward: true);
-      case PlcMapping.reverse:
-        return _externalTripState(controller, isForward: false);
-      case PlcMapping.estop:
-      case PlcMapping.fastUd:
-      case PlcMapping.fastLr:
-      case PlcMapping.fastFb:
-        return ControlState.idle;
-    }
-  }
-
-  // ── HOIST axis content ──────────────────────────────────────────────────────
-
-  // ── TRAVERSE axis content ───────────────────────────────────────────────────
-
-  // ── TRAVEL axis content ─────────────────────────────────────────────────────
-
-  ControlState _externalVertState(CraneController c, {required bool isUp}) {
-    if (c.estopLatched) return ControlState.idle;
-    final cmd = c.activeCommand;
-    if (isUp && cmd.up) {
-      return cmd.fastUd ? ControlState.fast : ControlState.slow;
-    }
-    if (!isUp && cmd.down) {
-      return cmd.fastUd ? ControlState.fast : ControlState.slow;
-    }
-    return ControlState.idle;
-  }
-
-  ControlState _externalTravState(CraneController c, {required bool isLeft}) {
-    if (c.estopLatched) return ControlState.idle;
-    final cmd = c.activeCommand;
-    if (isLeft && cmd.left) {
-      return cmd.fastLr ? ControlState.fast : ControlState.slow;
-    }
-    if (!isLeft && cmd.right) {
-      return cmd.fastLr ? ControlState.fast : ControlState.slow;
-    }
-    return ControlState.idle;
-  }
-
-  ControlState _externalTripState(
-    CraneController c, {
-    required bool isForward,
-  }) {
-    if (c.estopLatched) return ControlState.idle;
-    final cmd = c.activeCommand;
-    if (isForward && cmd.forward) {
-      return cmd.fastFb ? ControlState.fast : ControlState.slow;
-    }
-    if (!isForward && cmd.reverse) {
-      return cmd.fastFb ? ControlState.fast : ControlState.slow;
-    }
-    return ControlState.idle;
+    if (controller.estopLatched) return ControlState.idle;
+    return _localActive[config.id] ?? ControlState.idle;
   }
 }
