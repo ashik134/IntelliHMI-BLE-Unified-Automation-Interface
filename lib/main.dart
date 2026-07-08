@@ -151,15 +151,23 @@ class _ControlTabState extends State<_ControlTab> {
   }
 
   void _onControllerChanged() {
+    // This fires synchronously from CraneController.notifyListeners(), which
+    // can happen at any point in a BLE callback chain — including mid-frame,
+    // while this element's ancestor chain (Provider/Navigator) is itself
+    // transitioning. `mounted` only means "not yet disposed"; it does not
+    // guarantee the element is safe to use for ancestor lookups right now.
+    // So every context-dependent call below is deferred to a post-frame
+    // callback, each re-checking `mounted` immediately before use, rather
+    // than trusting a `mounted` check taken earlier in the same tick.
     if (!mounted) return;
     final screen = _controllerRef!.currentScreen;
 
     if (screen != AppScreen.connection && !_subShellPushed) {
       _subShellPushed = true;
 
-      context.read<NavigationController>().navigateToControl();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        context.read<NavigationController>().navigateToControl();
         Navigator.of(
           context,
           rootNavigator: true,

@@ -234,27 +234,42 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _ => AppScreen.connection,
   };
 
+  // currentScreen (and this helper) is a getter re-evaluated on every read —
+  // including every notifyListeners() tick from the PLC status stream, not
+  // just on an actual navigation change. _lastLoggedPlcType makes the log a
+  // one-shot per resolved PLC type instead of misleadingly repeating
+  // "navigating" on every unrelated rebuild.
+  PlcType? _lastLoggedPlcType;
+
   AppScreen _getControlScreenForPlcType() {
     final plcType = connectedPlcType;
+    final isNewlyResolved = plcType != _lastLoggedPlcType;
+    _lastLoggedPlcType = plcType;
 
     // If PLC type is unknown, default to generic control
     if (plcType == PlcType.unknown) {
-      _logger.w(
-        '⚠️ Unknown PLC type detected, defaulting to generic control screen',
-      );
+      if (isNewlyResolved) {
+        _logger.w(
+          '⚠️ Unknown PLC type detected, defaulting to generic control screen',
+        );
+      }
       return AppScreen.control;
     }
 
     // Navigate to PLC38-specific screen for PLC38
     if (plcType == PlcType.plc38) {
-      _logger.i('✅ PLC38 detected - navigating to PLC38 control screen');
+      if (isNewlyResolved) {
+        _logger.i('✅ PLC38 detected - navigating to PLC38 control screen');
+      }
       return AppScreen.plc38Control;
     }
 
     // PLC14 and PLC21 use generic control screen
-    _logger.i(
-      '✅ ${plcType.displayName} detected - navigating to generic control screen',
-    );
+    if (isNewlyResolved) {
+      _logger.i(
+        '✅ ${plcType.displayName} detected - navigating to generic control screen',
+      );
+    }
     return AppScreen.control;
   }
 
@@ -369,6 +384,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         _p38VertState = ControlState.idle;
         _p38TravState = ControlState.idle;
         _p38TripState = ControlState.idle;
+        _lastLoggedPlcType = null;
       } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
         unawaited(ensureControlEntryEmergencyLock());
