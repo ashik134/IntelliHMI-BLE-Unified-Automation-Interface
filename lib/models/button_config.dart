@@ -4,6 +4,7 @@ import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
@@ -14,9 +15,8 @@ import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 // but intentionally identical in spirit/values so migration is a straight
 // mapping. `crossTravel` is new: the combined-slider "type", kept as an
 // optional selectable type, decomposed into two logical buttons under the
-// hood (see CrossTravelStrategy). joystick/rotary are intentionally omitted
-// — the PLC protocol is boolean-only; adding them requires the PlcMapping/
-// wire-format extension noted as future work, not this refactor.
+// hood (see CrossTravelStrategy). joystick uses the same button-centric model;
+// analog PLC wire output can be added when the protocol exposes analog fields.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum ButtonType {
@@ -25,6 +25,7 @@ enum ButtonType {
   sliderButton,
   crossTravel,
   crossTravelSlowOnly,
+  joystick,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,10 +162,20 @@ class ButtonConfig {
 
   int get gridColumnSpan {
     if (type == ButtonType.crossTravel) return 2;
+    if (type == ButtonType.joystick &&
+        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+      return 2;
+    }
     return columnSpan.clamp(1, controlGridColumns);
   }
 
-  int get gridRowSpan => 1;
+  int get gridRowSpan {
+    if (type == ButtonType.joystick &&
+        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+      return 2;
+    }
+    return 1;
+  }
 
   bool get occupiesMultipleGridCells => gridColumnSpan > 1 || gridRowSpan > 1;
 
@@ -202,8 +213,8 @@ class ButtonConfig {
         // migrated layouts to two independent sliders.
         ControlWidgetType.sliderButton when role.axis == AxisKind.traverse =>
           ButtonType.crossTravel,
-        ControlWidgetType.sliderButton ||
-        ControlWidgetType.joystick ||
+        ControlWidgetType.sliderButton => ButtonType.sliderButton,
+        ControlWidgetType.joystick => ButtonType.joystick,
         ControlWidgetType.rotary => ButtonType.sliderButton,
       },
       plcMapping: role.plcMapping!,

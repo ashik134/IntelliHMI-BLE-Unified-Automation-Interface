@@ -409,8 +409,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       // (_activeStateForButton / _localActive), never from this stream, so
       // a late/stale echo here cannot flicker a button back to active.
       ButtonStateLog.log(
-        command.estop || command.up || command.down || command.left ||
-                command.right || command.forward || command.reverse
+        command.estop ||
+                command.up ||
+                command.down ||
+                command.left ||
+                command.right ||
+                command.forward ||
+                command.reverse
             ? 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)'
             : 'PLC_STATUS_IDLE (hardware echo, status/LED only)',
       );
@@ -806,6 +811,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         await setHoistCommand(isUp: true, state: state);
       } else if (buttonId == ControlRole.hoistDown.name) {
         await setHoistCommand(isUp: false, state: state);
+      } else {
+        final joystickField = joystickVirtualFieldFor(buttonId);
+        if (joystickField == PlcMapping.up) {
+          await setHoistCommand(isUp: true, state: state);
+        } else if (joystickField == PlcMapping.down) {
+          await setHoistCommand(isUp: false, state: state);
+        }
       }
       return;
     }
@@ -817,7 +829,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       final previousState = _p38ButtonStates[buttonId] ?? ControlState.idle;
       final previousFields = _fieldsFor(buttonId, previousState);
-      final newFields      = _fieldsFor(buttonId, state);
+      final newFields = _fieldsFor(buttonId, state);
 
       // Only check fields being NEWLY claimed (not already owned by this button).
       final addedFields = newFields.difference(previousFields);
@@ -856,6 +868,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     final virtualField = kVirtualFastKeyFields[buttonId];
     if (virtualField != null) return {virtualField};
 
+    final joystickField = joystickVirtualFieldFor(buttonId);
+    if (joystickField != null) {
+      final fields = <PlcMapping>{joystickField};
+      if (state == ControlState.fast) {
+        final fastField = joystickField.correspondingRole?.axis?.fastMapping;
+        if (fastField != null) fields.add(fastField);
+      }
+      return fields;
+    }
+
     // Standard ControlRole buttons matched by role name.
     ControlRole? role;
     for (final r in ControlRole.values) {
@@ -881,7 +903,10 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// apply a per-zone drag clamp on the slider (physical "stuck" sensation)
   /// before the drag enters the blocked zone.
   bool isFieldBlockedForButton(String buttonId) {
-    final fields = _fieldsFor(buttonId, ControlState.slow); // representative non-idle state
+    final fields = _fieldsFor(
+      buttonId,
+      ControlState.slow,
+    ); // representative non-idle state
     return fields.any(
       (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
     );
@@ -895,35 +920,24 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// role's ControlState != idle; a fast flag is true iff its role's
   /// ControlState == fast.
   PlcOutputCommand _composeFromButtonStates() {
-    bool activeFor(ControlRole role) =>
-        (_p38ButtonStates[role.name] ?? ControlState.idle) != ControlState.idle;
-    bool fastFor(ControlRole role) =>
-        (_p38ButtonStates[role.name] ?? ControlState.idle) == ControlState.fast;
-
-    bool fastKeyActive(String key) =>
-        (_p38ButtonStates[key] ?? ControlState.idle) != ControlState.idle;
+    bool fieldActive(PlcMapping field) {
+      for (final entry in _p38ButtonStates.entries) {
+        if (_fieldsFor(entry.key, entry.value).contains(field)) return true;
+      }
+      return false;
+    }
 
     return PlcOutputCommand.compose(
       estop: false,
-      up: activeFor(ControlRole.hoistUp),
-      down: activeFor(ControlRole.hoistDown),
-      fastUd: fastFor(ControlRole.hoistUp) || fastFor(ControlRole.hoistDown),
-      left: activeFor(ControlRole.traverseLeft),
-      right: activeFor(ControlRole.traverseRight),
-      // fastLr is set by the 5-zone slider's fast state (traverseLeft/Right
-      // at ControlState.fast) OR by either independent 3-zone slider's
-      // inward drag, which posts to kTraverseLeftFastKey / kTraverseRightFastKey
-      // rather than activating a direction bit.
-      fastLr:
-          fastFor(ControlRole.traverseLeft) ||
-          fastFor(ControlRole.traverseRight) ||
-          fastKeyActive(kTraverseLeftFastKey) ||
-          fastKeyActive(kTraverseRightFastKey),
-      forward: activeFor(ControlRole.travelForward),
-      reverse: activeFor(ControlRole.travelReverse),
-      fastFb:
-          fastFor(ControlRole.travelForward) ||
-          fastFor(ControlRole.travelReverse),
+      up: fieldActive(PlcMapping.up),
+      down: fieldActive(PlcMapping.down),
+      fastUd: fieldActive(PlcMapping.fastUd),
+      left: fieldActive(PlcMapping.left),
+      right: fieldActive(PlcMapping.right),
+      fastLr: fieldActive(PlcMapping.fastLr),
+      forward: fieldActive(PlcMapping.forward),
+      reverse: fieldActive(PlcMapping.reverse),
+      fastFb: fieldActive(PlcMapping.fastFb),
     );
   }
 

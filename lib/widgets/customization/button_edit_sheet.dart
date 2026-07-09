@@ -6,6 +6,7 @@ import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
@@ -233,7 +234,7 @@ class _TabCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          child,
+          Material(type: MaterialType.transparency, child: child),
         ],
       ),
     );
@@ -280,6 +281,7 @@ ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
   ButtonType.sliderButton ||
   ButtonType.crossTravel ||
   ButtonType.crossTravelSlowOnly => ControlWidgetType.sliderButton,
+  ButtonType.joystick => ControlWidgetType.joystick,
 };
 
 bool _spanAwareTypeChangesEnabled() => true;
@@ -320,11 +322,11 @@ const _typeEntries = [
     'Rocker-style switch. Slow speed only.',
   ),
   _TypeEntry(
-    null,
+    ButtonType.joystick,
     'Joystick',
     Icons.gamepad_rounded,
-    false,
-    'Blocked — the PLC output protocol is boolean-only; no analog wire format exists yet.',
+    true,
+    'Analog or digital joystick. Configure behavior in the Behavior tab.',
   ),
   _TypeEntry(
     null,
@@ -1322,7 +1324,8 @@ class _BehaviorCard extends StatelessWidget {
     final wiringApplicable =
         config.type != ButtonType.sliderButton &&
         config.type != ButtonType.crossTravel &&
-        config.type != ButtonType.crossTravelSlowOnly;
+        config.type != ButtonType.crossTravelSlowOnly &&
+        config.type != ButtonType.joystick;
     final isSafety = role.isSafetyControl;
     final validation = const LayoutValidationService().validateButtonConfig(
       config,
@@ -1386,8 +1389,7 @@ class _BehaviorCard extends StatelessWidget {
                   children: [
                     for (final cfg in PushButtonWiringConfig.values)
                       // Three-position modes only make sense for Toggle Switch.
-                      if (!cfg.isToggleOnly ||
-                          config.type == ButtonType.toggle)
+                      if (!cfg.isToggleOnly || config.type == ButtonType.toggle)
                         _WiringTile(
                           cfg: cfg,
                           isSelected: config.behavior.wiring == cfg,
@@ -1395,8 +1397,7 @@ class _BehaviorCard extends StatelessWidget {
                             draft.withButton(
                               role.name,
                               config.copyWith(
-                                behavior:
-                                    config.behavior.copyWith(wiring: cfg),
+                                behavior: config.behavior.copyWith(wiring: cfg),
                               ),
                             ),
                           ),
@@ -1502,14 +1503,222 @@ class _BehaviorCard extends StatelessWidget {
             title: '${role.defaultLabel} · GROUP',
             child: _GroupField(role: role),
           ),
-        _TabCard(
-          title: '${role.defaultLabel} · CUSTOM PROPERTIES',
-          child: const _InfoNote(
-            message:
-                'Advanced per-type custom fields — none defined for this '
-                'button type yet. Reserved for future control types (e.g. a '
-                'joystick\'s dead-zone radius).',
+        if (config.type == ButtonType.joystick)
+          _TabCard(
+            title: '${role.defaultLabel} · JOYSTICK',
+            child: _JoystickConfigEditor(role: role),
           ),
+        if (config.type != ButtonType.joystick)
+          _TabCard(
+            title: '${role.defaultLabel} · CUSTOM PROPERTIES',
+            child: const _InfoNote(
+              message:
+                  'Advanced per-type custom fields — none defined for this '
+                  'button type yet. Reserved for future control types (e.g. a '
+                  'joystick\'s dead-zone radius).',
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _JoystickConfigEditor extends StatelessWidget {
+  const _JoystickConfigEditor({required this.role});
+
+  final ControlRole role;
+
+  @override
+  Widget build(BuildContext context) {
+    final customCtrl = context.watch<CustomizationModeController>();
+    final draft = customCtrl.draft;
+    final config = draft.buttonFor(role)!;
+    final joystick = JoystickConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalizedForMode();
+
+    void save(JoystickConfig next) {
+      customCtrl.applyDraftChange(
+        draft.withButton(
+          role.name,
+          config.copyWith(
+            customProperties: next.normalizedForMode().applyToCustomProperties(
+              config.customProperties,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget segmented<T>({
+      required String label,
+      required T value,
+      required List<T> values,
+      required String Function(T) text,
+      required ValueChanged<T> onChanged,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.darkTextMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in values)
+                  ChoiceChip(
+                    label: Text(text(item)),
+                    selected: item == value,
+                    selectedColor: AppColors.accent.withAlpha(50),
+                    labelStyle: TextStyle(
+                      color: item == value
+                          ? AppColors.accent
+                          : AppColors.darkTextSub,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    onSelected: (_) => onChanged(item),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget slider({
+      required String label,
+      required double value,
+      required double min,
+      required double max,
+      required ValueChanged<double> onChanged,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label ${value.toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: AppColors.darkTextMuted,
+              fontSize: 11,
+            ),
+          ),
+          Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: 20,
+            activeColor: AppColors.accent,
+            inactiveColor: AppColors.darkBorder,
+            onChanged: onChanged,
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        segmented<JoystickMode>(
+          label: 'Mode',
+          value: joystick.mode,
+          values: JoystickMode.values,
+          text: (mode) => mode.label,
+          onChanged: (mode) => save(
+            joystick.copyWith(
+              mode: mode,
+              springReturn: switch (mode) {
+                JoystickMode.singleAxisDigital5 => true,
+                JoystickMode.dualAxisDigital4 => false,
+                JoystickMode.singleAxisAnalog ||
+                JoystickMode.dualAxisAnalog => joystick.springReturn,
+              },
+            ),
+          ),
+        ),
+        segmented<JoystickAxis>(
+          label: 'Single-axis orientation',
+          value: joystick.axis,
+          values: JoystickAxis.values,
+          text: (axis) =>
+              axis == JoystickAxis.vertical ? 'Vertical' : 'Horizontal',
+          onChanged: (axis) => save(joystick.copyWith(axis: axis)),
+        ),
+        segmented<JoystickBoundary>(
+          label: 'Movement bound',
+          value: joystick.boundary,
+          values: JoystickBoundary.values,
+          text: (bound) =>
+              bound == JoystickBoundary.circular ? 'Circular' : 'Square',
+          onChanged: (bound) => save(joystick.copyWith(boundary: bound)),
+        ),
+        if (joystick.mode != JoystickMode.singleAxisDigital5)
+          SwitchListTile(
+            value: joystick.springReturn,
+            activeThumbColor: AppColors.accent,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Spring return',
+              style: TextStyle(color: AppColors.darkText, fontSize: 12),
+            ),
+            subtitle: const Text(
+              'Off gives the joystick a maintained friction feel.',
+              style: TextStyle(color: AppColors.darkTextMuted, fontSize: 10),
+            ),
+            onChanged: (value) => save(joystick.copyWith(springReturn: value)),
+          ),
+        if (joystick.isDualAxis)
+          SwitchListTile(
+            value: joystick.allowDiagonal,
+            activeThumbColor: AppColors.accent,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Allow diagonals',
+              style: TextStyle(color: AppColors.darkText, fontSize: 12),
+            ),
+            subtitle: const Text(
+              'Off selects the stronger axis to avoid ambiguous directions.',
+              style: TextStyle(color: AppColors.darkTextMuted, fontSize: 10),
+            ),
+            onChanged: (value) => save(joystick.copyWith(allowDiagonal: value)),
+          ),
+        slider(
+          label: 'Dead zone',
+          value: joystick.deadZone,
+          min: 0.0,
+          max: 0.45,
+          onChanged: (value) => save(joystick.copyWith(deadZone: value)),
+        ),
+        slider(
+          label: 'Slow threshold',
+          value: joystick.slowThreshold,
+          min: 0.05,
+          max: 0.75,
+          onChanged: (value) => save(joystick.copyWith(slowThreshold: value)),
+        ),
+        slider(
+          label: 'Fast threshold',
+          value: joystick.fastThreshold,
+          min: 0.30,
+          max: 1.0,
+          onChanged: (value) => save(joystick.copyWith(fastThreshold: value)),
+        ),
+        const _InfoNote(
+          message:
+              'Analog modes emit normalized joystick values inside the UI. '
+              'Until the PLC firmware exposes analog output fields, the '
+              'strategy maps movement through the existing digital command '
+              'composer.',
         ),
       ],
     );

@@ -71,7 +71,7 @@ class AxisTypePreview extends StatelessWidget {
               ),
             ],
           ),
-          ControlWidgetType.joystick ||
+          ControlWidgetType.joystick => const _JoystickPreviewMock(),
           ControlWidgetType.rotary => const _ComingSoonMock(),
           ControlWidgetType.sliderButton => Row(
             children: [
@@ -213,6 +213,100 @@ class _TogglePreviewMock extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _JoystickPreviewMock extends StatelessWidget {
+  const _JoystickPreviewMock();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.panelAlt,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.darkBorder),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 108,
+          height: 108,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Dished bezel, matching the analog-gimbal plate treatment.
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    center: Alignment(-0.36, -0.5),
+                    radius: 1.2,
+                    colors: [
+                      Color(0xFF2C3B4C),
+                      Color(0xFF17222E),
+                      Color(0xFF080D13),
+                    ],
+                    stops: [0.0, 0.55, 1.0],
+                  ),
+                  border: Border.all(color: Colors.white.withAlpha(28)),
+                ),
+              ),
+              Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.darkTextMuted.withAlpha(70),
+                  ),
+                ),
+              ),
+              // Faint travel crosshair — continuous-field cue, no gate lines.
+              Container(
+                width: 66,
+                height: 1,
+                color: Colors.white.withAlpha(22),
+              ),
+              Container(
+                width: 1,
+                height: 66,
+                color: Colors.white.withAlpha(22),
+              ),
+              Transform.translate(
+                offset: const Offset(14, -16),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.35, -0.45),
+                      colors: [
+                        AppColors.accent.withAlpha(255),
+                        Color.alphaBlend(
+                          Colors.black.withAlpha(90),
+                          AppColors.accent,
+                        ),
+                      ],
+                    ),
+                    border: Border.all(color: Colors.white.withAlpha(60)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.accent.withAlpha(100),
+                        blurRadius: 14,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

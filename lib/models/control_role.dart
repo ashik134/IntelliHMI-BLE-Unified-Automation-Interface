@@ -29,10 +29,8 @@ extension ControlRoleInfo on ControlRole {
   /// The axis this role belongs to, or null for estop/resetEstop.
   AxisKind? get axis => switch (this) {
     ControlRole.hoistUp || ControlRole.hoistDown => AxisKind.hoist,
-    ControlRole.traverseLeft ||
-    ControlRole.traverseRight => AxisKind.traverse,
-    ControlRole.travelForward ||
-    ControlRole.travelReverse => AxisKind.travel,
+    ControlRole.traverseLeft || ControlRole.traverseRight => AxisKind.traverse,
+    ControlRole.travelForward || ControlRole.travelReverse => AxisKind.travel,
     ControlRole.estop || ControlRole.resetEstop => null,
   };
 
@@ -102,9 +100,9 @@ extension AxisKindInfo on AxisKind {
 
   /// The PLC speed-modifier field for this axis.
   PlcMapping get fastMapping => switch (this) {
-    AxisKind.hoist    => PlcMapping.fastUd,
+    AxisKind.hoist => PlcMapping.fastUd,
     AxisKind.traverse => PlcMapping.fastLr,
-    AxisKind.travel   => PlcMapping.fastFb,
+    AxisKind.travel => PlcMapping.fastFb,
   };
 }
 
@@ -121,6 +119,24 @@ const String kTraverseRightFastKey = 'traverseRightFast';
 /// CraneController._fieldsFor and CrossTravelSlowOnlyStrategy both consult
 /// this table so the mapping is defined in one place.
 const Map<String, PlcMapping> kVirtualFastKeyFields = {
-  kTraverseLeftFastKey:  PlcMapping.fastLr,
+  kTraverseLeftFastKey: PlcMapping.fastLr,
   kTraverseRightFastKey: PlcMapping.fastLr,
 };
+
+/// Virtual button-state keys used by a joystick to own several PLC fields
+/// without borrowing another visible button's [ControlRole.name] key.
+const String kJoystickVirtualButtonPrefix = 'joystick';
+
+String joystickVirtualButtonId(String sourceButtonId, PlcMapping field) =>
+    '$kJoystickVirtualButtonPrefix:$sourceButtonId:${field.name}';
+
+PlcMapping? joystickVirtualFieldFor(String buttonId) {
+  final parts = buttonId.split(':');
+  if (parts.length != 3 || parts.first != kJoystickVirtualButtonPrefix) {
+    return null;
+  }
+  for (final field in PlcMapping.values) {
+    if (field.name == parts.last) return field;
+  }
+  return null;
+}
