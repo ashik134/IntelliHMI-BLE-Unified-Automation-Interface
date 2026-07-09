@@ -1637,11 +1637,23 @@ class _JoystickConfigEditor extends StatelessWidget {
           onChanged: (mode) => save(
             joystick.copyWith(
               mode: mode,
-              springReturn: switch (mode) {
-                JoystickMode.singleAxisDigital5 => true,
-                JoystickMode.dualAxisDigital4 => false,
+              boundary: switch (mode) {
+                JoystickMode.dualAxisAnalog => JoystickBoundary.circular,
                 JoystickMode.singleAxisAnalog ||
-                JoystickMode.dualAxisAnalog => joystick.springReturn,
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisDigital4 => joystick.boundary,
+              },
+              springReturn: switch (mode) {
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisAnalog => true,
+                JoystickMode.dualAxisDigital4 => false,
+                JoystickMode.singleAxisAnalog => joystick.springReturn,
+              },
+              allowDiagonal: switch (mode) {
+                JoystickMode.dualAxisAnalog => true,
+                JoystickMode.singleAxisAnalog ||
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisDigital4 => joystick.allowDiagonal,
               },
             ),
           ),
@@ -1654,15 +1666,17 @@ class _JoystickConfigEditor extends StatelessWidget {
               axis == JoystickAxis.vertical ? 'Vertical' : 'Horizontal',
           onChanged: (axis) => save(joystick.copyWith(axis: axis)),
         ),
-        segmented<JoystickBoundary>(
-          label: 'Movement bound',
-          value: joystick.boundary,
-          values: JoystickBoundary.values,
-          text: (bound) =>
-              bound == JoystickBoundary.circular ? 'Circular' : 'Square',
-          onChanged: (bound) => save(joystick.copyWith(boundary: bound)),
-        ),
-        if (joystick.mode != JoystickMode.singleAxisDigital5)
+        if (joystick.mode != JoystickMode.dualAxisAnalog)
+          segmented<JoystickBoundary>(
+            label: 'Movement bound',
+            value: joystick.boundary,
+            values: JoystickBoundary.values,
+            text: (bound) =>
+                bound == JoystickBoundary.circular ? 'Circular' : 'Square',
+            onChanged: (bound) => save(joystick.copyWith(boundary: bound)),
+          ),
+        if (joystick.mode != JoystickMode.singleAxisDigital5 &&
+            joystick.mode != JoystickMode.dualAxisAnalog)
           SwitchListTile(
             value: joystick.springReturn,
             activeThumbColor: AppColors.accent,
@@ -1677,7 +1691,7 @@ class _JoystickConfigEditor extends StatelessWidget {
             ),
             onChanged: (value) => save(joystick.copyWith(springReturn: value)),
           ),
-        if (joystick.isDualAxis)
+        if (joystick.isDualAxis && joystick.mode != JoystickMode.dualAxisAnalog)
           SwitchListTile(
             value: joystick.allowDiagonal,
             activeThumbColor: AppColors.accent,

@@ -46,11 +46,22 @@ class JoystickConfig {
 
   JoystickConfig normalizedForMode() {
     return copyWith(
-      springReturn: switch (mode) {
-        JoystickMode.singleAxisDigital5 => true,
+      boundary: switch (mode) {
+        JoystickMode.dualAxisAnalog => JoystickBoundary.circular,
         JoystickMode.singleAxisAnalog ||
-        JoystickMode.dualAxisAnalog ||
+        JoystickMode.singleAxisDigital5 ||
+        JoystickMode.dualAxisDigital4 => boundary,
+      },
+      springReturn: switch (mode) {
+        JoystickMode.singleAxisDigital5 || JoystickMode.dualAxisAnalog => true,
+        JoystickMode.singleAxisAnalog ||
         JoystickMode.dualAxisDigital4 => springReturn,
+      },
+      allowDiagonal: switch (mode) {
+        JoystickMode.dualAxisAnalog => true,
+        JoystickMode.singleAxisAnalog ||
+        JoystickMode.singleAxisDigital5 ||
+        JoystickMode.dualAxisDigital4 => allowDiagonal,
       },
     );
   }

@@ -7,6 +7,48 @@ import 'package:flutter/services.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 
+const double _kJoystickSlotPadding = 10.0;
+const double _kSingleAxisVisualScale = 0.94;
+const double _kDualAxisVisualScale = 0.90;
+const double _kAnalogGimbalBoundaryFactor = 0.34;
+const double _kAnalogGimbalPointerRadiusFactor = 0.105;
+const double _kAnalogGimbalPointerTravelFactor = _kAnalogGimbalBoundaryFactor;
+
+double _safeVisualExtent(
+  double available, {
+  required double min,
+  required double max,
+  required double scale,
+}) {
+  final boundedAvailable = math.max(0.0, available);
+  if (boundedAvailable <= min) return boundedAvailable;
+  return (boundedAvailable * scale)
+      .clamp(min, math.min(max, boundedAvailable))
+      .toDouble();
+}
+
+double _dualAxisSide(double maxWidth, double maxHeight) {
+  return _safeVisualExtent(
+    math.min(maxWidth, maxHeight),
+    min: 92.0,
+    max: 288.0,
+    scale: _kDualAxisVisualScale,
+  );
+}
+
+double _joystickSlotPaddingFor(double maxWidth, double maxHeight) {
+  final shortest = math.min(maxWidth, maxHeight);
+  if (shortest <= 112.0) return 6.0;
+  return _kJoystickSlotPadding;
+}
+
+class _JoystickDragGeometry {
+  const _JoystickDragGeometry({required this.center, required this.radius});
+
+  final Offset center;
+  final double radius;
+}
+
 class JoystickOutput {
   const JoystickOutput({
     required this.x,
@@ -190,7 +232,9 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     if (!_config.isDualAxis) {
       final v = _config.axis == JoystickAxis.horizontal ? raw.dx : raw.dy;
       final step = _stepFor(v).toDouble();
-      final snapped = step == 0 ? 0.0 : (step.sign * (step.abs() == 2 ? 1.0 : 0.5));
+      final snapped = step == 0
+          ? 0.0
+          : (step.sign * (step.abs() == 2 ? 1.0 : 0.5));
       return _config.axis == JoystickAxis.horizontal
           ? Offset(snapped, 0)
           : Offset(0, snapped);
@@ -208,10 +252,14 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     HapticFeedback.selectionClick();
   }
 
-  void _handlePanUpdate(DragUpdateDetails details, double radius) {
-    if (!widget.enabled || radius <= 0) return;
-    final delta = Offset(details.localPosition.dx, details.localPosition.dy);
-    final centerDelta = Offset(delta.dx - radius, delta.dy - radius);
+  void _handlePanUpdate(
+    DragUpdateDetails details,
+    _JoystickDragGeometry geometry,
+  ) {
+    if (!widget.enabled) return;
+    final radius = geometry.radius;
+    if (radius <= 0) return;
+    final centerDelta = details.localPosition - geometry.center;
     final next = _clampValue(
       Offset(centerDelta.dx / radius, -centerDelta.dy / radius),
     );
@@ -325,6 +373,9 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
             final maxH = constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : 220.0;
+            final slotPadding = _joystickSlotPaddingFor(maxW, maxH);
+            final innerW = math.max(0.0, maxW - slotPadding * 2);
+            final innerH = math.max(0.0, maxH - slotPadding * 2);
 
             final body = switch (config.mode) {
               JoystickMode.singleAxisAnalog => _AnalogRail(
@@ -336,8 +387,8 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
                 icon: widget.icon,
                 activeColor: widget.activeColor,
                 activeColorLight: widget.activeColorLight,
-                maxWidth: maxW,
-                maxHeight: maxH,
+                maxWidth: innerW,
+                maxHeight: innerH,
               ),
               JoystickMode.singleAxisDigital5 => _DigitalLadder(
                 config: config,
@@ -349,8 +400,8 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
                 icon: widget.icon,
                 activeColor: widget.activeColor,
                 activeColorLight: widget.activeColorLight,
-                maxWidth: maxW,
-                maxHeight: maxH,
+                maxWidth: innerW,
+                maxHeight: innerH,
               ),
               JoystickMode.dualAxisAnalog => _AnalogGimbal(
                 config: config,
@@ -361,8 +412,8 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
                 icon: widget.icon,
                 activeColor: widget.activeColor,
                 activeColorLight: widget.activeColorLight,
-                maxWidth: maxW,
-                maxHeight: maxH,
+                maxWidth: innerW,
+                maxHeight: innerH,
               ),
               JoystickMode.dualAxisDigital4 => _DigitalCrossGate(
                 config: config,
@@ -373,8 +424,8 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
                 icon: widget.icon,
                 activeColor: widget.activeColor,
                 activeColorLight: widget.activeColorLight,
-                maxWidth: maxW,
-                maxHeight: maxH,
+                maxWidth: innerW,
+                maxHeight: innerH,
               ),
             };
 
@@ -384,7 +435,7 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
               onPanUpdate: widget.enabled
                   ? (details) => _handlePanUpdate(
                       details,
-                      _dragRadiusFor(config, maxW, maxH),
+                      _dragGeometryFor(config, maxW, maxH, slotPadding),
                     )
                   : null,
               onPanEnd: widget.enabled ? (_) => _handlePanEnd() : null,
@@ -392,9 +443,12 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
               child: SizedBox(
                 width: maxW,
                 height: maxH,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: UnconstrainedBox(child: body),
+                child: Padding(
+                  padding: EdgeInsets.all(slotPadding),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: UnconstrainedBox(child: body),
+                  ),
                 ),
               ),
             );
@@ -404,13 +458,31 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     );
   }
 
-  double _dragRadiusFor(JoystickConfig config, double maxW, double maxH) {
+  _JoystickDragGeometry _dragGeometryFor(
+    JoystickConfig config,
+    double maxW,
+    double maxH,
+    double slotPadding,
+  ) {
+    final innerW = math.max(0.0, maxW - slotPadding * 2);
+    final innerH = math.max(0.0, maxH - slotPadding * 2);
+    final center = Offset(maxW / 2, maxH / 2);
     if (!config.isDualAxis) {
-      final length = config.axis == JoystickAxis.horizontal ? maxW : maxH;
-      return length.clamp(80.0, 340.0) / 2;
+      final availableLength = config.axis == JoystickAxis.horizontal
+          ? innerW
+          : innerH;
+      final length = _safeVisualExtent(
+        availableLength,
+        min: 96.0,
+        max: 320.0,
+        scale: _kSingleAxisVisualScale,
+      );
+      return _JoystickDragGeometry(center: center, radius: length / 2);
     }
-    final side = math.min(maxW, maxH);
-    return side.clamp(92.0, 320.0) / 2;
+    return _JoystickDragGeometry(
+      center: center,
+      radius: _dualAxisSide(innerW, innerH) * _kAnalogGimbalPointerTravelFactor,
+    );
   }
 }
 
@@ -450,13 +522,17 @@ class _AnalogRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trackThickness = (_horizontal ? maxHeight : maxWidth).clamp(
-      64.0,
-      132.0,
+    final trackThickness = _safeVisualExtent(
+      _horizontal ? maxHeight : maxWidth,
+      min: 58.0,
+      max: 118.0,
+      scale: _kSingleAxisVisualScale,
     );
-    final trackLength = (_horizontal ? maxWidth : maxHeight).clamp(
-      110.0,
-      340.0,
+    final trackLength = _safeVisualExtent(
+      _horizontal ? maxWidth : maxHeight,
+      min: 104.0,
+      max: 312.0,
+      scale: _kSingleAxisVisualScale,
     );
 
     return Center(
@@ -546,10 +622,7 @@ class _AnalogRailPainter extends CustomPainter {
       channelRect,
       Radius.circular(math.min(channelRect.width, channelRect.height) / 2),
     );
-    canvas.drawRRect(
-      channelRRect,
-      Paint()..color = const Color(0xFF060B10),
-    );
+    canvas.drawRRect(channelRRect, Paint()..color = const Color(0xFF060B10));
     canvas.drawRRect(
       channelRRect,
       Paint()
@@ -586,11 +659,7 @@ class _AnalogRailPainter extends CustomPainter {
 
     // Center neutral notch.
     final center = channelRect.center;
-    canvas.drawCircle(
-      center,
-      3.0,
-      Paint()..color = Colors.white.withAlpha(60),
-    );
+    canvas.drawCircle(center, 3.0, Paint()..color = Colors.white.withAlpha(60));
 
     // Fill trail from center to puck position.
     final travel = horizontal
@@ -600,7 +669,9 @@ class _AnalogRailPainter extends CustomPainter {
         ? Offset(center.dx + value * travel, center.dy)
         : Offset(center.dx, center.dy - value * travel);
 
-    final trailColor = isActive && enabled ? activeColor : const Color(0xFF3A4E5F);
+    final trailColor = isActive && enabled
+        ? activeColor
+        : const Color(0xFF3A4E5F);
     final trailRect = horizontal
         ? Rect.fromPoints(
             Offset(math.min(center.dx, puckPos.dx), channelRect.top + 3),
@@ -626,7 +697,9 @@ class _AnalogRailPainter extends CustomPainter {
 
     // Puck (continuous, no snapping).
     final puckRadius = math.min(channelRect.width, channelRect.height) / 2 - 3;
-    final puckBase = isActive && enabled ? activeColor : const Color(0xFF6B7C8D);
+    final puckBase = isActive && enabled
+        ? activeColor
+        : const Color(0xFF6B7C8D);
     final puckLight = isActive && enabled
         ? activeColorLight
         : const Color(0xFFC3CDD8);
@@ -783,8 +856,18 @@ class _DigitalLadder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final thickness = (_horizontal ? maxHeight : maxWidth).clamp(70.0, 140.0);
-    final length = (_horizontal ? maxWidth : maxHeight).clamp(150.0, 340.0);
+    final thickness = _safeVisualExtent(
+      _horizontal ? maxHeight : maxWidth,
+      min: 62.0,
+      max: 124.0,
+      scale: _kSingleAxisVisualScale,
+    );
+    final length = _safeVisualExtent(
+      _horizontal ? maxWidth : maxHeight,
+      min: 132.0,
+      max: 312.0,
+      scale: _kSingleAxisVisualScale,
+    );
 
     return Center(
       child: SizedBox(
@@ -845,7 +928,10 @@ class _DigitalLadderPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     final bodyRect = Rect.fromLTWH(0, 0, w, h);
-    final bodyRRect = RRect.fromRectAndRadius(bodyRect, const Radius.circular(14));
+    final bodyRRect = RRect.fromRectAndRadius(
+      bodyRect,
+      const Radius.circular(14),
+    );
 
     canvas.drawRRect(
       bodyRRect.shift(const Offset(0, 3)),
@@ -898,7 +984,13 @@ class _DigitalLadderPainter extends CustomPainter {
       return ordered;
     }
 
-    final labels = <int, String>{-2: 'FAST', -1: 'SLOW', 0: '', 1: 'SLOW', 2: 'FAST'};
+    final labels = <int, String>{
+      -2: 'FAST',
+      -1: 'SLOW',
+      0: '',
+      1: 'SLOW',
+      2: 'FAST',
+    };
 
     for (var i = 0; i < _slotCount; i++) {
       final slotStep = stepForSlot(i);
@@ -921,7 +1013,9 @@ class _DigitalLadderPainter extends CustomPainter {
         canvas.drawRRect(
           rrect,
           Paint()
-            ..color = litColor.withAlpha((litFraction * (enabled ? 235 : 120)).round())
+            ..color = litColor.withAlpha(
+              (litFraction * (enabled ? 235 : 120)).round(),
+            )
             ..maskFilter = litFraction > 0.5
                 ? const MaskFilter.blur(BlurStyle.normal, 2)
                 : null,
@@ -977,7 +1071,9 @@ class _DigitalLadderPainter extends CustomPainter {
           canvas,
           Offset(
             rect.center.dx - tp.width / 2,
-            horizontal ? rect.bottom - tp.height - 3 : rect.center.dy - tp.height / 2,
+            horizontal
+                ? rect.bottom - tp.height - 3
+                : rect.center.dy - tp.height / 2,
           ),
         );
       } else {
@@ -1006,9 +1102,14 @@ class _DigitalLadderPainter extends CustomPainter {
             width: crossExtent * 1.16,
             height: indicatorRect.height * 0.72,
           );
-    final knobRRect = RRect.fromRectAndRadius(knobRect, const Radius.circular(8));
+    final knobRRect = RRect.fromRectAndRadius(
+      knobRect,
+      const Radius.circular(8),
+    );
 
-    final leverBase = isActive && enabled ? activeColor : const Color(0xFF5B6B7A);
+    final leverBase = isActive && enabled
+        ? activeColor
+        : const Color(0xFF5B6B7A);
     final leverLight = isActive && enabled
         ? activeColorLight
         : const Color(0xFFB9C4CE);
@@ -1154,9 +1255,9 @@ class _AnalogGimbal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final side = math.min(maxWidth, maxHeight).clamp(100.0, 320.0);
-    final radius = side * 0.40;
-    final knobRadius = side * 0.155;
+    final side = _dualAxisSide(maxWidth, maxHeight);
+    final radius = side * _kAnalogGimbalPointerTravelFactor;
+    final knobRadius = side * _kAnalogGimbalPointerRadiusFactor;
     final knobOffset = Offset(value.dx * radius, -value.dy * radius);
 
     return Center(
@@ -1165,6 +1266,7 @@ class _AnalogGimbal extends StatelessWidget {
         height: side,
         child: Stack(
           alignment: Alignment.center,
+          clipBehavior: Clip.none,
           children: [
             CustomPaint(
               painter: _GimbalPainter(
@@ -1182,6 +1284,7 @@ class _AnalogGimbal extends StatelessWidget {
               offset: knobOffset,
               child: _GimbalKnob(
                 radius: knobRadius,
+                value: value,
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
                 isActive: isActive,
@@ -1198,6 +1301,7 @@ class _AnalogGimbal extends StatelessWidget {
 class _GimbalKnob extends StatelessWidget {
   const _GimbalKnob({
     required this.radius,
+    required this.value,
     required this.activeColor,
     required this.activeColorLight,
     required this.isActive,
@@ -1205,6 +1309,7 @@ class _GimbalKnob extends StatelessWidget {
   });
 
   final double radius;
+  final Offset value;
   final Color activeColor;
   final Color activeColorLight;
   final bool isActive;
@@ -1212,54 +1317,141 @@ class _GimbalKnob extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = isActive && enabled ? activeColor : const Color(0xFF515F6D);
-    final light = isActive && enabled
-        ? activeColorLight
-        : const Color(0xFFCBD5DF);
-    final dark = Color.alphaBlend(Colors.black.withAlpha(120), base);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          center: const Alignment(-0.35, -0.45),
-          radius: 1.0,
-          colors: [light, base, dark],
-          stops: const [0.0, 0.5, 1.0],
-        ),
-        border: Border.all(
-          color: Colors.white.withAlpha(enabled ? 60 : 24),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(160),
-            blurRadius: 16,
-            offset: const Offset(0, 7),
-          ),
-          if (isActive && enabled)
-            BoxShadow(
-              color: activeColor.withAlpha(130),
-              blurRadius: 26,
-              spreadRadius: 2,
-            ),
-        ],
+    final size = radius * 2;
+    return CustomPaint(
+      painter: _GimbalKnobPainter(
+        value: value,
+        activeColor: activeColor,
+        activeColorLight: activeColorLight,
+        isActive: isActive,
+        enabled: enabled,
       ),
-      child: SizedBox(
-        width: radius * 2,
-        height: radius * 2,
-        child: Center(
-          child: Container(
-            width: radius * 0.7,
-            height: radius * 0.7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withAlpha(70), width: 1.2),
-            ),
-          ),
-        ),
-      ),
+      size: Size.square(size),
     );
+  }
+}
+
+class _GimbalKnobPainter extends CustomPainter {
+  const _GimbalKnobPainter({
+    required this.value,
+    required this.activeColor,
+    required this.activeColorLight,
+    required this.isActive,
+    required this.enabled,
+  });
+
+  final Offset value;
+  final Color activeColor;
+  final Color activeColorLight;
+  final bool isActive;
+  final bool enabled;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = math.min(size.width, size.height);
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = side / 2;
+    final active = isActive && enabled;
+    final base = active ? activeColor : const Color(0xFF50606E);
+    final light = active ? activeColorLight : const Color(0xFFC8D2DC);
+    final dark = Color.alphaBlend(Colors.black.withAlpha(135), base);
+    final thumbRect = Rect.fromCircle(center: center, radius: r);
+
+    final travel = value.distance.clamp(0.0, 1.0);
+    final tilt = value.distance == 0
+        ? Offset.zero
+        : Offset(value.dx, -value.dy) / value.distance;
+
+    canvas.drawCircle(
+      center + Offset(0, r * 0.22),
+      r * 0.92,
+      Paint()
+        ..color = Colors.black.withAlpha(145)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.24),
+    );
+
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(-0.35 + tilt.dx * 0.12, -0.45 + tilt.dy * 0.12),
+          radius: 1.05,
+          colors: [light, base, dark],
+          stops: const [0.0, 0.54, 1.0],
+        ).createShader(thumbRect),
+    );
+    canvas.drawCircle(
+      center,
+      r - 0.8,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.1, side * 0.055)
+        ..color = Colors.white.withAlpha(enabled ? 56 : 24),
+    );
+
+    if (active) {
+      canvas.drawCircle(
+        center,
+        r * 0.82,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.0, side * 0.035)
+          ..color = activeColorLight.withAlpha((80 + travel * 70).round()),
+      );
+    }
+
+    final insertR = r * 0.48;
+    final insertRect = Rect.fromCircle(center: center, radius: insertR);
+    canvas.drawCircle(
+      center,
+      insertR,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.25, -0.35),
+          radius: 1.0,
+          colors: [
+            Colors.white.withAlpha(enabled ? 78 : 34),
+            Colors.black.withAlpha(34),
+          ],
+        ).createShader(insertRect),
+    );
+    canvas.drawCircle(
+      center,
+      insertR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(0.8, side * 0.028)
+        ..color = Colors.black.withAlpha(110),
+    );
+
+    final groovePaint = Paint()
+      ..color = Colors.black.withAlpha(92)
+      ..strokeWidth = math.max(0.8, side * 0.032)
+      ..strokeCap = StrokeCap.round;
+    for (final offset in [-0.34, 0.0, 0.34]) {
+      final y = center.dy + r * offset;
+      canvas.drawLine(
+        Offset(center.dx - r * 0.30, y),
+        Offset(center.dx + r * 0.30, y),
+        groovePaint,
+      );
+    }
+
+    canvas.drawCircle(
+      center + Offset(-r * 0.26, -r * 0.30),
+      r * 0.13,
+      Paint()..color = Colors.white.withAlpha(enabled ? 82 : 34),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GimbalKnobPainter oldDelegate) {
+    return oldDelegate.value != value ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.activeColorLight != activeColorLight ||
+        oldDelegate.isActive != isActive ||
+        oldDelegate.enabled != enabled;
   }
 }
 
@@ -1287,7 +1479,8 @@ class _GimbalPainter extends CustomPainter {
     final side = math.min(size.width, size.height);
     final center = Offset(size.width / 2, size.height / 2);
     final outerR = side * 0.48;
-    final travelR = side * 0.34;
+    final boundaryR = side * _kAnalogGimbalBoundaryFactor;
+    final pointerTravelR = side * _kAnalogGimbalPointerTravelFactor;
 
     canvas.drawCircle(
       center + Offset(0, side * 0.025),
@@ -1326,22 +1519,22 @@ class _GimbalPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..color = Colors.white.withAlpha(18);
     for (final f in [0.34, 0.67, 1.0]) {
-      canvas.drawCircle(center, travelR * f, ringPaint);
+      canvas.drawCircle(center, boundaryR * f, ringPaint);
     }
 
     final boundaryPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = side * 0.016
+      ..strokeWidth = side * 0.014
       ..color = enabled
           ? AppColors.darkBorder.withAlpha(230)
           : AppColors.disabled.withAlpha(120);
     if (config.boundary == JoystickBoundary.circular) {
-      canvas.drawCircle(center, travelR, boundaryPaint);
+      canvas.drawCircle(center, boundaryR, boundaryPaint);
     } else {
       final rect = Rect.fromCenter(
         center: center,
-        width: travelR * 2,
-        height: travelR * 2,
+        width: boundaryR * 2,
+        height: boundaryR * 2,
       );
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(side * 0.05)),
@@ -1354,22 +1547,23 @@ class _GimbalPainter extends CustomPainter {
       ..color = Colors.white.withAlpha(22)
       ..strokeWidth = 1.0;
     canvas.drawLine(
-      Offset(center.dx - travelR, center.dy),
-      Offset(center.dx + travelR, center.dy),
+      Offset(center.dx - boundaryR, center.dy),
+      Offset(center.dx + boundaryR, center.dy),
       crossPaint,
     );
     canvas.drawLine(
-      Offset(center.dx, center.dy - travelR),
-      Offset(center.dx, center.dy + travelR),
+      Offset(center.dx, center.dy - boundaryR),
+      Offset(center.dx, center.dy + boundaryR),
       crossPaint,
     );
 
-    // Smooth trail arc/line from center to current position.
+    final target = Offset(
+      center.dx + value.dx * pointerTravelR,
+      center.dy - value.dy * pointerTravelR,
+    );
+
+    // Smooth proportional vector from center to the current X/Y output.
     if (isActive && enabled) {
-      final target = Offset(
-        center.dx + value.dx * travelR,
-        center.dy - value.dy * travelR,
-      );
       canvas.drawLine(
         center,
         target,
@@ -1380,20 +1574,26 @@ class _GimbalPainter extends CustomPainter {
           ..color = activeColorLight.withAlpha(200)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
       );
+      canvas.drawCircle(
+        target,
+        side * 0.018,
+        Paint()..color = activeColorLight.withAlpha(210),
+      );
     }
 
     canvas.drawCircle(
       center,
       side * 0.05,
-      Paint()..color = isActive && enabled
-          ? activeColor.withAlpha(160)
-          : const Color(0xFF263748),
+      Paint()
+        ..color = isActive && enabled
+            ? activeColor.withAlpha(160)
+            : const Color(0xFF263748),
     );
 
     // ANALOG tag.
     final tagPainter = TextPainter(
       text: TextSpan(
-        text: '2-AXIS ANALOG',
+        text: config.springReturn ? '2-AXIS ANALOG' : '2-AXIS ANALOG',
         style: TextStyle(
           color: AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
           fontSize: (side * 0.042).clamp(7.0, 10.0),
@@ -1475,7 +1675,7 @@ class _DigitalCrossGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final side = math.min(maxWidth, maxHeight).clamp(110.0, 320.0);
+    final side = _dualAxisSide(maxWidth, maxHeight);
     final cellX = display.dx.round().clamp(-1, 1);
     final cellY = display.dy.round().clamp(-1, 1);
 
@@ -1595,13 +1795,7 @@ class _CrossGatePainter extends CustomPainter {
       );
     }
 
-    final positions = <(int, int)>[
-      (0, 0),
-      (0, 1),
-      (0, -1),
-      (-1, 0),
-      (1, 0),
-    ];
+    final positions = <(int, int)>[(0, 0), (0, 1), (0, -1), (-1, 0), (1, 0)];
 
     for (final (cx, cy) in positions) {
       final rect = cellRect(cx, cy);
@@ -1612,7 +1806,10 @@ class _CrossGatePainter extends CustomPainter {
 
       canvas.drawRRect(
         rrect,
-        Paint()..color = isNeutral ? const Color(0xFF0B0D11) : const Color(0xFF161920),
+        Paint()
+          ..color = isNeutral
+              ? const Color(0xFF0B0D11)
+              : const Color(0xFF161920),
       );
       if (isEngaged && enabled) {
         canvas.drawRRect(
@@ -1663,20 +1860,23 @@ class _CrossGatePainter extends CustomPainter {
     );
 
     // Latching knob — square-ish puck that jumps between cells and holds.
-    final knobCenter = center +
-        Offset(
-          animatedCell.dx * (cell + gap),
-          -animatedCell.dy * (cell + gap),
-        );
-    final knobSize = cell * 0.62;
+    final knobCenter =
+        center +
+        Offset(animatedCell.dx * (cell + gap), -animatedCell.dy * (cell + gap));
+    final knobSize = cell * 0.54;
     final knobRect = Rect.fromCenter(
       center: knobCenter,
       width: knobSize,
       height: knobSize,
     );
-    final knobRRect = RRect.fromRectAndRadius(knobRect, Radius.circular(side * 0.025));
+    final knobRRect = RRect.fromRectAndRadius(
+      knobRect,
+      Radius.circular(side * 0.025),
+    );
     final base = isActive && enabled ? activeColor : const Color(0xFF576675);
-    final light = isActive && enabled ? activeColorLight : const Color(0xFFC0CAD3);
+    final light = isActive && enabled
+        ? activeColorLight
+        : const Color(0xFFC0CAD3);
 
     canvas.drawRRect(
       knobRRect.shift(const Offset(0, 3)),
