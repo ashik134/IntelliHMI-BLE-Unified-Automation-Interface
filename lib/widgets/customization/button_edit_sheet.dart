@@ -424,10 +424,25 @@ class _TypeTab extends StatelessWidget {
                               .read<CustomizationModeController>();
                           if (_spanAwareTypeChangesEnabled()) {
                             var updated = ctrl.draft;
+                            final isCombinedCrossTravelToThreeZone =
+                                editRole == null &&
+                                entry.type == ButtonType.crossTravelSlowOnly &&
+                                primaryType == ButtonType.crossTravel &&
+                                secondaryType == ButtonType.crossTravel;
+                            final combinedCrossTravelRole =
+                                draft.buttonFor(primaryRole)!.visible
+                                ? primaryRole
+                                : secondaryRole;
                             final rolesToUpdate =
                                 editRole != null ||
-                                    entry.type == ButtonType.crossTravel
-                                ? [editRole ?? primaryRole]
+                                    entry.type == ButtonType.crossTravel ||
+                                    isCombinedCrossTravelToThreeZone
+                                ? [
+                                    editRole ??
+                                        (isCombinedCrossTravelToThreeZone
+                                            ? combinedCrossTravelRole
+                                            : primaryRole),
+                                  ]
                                 : [primaryRole, secondaryRole];
 
                             for (final role in rolesToUpdate) {

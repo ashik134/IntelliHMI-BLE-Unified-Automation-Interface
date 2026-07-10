@@ -78,7 +78,6 @@ class CustomizationModeController extends ChangeNotifier {
     _undoStack.clear();
     _redoStack.clear();
     _selectedButtonId = null;
-    _activeControlPage = 0;
     _lastValidation = const ValidationResult.valid();
     _isActive = true;
     notifyListeners();
@@ -230,7 +229,6 @@ class CustomizationModeController extends ChangeNotifier {
     _undoStack.clear();
     _redoStack.clear();
     _selectedButtonId = null;
-    _activeControlPage = 0;
     notifyListeners();
   }
 }

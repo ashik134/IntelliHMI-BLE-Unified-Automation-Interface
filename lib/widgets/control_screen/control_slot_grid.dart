@@ -79,7 +79,8 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _activePage = math.max(0, widget.activePageIndex);
+    _pageController = PageController(initialPage: _activePage);
   }
 
   @override
@@ -95,13 +96,18 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
         widget.activePageIndex != _activePage) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_pageController.hasClients) return;
-        _pageController.animateToPage(
-          widget.activePageIndex,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-        );
+        _goToPage(widget.activePageIndex);
       });
     }
+  }
+
+  void _goToPage(int index) {
+    if (!_pageController.hasClients || index == _activePage) return;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -112,8 +118,14 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
       slotCount: widget.slotCount,
     );
     if (_activePage >= pages.length) {
+      final lastPage = pages.length - 1;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _activePage = pages.length - 1);
+        if (!mounted) return;
+        setState(() => _activePage = lastPage);
+        widget.onPageChanged?.call(lastPage);
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(lastPage);
+        }
       });
     }
 
@@ -145,6 +157,9 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
               height: gridHeight,
               child: PageView.builder(
                 controller: _pageController,
+                physics: widget.isEditing
+                    ? const PageScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
                 itemCount: pages.length,
                 onPageChanged: (index) {
                   setState(() => _activePage = index);
@@ -174,13 +189,8 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
                 child: _PageDots(
                   count: pages.length,
                   activeIndex: _activePage.clamp(0, pages.length - 1),
-                  onTap: (index) {
-                    _pageController.animateToPage(
-                      index,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                    );
-                  },
+                  dotsAreTappable: widget.isEditing,
+                  onTap: _goToPage,
                 ),
               ),
           ],
@@ -716,11 +726,13 @@ class _PageDots extends StatelessWidget {
   const _PageDots({
     required this.count,
     required this.activeIndex,
+    required this.dotsAreTappable,
     required this.onTap,
   });
 
   final int count;
   final int activeIndex;
+  final bool dotsAreTappable;
   final ValueChanged<int> onTap;
 
   @override
@@ -739,7 +751,7 @@ class _PageDots extends StatelessWidget {
         for (var i = 0; i < count; i++)
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => onTap(i),
+            onTap: dotsAreTappable ? () => onTap(i) : null,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               width: i == activeIndex ? 9 : 7,

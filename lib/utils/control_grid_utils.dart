@@ -609,13 +609,48 @@ LayoutMutationResult buildButtonTypeChange({
       buttons[paired.id] = paired.copyWith(visible: false);
     }
   } else {
-    buttons[current.id] = current.copyWith(
-      type: type,
-      visible: true,
-      gridColumns: defaultColumns,
-      gridRows: defaultRows,
+    final candidate = normalizeButtonPlacement(
+      current.copyWith(
+        type: type,
+        visible: true,
+        gridColumns: defaultColumns,
+        gridRows: defaultRows,
+      ),
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
     );
+    final occupied = _occupiedExcept(
+      buttons,
+      {current.id},
+      columns,
+      rows,
+      slotCount,
+    );
+    buttons[current.id] =
+        _isPlacementFree(
+          candidate,
+          occupied,
+          columns: columns,
+          rows: rows,
+          slotCount: slotCount,
+        )
+        ? candidate
+        : _findFirstPlacement(
+            candidate,
+            occupied: occupied,
+            columns: columns,
+            rows: rows,
+            slotCount: slotCount,
+            startPage: current.pageIndex,
+          );
+
     if (current.type == ButtonType.crossTravel &&
+        type == ButtonType.crossTravelSlowOnly &&
+        role.axis == AxisKind.traverse &&
+        paired != null) {
+      buttons[paired.id] = paired.copyWith(visible: false);
+    } else if (current.type == ButtonType.crossTravel &&
         role.axis == AxisKind.traverse &&
         paired != null) {
       buttons[paired.id] = paired.copyWith(
@@ -624,16 +659,16 @@ LayoutMutationResult buildButtonTypeChange({
         gridColumns: defaultColumns,
         gridRows: defaultRows,
       );
+      final repaired = autoArrangeButtons(
+        buttons,
+        slotCount: slotCount,
+        columns: columns,
+        rows: rows,
+      );
+      buttons
+        ..clear()
+        ..addAll(repaired);
     }
-    final repaired = autoArrangeButtons(
-      buttons,
-      slotCount: slotCount,
-      columns: columns,
-      rows: rows,
-    );
-    buttons
-      ..clear()
-      ..addAll(repaired);
   }
 
   final errors = validateGridOccupancy(
