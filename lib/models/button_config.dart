@@ -60,6 +60,12 @@ class ButtonConfig {
     this.canvasX = 0.0,
     this.canvasY = 0.0,
     this.slotIndex,
+    this.pageIndex = 0,
+    this.gridX = 0,
+    this.gridY = 0,
+    this.gridColumns = 1,
+    this.gridRows = 1,
+    this.plcMappingEnabled = true,
   });
 
   static const double minHeightScale = AxisControlConfig.minHeightScale;
@@ -79,6 +85,7 @@ class ButtonConfig {
 
   static const int controlSlotCount = 6;
   static const int controlGridColumns = 2;
+  static const int controlGridRows = 3;
   static const int minSlotIndex = 0;
   static const int maxSlotIndex = controlSlotCount - 1;
 
@@ -158,10 +165,21 @@ class ButtonConfig {
   /// outside that grid, so their slot is null.
   final int? slotIndex;
 
+  /// Paged widget-grid placement. These fields are the schema v5 layout
+  /// source; [slotIndex] remains as a legacy mirror for older code/templates.
+  final int pageIndex;
+  final int gridX;
+  final int gridY;
+  final int gridColumns;
+  final int gridRows;
+  final bool plcMappingEnabled;
+
   double get resolvedHeight => AxisControlConfig.baseHeight * heightScale;
 
   int get gridColumnSpan {
+    if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
     if (type == ButtonType.crossTravel) return 2;
+    if (type == ButtonType.crossTravelSlowOnly) return 2;
     if (type == ButtonType.joystick &&
         JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
       return 2;
@@ -170,6 +188,7 @@ class ButtonConfig {
   }
 
   int get gridRowSpan {
+    if (gridRows > 1) return gridRows.clamp(1, controlGridRows);
     if (type == ButtonType.joystick &&
         JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
       return 2;
@@ -189,6 +208,27 @@ class ButtonConfig {
     ControlRole.estop || ControlRole.resetEstop => null,
   };
 
+  static (int, int) defaultGridPositionFor(ControlRole role) {
+    final slot = defaultSlotIndexFor(role);
+    if (slot == null) return (0, 0);
+    return (slot % controlGridColumns, slot ~/ controlGridColumns);
+  }
+
+  static (int, int) defaultGridSizeFor(
+    ButtonType type, {
+    Map<String, dynamic> customProperties = const <String, dynamic>{},
+  }) {
+    if (type == ButtonType.crossTravel ||
+        type == ButtonType.crossTravelSlowOnly) {
+      return (2, 1);
+    }
+    if (type == ButtonType.joystick &&
+        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+      return (2, 2);
+    }
+    return (1, 1);
+  }
+
   /// Builds a button-centric ButtonConfig from the legacy per-axis/per-role
   /// config for a single ControlRole. Used both by
   /// ControlLayoutConfig.fromJson's migration branch (old JSON with no
@@ -201,6 +241,17 @@ class ButtonConfig {
     required String label,
   }) {
     final (defaultX, defaultY) = defaultCanvasPositionFor(role);
+    final (gridX, gridY) = defaultGridPositionFor(role);
+    final isTraverseSlider =
+        axisConfig.widgetType == ControlWidgetType.sliderButton &&
+        role.axis == AxisKind.traverse;
+    final gridColumns =
+        isTraverseSlider || axisConfig.widgetType == ControlWidgetType.joystick
+        ? 2
+        : 1;
+    final gridRows = axisConfig.widgetType == ControlWidgetType.joystick
+        ? 2
+        : 1;
     return ButtonConfig(
       id: role.name,
       type: switch (axisConfig.widgetType) {
@@ -228,6 +279,10 @@ class ButtonConfig {
       canvasX: defaultX,
       canvasY: defaultY,
       slotIndex: defaultSlotIndexFor(role),
+      gridX: gridX,
+      gridY: gridY,
+      gridColumns: gridColumns,
+      gridRows: gridRows,
     );
   }
 
@@ -309,6 +364,12 @@ class ButtonConfig {
     double? canvasX,
     double? canvasY,
     int? slotIndex,
+    int? pageIndex,
+    int? gridX,
+    int? gridY,
+    int? gridColumns,
+    int? gridRows,
+    bool? plcMappingEnabled,
     bool clearIcon = false,
     bool clearGroup = false,
     bool clearSlotIndex = false,
@@ -335,6 +396,12 @@ class ButtonConfig {
       canvasX: canvasX ?? this.canvasX,
       canvasY: canvasY ?? this.canvasY,
       slotIndex: clearSlotIndex ? null : (slotIndex ?? this.slotIndex),
+      pageIndex: pageIndex ?? this.pageIndex,
+      gridX: gridX ?? this.gridX,
+      gridY: gridY ?? this.gridY,
+      gridColumns: gridColumns ?? this.gridColumns,
+      gridRows: gridRows ?? this.gridRows,
+      plcMappingEnabled: plcMappingEnabled ?? this.plcMappingEnabled,
     );
   }
 
@@ -360,6 +427,12 @@ class ButtonConfig {
     'canvasX': canvasX,
     'canvasY': canvasY,
     'slotIndex': slotIndex,
+    'pageIndex': pageIndex,
+    'gridX': gridX,
+    'gridY': gridY,
+    'gridColumns': gridColumns,
+    'gridRows': gridRows,
+    'plcMappingEnabled': plcMappingEnabled,
   };
 
   factory ButtonConfig.fromJson(Map<String, dynamic> json) {
@@ -369,13 +442,30 @@ class ButtonConfig {
     final (defaultX, defaultY) = role != null
         ? defaultCanvasPositionFor(role)
         : (0.0, 0.0);
+    final slotIndex =
+        (json['slotIndex'] as num?)?.toInt() ??
+        (role != null ? defaultSlotIndexFor(role) : null);
+    final (defaultGridX, defaultGridY) = role != null
+        ? defaultGridPositionFor(role)
+        : (
+            slotIndex == null ? 0 : slotIndex % controlGridColumns,
+            slotIndex == null ? 0 : slotIndex ~/ controlGridColumns,
+          );
+    final type = ButtonType.values.firstWhere(
+      (e) => e.name == json['type'],
+      orElse: () => ButtonType.pushButton,
+    );
+    final customProperties =
+        (json['customProperties'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    final (defaultColumns, defaultRows) = defaultGridSizeFor(
+      type,
+      customProperties: customProperties,
+    );
 
     return ButtonConfig(
       id: json['id'] as String,
-      type: ButtonType.values.firstWhere(
-        (e) => e.name == json['type'],
-        orElse: () => ButtonType.pushButton,
-      ),
+      type: type,
       plcMapping: PlcMapping.values.firstWhere(
         (e) => e.name == json['plcMapping'],
         orElse: () => PlcMapping.up,
@@ -402,9 +492,7 @@ class ButtonConfig {
             )
           : const MutualExclusionConfig(),
       group: json['group'] as String?,
-      customProperties:
-          (json['customProperties'] as Map?)?.cast<String, dynamic>() ??
-          const <String, dynamic>{},
+      customProperties: customProperties,
       visible: json['visible'] as bool? ?? true,
       widthScale: (json['widthScale'] as num?)?.toDouble() ?? 1.0,
       columnSpan: _parseColumnSpan(json['columnSpan']),
@@ -412,9 +500,21 @@ class ButtonConfig {
       locked: json['locked'] as bool? ?? false,
       canvasX: (json['canvasX'] as num?)?.toDouble() ?? defaultX,
       canvasY: (json['canvasY'] as num?)?.toDouble() ?? defaultY,
-      slotIndex:
-          (json['slotIndex'] as num?)?.toInt() ??
-          (role != null ? defaultSlotIndexFor(role) : null),
+      slotIndex: slotIndex,
+      pageIndex: _parseNonNegativeInt(json['pageIndex']),
+      gridX: _parseNonNegativeInt(json['gridX'], fallback: defaultGridX),
+      gridY: _parseNonNegativeInt(json['gridY'], fallback: defaultGridY),
+      gridColumns: _parseSpan(
+        json['gridColumns'],
+        fallback: defaultColumns,
+        max: controlGridColumns,
+      ),
+      gridRows: _parseSpan(
+        json['gridRows'],
+        fallback: defaultRows,
+        max: controlGridRows,
+      ),
+      plcMappingEnabled: json['plcMappingEnabled'] as bool? ?? (role != null),
     );
   }
 
@@ -442,7 +542,13 @@ class ButtonConfig {
           other.locked == locked &&
           other.canvasX == canvasX &&
           other.canvasY == canvasY &&
-          other.slotIndex == slotIndex;
+          other.slotIndex == slotIndex &&
+          other.pageIndex == pageIndex &&
+          other.gridX == gridX &&
+          other.gridY == gridY &&
+          other.gridColumns == gridColumns &&
+          other.gridRows == gridRows &&
+          other.plcMappingEnabled == plcMappingEnabled;
 
   @override
   int get hashCode => Object.hash(
@@ -467,7 +573,15 @@ class ButtonConfig {
       canvasX,
       canvasY,
     ),
-    slotIndex,
+    Object.hash(
+      slotIndex,
+      pageIndex,
+      gridX,
+      gridY,
+      gridColumns,
+      gridRows,
+      plcMappingEnabled,
+    ),
   );
 }
 
@@ -498,6 +612,18 @@ int _parseColumnSpan(dynamic value) {
   final parsed = value is num ? value.toInt() : int.tryParse('$value');
   if (parsed == null) return 1;
   return parsed.clamp(1, ButtonConfig.controlGridColumns);
+}
+
+int _parseNonNegativeInt(dynamic value, {int fallback = 0}) {
+  final parsed = value is num ? value.toInt() : int.tryParse('$value');
+  if (parsed == null || parsed < 0) return fallback;
+  return parsed;
+}
+
+int _parseSpan(dynamic value, {required int fallback, required int max}) {
+  final parsed = value is num ? value.toInt() : int.tryParse('$value');
+  if (parsed == null) return fallback.clamp(1, max);
+  return parsed.clamp(1, max);
 }
 
 extension _FirstWhereOrNull<T> on List<T> {

@@ -16,15 +16,18 @@ typedef ButtonCommandDispatcher =
     void Function(String buttonId, ControlState state);
 typedef ButtonEditorLauncher = void Function(ButtonConfig config);
 typedef ButtonSelectionHandler = void Function(ButtonConfig? config);
+typedef ButtonResizeHandler =
+    void Function(ButtonConfig config, int gridColumns, int gridRows);
 typedef ButtonSlotDropHandler =
     void Function(
       ButtonConfig dragged,
       int sourceSlot,
       ButtonConfig? target,
-      int targetSlot,
-    );
+      int targetSlot, {
+      required int targetPageIndex,
+    });
 
-class ControlSlotGrid extends StatelessWidget {
+class ControlSlotGrid extends StatefulWidget {
   const ControlSlotGrid({
     super.key,
     required this.layoutCfg,
@@ -35,13 +38,18 @@ class ControlSlotGrid extends StatelessWidget {
     required this.onCommand,
     required this.onEditButton,
     this.selectedRole,
+    this.selectedButtonId,
     this.onSelectButton,
     this.onSlotDrop,
+    this.onResizeButton,
+    this.onPageChanged,
+    this.activePageIndex = 0,
     this.slotCount = ButtonConfig.controlSlotCount,
     this.spacing = 10,
   });
 
   static const int columns = ButtonConfig.controlGridColumns;
+  static const int rows = ButtonConfig.controlGridRows;
 
   final ControlLayoutConfig layoutCfg;
   final List<ControlRole> roles;
@@ -51,154 +59,152 @@ class ControlSlotGrid extends StatelessWidget {
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
+  final String? selectedButtonId;
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
+  final ButtonResizeHandler? onResizeButton;
+  final ValueChanged<int>? onPageChanged;
+  final int activePageIndex;
   final int slotCount;
   final double spacing;
 
   @override
+  State<ControlSlotGrid> createState() => _ControlSlotGridState();
+}
+
+class _ControlSlotGridState extends State<ControlSlotGrid> {
+  late final PageController _pageController;
+  int _activePage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ControlSlotGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.activePageIndex != oldWidget.activePageIndex &&
+        widget.activePageIndex != _activePage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_pageController.hasClients) return;
+        _pageController.animateToPage(
+          widget.activePageIndex,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final layout = _resolveLayout();
-    final rows = (slotCount / columns).ceil();
+    final pages = buildControlGridPages(
+      layoutCfg: widget.layoutCfg,
+      roles: widget.roles,
+      slotCount: widget.slotCount,
+    );
+    if (_activePage >= pages.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _activePage = pages.length - 1);
+      });
+    }
+
+    final rows = (widget.slotCount / ControlSlotGrid.columns).ceil();
     final minGridWidth =
-        columns * ButtonConfig.minButtonWidthPx + (columns - 1) * spacing;
+        ControlSlotGrid.columns * ButtonConfig.minButtonWidthPx +
+        (ControlSlotGrid.columns - 1) * widget.spacing;
     final minGridHeight =
-        rows * ButtonConfig.minButtonHeightPx + (rows - 1) * spacing;
+        rows * ButtonConfig.minButtonHeightPx + (rows - 1) * widget.spacing;
+    final dotHeight = pages.length > 1 ? 44.0 : 0.0;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final gridWidth = constraints.hasBoundedWidth
             ? math.max(constraints.maxWidth, minGridWidth)
             : minGridWidth;
-        final gridHeight = constraints.hasBoundedHeight
-            ? math.max(constraints.maxHeight, minGridHeight)
+        final availableHeight = constraints.hasBoundedHeight
+            ? math.max(0.0, constraints.maxHeight - dotHeight)
             : minGridHeight;
-        final grid = SizedBox(
-          width: gridWidth,
-          height: gridHeight,
-          child: _SlotGridBody(
-            layout: layout,
-            rows: rows,
-            slotCount: slotCount,
-            spacing: spacing,
-            isEditing: isEditing,
-            activeStateFor: activeStateFor,
-            isDisabled: isDisabled,
-            onCommand: onCommand,
-            onEditButton: onEditButton,
-            selectedRole: selectedRole,
-            onSelectButton: onSelectButton,
-            onSlotDrop: onSlotDrop,
-          ),
+        final gridHeight = math.max(availableHeight, minGridHeight);
+
+        final pagedGrid = Column(
+          mainAxisSize: constraints.hasBoundedHeight
+              ? MainAxisSize.max
+              : MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: gridWidth,
+              height: gridHeight,
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: pages.length,
+                onPageChanged: (index) {
+                  setState(() => _activePage = index);
+                  widget.onPageChanged?.call(index);
+                },
+                itemBuilder: (context, index) => _SlotGridBody(
+                  page: pages[index],
+                  rows: rows,
+                  slotCount: widget.slotCount,
+                  spacing: widget.spacing,
+                  isEditing: widget.isEditing,
+                  activeStateFor: widget.activeStateFor,
+                  isDisabled: widget.isDisabled,
+                  onCommand: widget.onCommand,
+                  onEditButton: widget.onEditButton,
+                  selectedRole: widget.selectedRole,
+                  selectedButtonId: widget.selectedButtonId,
+                  onSelectButton: widget.onSelectButton,
+                  onSlotDrop: widget.onSlotDrop,
+                  onResizeButton: widget.onResizeButton,
+                ),
+              ),
+            ),
+            if (pages.length > 1)
+              SizedBox(
+                height: dotHeight,
+                child: _PageDots(
+                  count: pages.length,
+                  activeIndex: _activePage.clamp(0, pages.length - 1),
+                  onTap: (index) {
+                    _pageController.animateToPage(
+                      index,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                    );
+                  },
+                ),
+              ),
+          ],
         );
 
         final overflowsWidth =
             constraints.hasBoundedWidth && gridWidth > constraints.maxWidth;
         final overflowsHeight =
-            constraints.hasBoundedHeight && gridHeight > constraints.maxHeight;
-        if (!overflowsWidth && !overflowsHeight) return grid;
+            constraints.hasBoundedHeight &&
+            gridHeight + dotHeight > constraints.maxHeight;
+        if (!overflowsWidth && !overflowsHeight) return pagedGrid;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: gridWidth,
-            child: SingleChildScrollView(child: grid),
-          ),
+          child: SizedBox(width: gridWidth, child: pagedGrid),
         );
       },
     );
-  }
-
-  _GridLayout _resolveLayout() {
-    final occupants = List<_SlotItem?>.filled(slotCount, null);
-    final items = <_SlotItem>[];
-    final overflow = <ButtonConfig>[];
-
-    for (final role in roles) {
-      final config = layoutCfg.buttonFor(role);
-      if (config == null || !config.visible) continue;
-      if (isRedundantCrossTravelConfig(config, layoutCfg.resolvedButtons)) {
-        continue;
-      }
-
-      final preferred =
-          config.slotIndex ?? ButtonConfig.defaultSlotIndexFor(role);
-      final normalized = preferred == null
-          ? null
-          : normalizeGridAnchorSlot(
-              config,
-              preferred,
-              slotCount: slotCount,
-              columns: columns,
-            );
-      final occupied = normalized == null
-          ? null
-          : occupiedGridSlotsFor(
-              config,
-              slotIndex: normalized,
-              slotCount: slotCount,
-              columns: columns,
-            );
-      if (preferred != null &&
-          normalized != null &&
-          occupied != null &&
-          occupied.every((slot) => occupants[slot] == null)) {
-        final item = _SlotItem(
-          config: config,
-          visualSlot: normalized,
-          colSpan: config.gridColumnSpan,
-          rowSpan: config.gridRowSpan,
-          occupiedSlots: occupied,
-        );
-        items.add(item);
-        for (final slot in occupied) {
-          occupants[slot] = item;
-        }
-      } else {
-        overflow.add(config);
-      }
-    }
-
-    for (final config in overflow) {
-      for (var slot = 0; slot < slotCount; slot++) {
-        final normalized = normalizeGridAnchorSlot(
-          config,
-          slot,
-          slotCount: slotCount,
-          columns: columns,
-        );
-        final occupied = occupiedGridSlotsFor(
-          config,
-          slotIndex: normalized,
-          slotCount: slotCount,
-          columns: columns,
-        );
-        if (occupied == null ||
-            !occupied.every((cell) => occupants[cell] == null)) {
-          continue;
-        }
-        final item = _SlotItem(
-          config: config,
-          visualSlot: normalized,
-          colSpan: config.gridColumnSpan,
-          rowSpan: config.gridRowSpan,
-          occupiedSlots: occupied,
-        );
-        items.add(item);
-        for (final cell in occupied) {
-          occupants[cell] = item;
-        }
-        break;
-      }
-    }
-
-    return _GridLayout(items: items, occupants: occupants);
   }
 }
 
 class _SlotGridBody extends StatelessWidget {
   const _SlotGridBody({
-    required this.layout,
+    required this.page,
     required this.rows,
     required this.slotCount,
     required this.spacing,
@@ -208,11 +214,13 @@ class _SlotGridBody extends StatelessWidget {
     required this.onCommand,
     required this.onEditButton,
     required this.selectedRole,
+    required this.selectedButtonId,
     required this.onSelectButton,
     required this.onSlotDrop,
+    required this.onResizeButton,
   });
 
-  final _GridLayout layout;
+  final ControlGridPage page;
   final int rows;
   final int slotCount;
   final double spacing;
@@ -222,108 +230,110 @@ class _SlotGridBody extends StatelessWidget {
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
+  final String? selectedButtonId;
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
+  final ButtonResizeHandler? onResizeButton;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cellWidth =
-            (constraints.maxWidth - (ControlSlotGrid.columns - 1) * spacing) /
-            ControlSlotGrid.columns;
-        final cellHeight =
-            (constraints.maxHeight - (rows - 1) * spacing) / rows;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: isEditing ? 1 : 0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cellWidth =
+              (constraints.maxWidth - (ControlSlotGrid.columns - 1) * spacing) /
+              ControlSlotGrid.columns;
+          final cellHeight =
+              (constraints.maxHeight - (rows - 1) * spacing) / rows;
 
-        Rect rectFor(int slot, int colSpan, int rowSpan) {
-          final row = slot ~/ ControlSlotGrid.columns;
-          final col = slot % ControlSlotGrid.columns;
-          return Rect.fromLTWH(
-            col * (cellWidth + spacing),
-            row * (cellHeight + spacing),
-            colSpan * cellWidth + (colSpan - 1) * spacing,
-            rowSpan * cellHeight + (rowSpan - 1) * spacing,
-          );
-        }
+          Rect rectFor(int slot, int colSpan, int rowSpan) {
+            final row = slot ~/ ControlSlotGrid.columns;
+            final col = slot % ControlSlotGrid.columns;
+            return Rect.fromLTWH(
+              col * (cellWidth + spacing),
+              row * (cellHeight + spacing),
+              colSpan * cellWidth + (colSpan - 1) * spacing,
+              rowSpan * cellHeight + (rowSpan - 1) * spacing,
+            );
+          }
 
-        return Stack(
-          children: [
-            if (isEditing)
-              for (var slot = 0; slot < slotCount; slot++)
-                if (layout.occupants[slot] == null)
-                  Positioned.fromRect(
-                    rect: rectFor(slot, 1, 1),
-                    child: _SlotTarget(
-                      key: ValueKey('control_slot_$slot'),
-                      slotIndex: slot,
-                      item: null,
-                      isEditing: true,
-                      activeStateFor: activeStateFor,
-                      isDisabled: isDisabled,
-                      onCommand: onCommand,
-                      onEditButton: onEditButton,
-                      selectedRole: selectedRole,
-                      onSelectButton: onSelectButton,
-                      onSlotDrop: onSlotDrop,
+          return Stack(
+            children: [
+              if (isEditing)
+                for (var slot = 0; slot < slotCount; slot++)
+                  if (page.occupants[slot] == null)
+                    Positioned.fromRect(
+                      rect: rectFor(slot, 1, 1),
+                      child: _SlotTarget(
+                        key: ValueKey(
+                          page.pageIndex == 0
+                              ? 'control_slot_$slot'
+                              : 'control_slot_${page.pageIndex}_$slot',
+                        ),
+                        pageIndex: page.pageIndex,
+                        slotIndex: slot,
+                        item: null,
+                        isEditing: true,
+                        activeStateFor: activeStateFor,
+                        isDisabled: isDisabled,
+                        onCommand: onCommand,
+                        onEditButton: onEditButton,
+                        selectedRole: selectedRole,
+                        selectedButtonId: selectedButtonId,
+                        onSelectButton: onSelectButton,
+                        onSlotDrop: onSlotDrop,
+                        onResizeButton: onResizeButton,
+                      ),
                     ),
+              for (final item in page.items)
+                Positioned.fromRect(
+                  rect: rectFor(item.visualSlot, item.colSpan, item.rowSpan),
+                  child: _SlotTarget(
+                    key: ValueKey(
+                      page.pageIndex == 0
+                          ? 'control_slot_${item.visualSlot}'
+                          : 'control_slot_${page.pageIndex}_${item.visualSlot}',
+                    ),
+                    pageIndex: page.pageIndex,
+                    slotIndex: item.visualSlot,
+                    item: item,
+                    isEditing: isEditing,
+                    activeStateFor: activeStateFor,
+                    isDisabled: isDisabled,
+                    onCommand: onCommand,
+                    onEditButton: onEditButton,
+                    selectedRole: selectedRole,
+                    selectedButtonId: selectedButtonId,
+                    onSelectButton: onSelectButton,
+                    onSlotDrop: onSlotDrop,
+                    onResizeButton: onResizeButton,
                   ),
-            for (final item in layout.items)
-              Positioned.fromRect(
-                rect: rectFor(item.visualSlot, item.colSpan, item.rowSpan),
-                child: _SlotTarget(
-                  key: ValueKey('control_slot_${item.visualSlot}'),
-                  slotIndex: item.visualSlot,
-                  item: item,
-                  isEditing: isEditing,
-                  activeStateFor: activeStateFor,
-                  isDisabled: isDisabled,
-                  onCommand: onCommand,
-                  onEditButton: onEditButton,
-                  selectedRole: selectedRole,
-                  onSelectButton: onSelectButton,
-                  onSlotDrop: onSlotDrop,
                 ),
-              ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 }
 
-class _GridLayout {
-  const _GridLayout({required this.items, required this.occupants});
-
-  final List<_SlotItem> items;
-  final List<_SlotItem?> occupants;
-}
-
-class _SlotItem {
-  const _SlotItem({
+class _DraggedSlot {
+  const _DraggedSlot({
     required this.config,
-    required this.visualSlot,
-    required this.colSpan,
-    required this.rowSpan,
-    required this.occupiedSlots,
+    required this.sourceSlot,
+    required this.sourcePageIndex,
   });
 
   final ButtonConfig config;
-  final int visualSlot;
-  final int colSpan;
-  final int rowSpan;
-  final List<int> occupiedSlots;
-}
-
-class _DraggedSlot {
-  const _DraggedSlot({required this.config, required this.sourceSlot});
-
-  final ButtonConfig config;
   final int sourceSlot;
+  final int sourcePageIndex;
 }
 
 class _SlotTarget extends StatefulWidget {
   const _SlotTarget({
     super.key,
+    required this.pageIndex,
     required this.slotIndex,
     required this.item,
     required this.isEditing,
@@ -332,20 +342,25 @@ class _SlotTarget extends StatefulWidget {
     required this.onCommand,
     required this.onEditButton,
     required this.selectedRole,
+    required this.selectedButtonId,
     required this.onSelectButton,
     required this.onSlotDrop,
+    required this.onResizeButton,
   });
 
+  final int pageIndex;
   final int slotIndex;
-  final _SlotItem? item;
+  final ControlGridItem? item;
   final bool isEditing;
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
+  final String? selectedButtonId;
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
+  final ButtonResizeHandler? onResizeButton;
 
   @override
   State<_SlotTarget> createState() => _SlotTargetState();
@@ -374,6 +389,7 @@ class _SlotTargetState extends State<_SlotTarget> {
 
     return DragTarget<_DraggedSlot>(
       onWillAcceptWithDetails: (details) =>
+          details.data.sourcePageIndex != widget.pageIndex ||
           details.data.sourceSlot != widget.slotIndex,
       onMove: (_) {
         if (!_hovered) setState(() => _hovered = true);
@@ -388,13 +404,15 @@ class _SlotTargetState extends State<_SlotTarget> {
           details.data.sourceSlot,
           widget.item?.config,
           widget.slotIndex,
+          targetPageIndex: widget.pageIndex,
         );
       },
       builder: (context, candidates, rejects) {
         final highlighted = _hovered || candidates.isNotEmpty;
         final selected =
             widget.item?.config.role != null &&
-            widget.item!.config.role == widget.selectedRole;
+                widget.item!.config.role == widget.selectedRole ||
+            widget.item?.config.id == widget.selectedButtonId;
         return _SlotFrame(
           isEditing: true,
           isHighlighted: highlighted,
@@ -407,6 +425,7 @@ class _SlotTargetState extends State<_SlotTarget> {
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
                   onEditButton: widget.onEditButton,
+                  onResizeButton: widget.onResizeButton,
                   isSelected: selected,
                   onSelectButton: widget.onSelectButton,
                 ),
@@ -465,15 +484,17 @@ class _DraggableSlotContent extends StatelessWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    required this.onResizeButton,
     required this.isSelected,
     required this.onSelectButton,
   });
 
-  final _SlotItem item;
+  final ControlGridItem item;
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
   final ButtonEditorLauncher onEditButton;
+  final ButtonResizeHandler? onResizeButton;
   final bool isSelected;
   final ButtonSelectionHandler? onSelectButton;
 
@@ -519,19 +540,32 @@ class _DraggableSlotContent extends StatelessWidget {
             ),
           ),
           const Positioned(left: 8, top: 8, child: _DragHandle()),
+          if (isSelected && onResizeButton != null)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: _ResizeHandle(
+                config: item.config,
+                onResizeButton: onResizeButton!,
+              ),
+            ),
         ],
       ),
     );
 
     return LongPressDraggable<_DraggedSlot>(
       key: ValueKey(item.config.id),
-      data: _DraggedSlot(config: item.config, sourceSlot: item.visualSlot),
+      data: _DraggedSlot(
+        config: item.config,
+        sourceSlot: item.visualSlot,
+        sourcePageIndex: item.pageIndex,
+      ),
       onDragStarted: () => onSelectButton?.call(item.config),
       feedback: Material(
         color: Colors.transparent,
         child: SizedBox(
           width: 168.0 * item.colSpan + 10.0 * (item.colSpan - 1),
-          height: 136,
+          height: 136.0 * item.rowSpan + 10.0 * (item.rowSpan - 1),
           child: Opacity(opacity: 0.9, child: body),
         ),
       ),
@@ -597,7 +631,7 @@ class _DragHandle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Drag to swap slots',
+      message: 'Drag to move',
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: AppColors.panel.withAlpha(235),
@@ -613,6 +647,123 @@ class _DragHandle extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ResizeHandle extends StatefulWidget {
+  const _ResizeHandle({required this.config, required this.onResizeButton});
+
+  final ButtonConfig config;
+  final ButtonResizeHandler onResizeButton;
+
+  @override
+  State<_ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<_ResizeHandle> {
+  Offset _drag = Offset.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Resize',
+      child: GestureDetector(
+        onPanUpdate: (details) => _drag += details.delta,
+        onPanEnd: (_) {
+          final growX = _drag.dx > 24;
+          final shrinkX = _drag.dx < -24;
+          final growY = _drag.dy > 24;
+          final shrinkY = _drag.dy < -24;
+          final nextColumns =
+              widget.config.gridColumnSpan +
+              (growX
+                  ? 1
+                  : shrinkX
+                  ? -1
+                  : 0);
+          final nextRows =
+              widget.config.gridRowSpan +
+              (growY
+                  ? 1
+                  : shrinkY
+                  ? -1
+                  : 0);
+          _drag = Offset.zero;
+          widget.onResizeButton(widget.config, nextColumns, nextRows);
+        },
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.darkSuccess.withAlpha(235),
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.darkText),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(8),
+            child: Icon(
+              Icons.open_in_full_rounded,
+              size: 14,
+              color: AppColors.darkBg,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageDots extends StatelessWidget {
+  const _PageDots({
+    required this.count,
+    required this.activeIndex,
+    required this.onTap,
+  });
+
+  final int count;
+  final int activeIndex;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.chevron_left_rounded, size: 18),
+          color: activeIndex > 0
+              ? AppColors.darkTextSub
+              : AppColors.darkTextMuted.withAlpha(90),
+          onPressed: activeIndex > 0 ? () => onTap(activeIndex - 1) : null,
+        ),
+        for (var i = 0; i < count; i++)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onTap(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: i == activeIndex ? 9 : 7,
+              height: i == activeIndex ? 9 : 7,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: AppColors.darkText.withAlpha(
+                  i == activeIndex ? 235 : 95,
+                ),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.chevron_right_rounded, size: 18),
+          color: activeIndex < count - 1
+              ? AppColors.darkTextSub
+              : AppColors.darkTextMuted.withAlpha(90),
+          onPressed: activeIndex < count - 1
+              ? () => onTap(activeIndex + 1)
+              : null,
+        ),
+      ],
     );
   }
 }

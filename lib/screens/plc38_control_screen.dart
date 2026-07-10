@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -26,6 +28,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
+import 'package:rev_crane_control_ops/widgets/customization/free_button_edit_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
@@ -224,7 +227,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if ((_localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+      if ((_localActive[excludedId] ?? ControlState.idle) !=
+          ControlState.idle) {
         return true;
       }
     }
@@ -276,6 +280,28 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
         SnackBar(content: Text(result.message ?? 'Could not delete button.')),
       );
     }
+  }
+
+  Future<void> _addFreeButton(CustomizationModeController customCtrl) async {
+    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
+    final button = ButtonConfig(
+      id: id,
+      type: ButtonType.pushButton,
+      plcMapping: PlcMapping.up,
+      label: 'New Button',
+      enabled: false,
+      plcMappingEnabled: false,
+      pageIndex: customCtrl.activeControlPage,
+    );
+    final result = customCtrl.addControlButton(button);
+    if (!mounted) return;
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Could not add button.')),
+      );
+      return;
+    }
+    await FreeButtonEditSheet.show(context, id);
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -372,6 +398,24 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                             onPressed: selectedButton == null
                                 ? null
                                 : customCtrl.rotateSelectedButton,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.auto_fix_high_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Auto arrange controls',
+                            onPressed: customCtrl.autoArrangeControls,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.note_add_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Add control page',
+                            onPressed: customCtrl.createControlPage,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Add button',
+                            onPressed: () => _addFreeButton(customCtrl),
                           ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline_rounded),
@@ -537,27 +581,41 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                             isDisabled: (config) =>
                                 controlsDisabled ||
                                 !config.enabled ||
+                                (config.role == null &&
+                                    !config.plcMappingEnabled) ||
                                 _isMutuallyExcluded(config),
                             onCommand: (id, state) =>
-                                _onCommand(controller, id, state),
+                                _onCommand(controller, layoutCfg, id, state),
                             onEditButton: (config) {
                               final role = config.role;
                               if (role != null) {
                                 ButtonEditSheet.showForRole(context, role);
+                              } else {
+                                FreeButtonEditSheet.show(context, config.id);
                               }
                             },
                             selectedRole: customCtrl.selectedRole,
+                            selectedButtonId: customCtrl.selectedButton?.id,
+                            onPageChanged: customCtrl.setActiveControlPage,
+                            activePageIndex: customCtrl.activeControlPage,
                             onSelectButton: isEditing
                                 ? customCtrl.selectButton
                                 : null,
                             onSlotDrop: isEditing
-                                ? (dragged, sourceSlot, target, targetSlot) {
+                                ? (
+                                    dragged,
+                                    sourceSlot,
+                                    target,
+                                    targetSlot, {
+                                    required targetPageIndex,
+                                  }) {
                                     final result = buildGridSlotDrop(
                                       buttons: customCtrl.draft.resolvedButtons,
                                       dragged: dragged,
                                       sourceSlot: sourceSlot,
                                       target: target,
                                       targetSlot: targetSlot,
+                                      targetPageIndex: targetPageIndex,
                                     );
                                     if (!result.isValid) {
                                       ScaffoldMessenger.of(
@@ -567,6 +625,34 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                           content: Text(
                                             result.message ??
                                                 kCrossTravelSpanMessage,
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    customCtrl.applyDraftChange(
+                                      customCtrl.draft.copyWith(
+                                        buttons: result.buttons,
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            onResizeButton: isEditing
+                                ? (config, gridColumns, gridRows) {
+                                    final result = buildButtonResize(
+                                      buttons: customCtrl.draft.resolvedButtons,
+                                      selected: config,
+                                      gridColumns: gridColumns,
+                                      gridRows: gridRows,
+                                    );
+                                    if (!result.isValid) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            result.message ??
+                                                kWidgetPlacementMessage,
                                           ),
                                         ),
                                       );
@@ -612,14 +698,27 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     );
   }
 
-  void _onCommand(CraneController controller, String id, ControlState state) {
+  void _onCommand(
+    CraneController controller,
+    ControlLayoutConfig layoutCfg,
+    String id,
+    ControlState state,
+  ) {
+    final config = layoutCfg.resolvedButtons[id];
     ButtonStateLog.log(
       state == ControlState.idle
           ? 'SEND_IDLE  [$id] (PLC38)'
           : 'SEND_ACTIVE [$id] -> ${state.name} (PLC38)',
     );
     setState(() => _localActive[id] = state);
-    controller.setButtonCommand(buttonId: id, state: state);
+    controller.setButtonCommand(
+      buttonId: id,
+      state: state,
+      plcMapping: config?.role == null ? config?.plcMapping : null,
+      plcMappingEnabled: config?.role == null
+          ? config?.plcMappingEnabled ?? false
+          : true,
+    );
   }
 
   /// Resolves the VISUAL active state for [config]. This is local-touch

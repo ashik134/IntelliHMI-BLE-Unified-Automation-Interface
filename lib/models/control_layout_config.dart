@@ -660,6 +660,7 @@ class ControlLayoutConfig {
     this.roleStyles = const RoleStyleConfig(),
     this.axisOrder = kDefaultAxisOrder,
     this.buttons = const <String, ButtonConfig>{},
+    this.controlPageCount = 1,
   });
 
   /// Schema version. Bumped 2 → 3 by the button-centric refactor: adds the
@@ -669,7 +670,7 @@ class ControlLayoutConfig {
   /// which stays unchanged so existing saved layouts keep loading). Future
   /// schema changes should prefer bumping this in-JSON field over renaming
   /// the prefs key, which would silently discard existing user layouts.
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
@@ -693,6 +694,10 @@ class ControlLayoutConfig {
   /// JSON) or synthesized from [axisConfigs]/[roleStyles]/[labelConfig] on
   /// load when absent (old-format JSON) — see [fromJson].
   final Map<String, ButtonConfig> buttons;
+
+  /// User-requested minimum number of horizontal control pages. Extra pages
+  /// are also rendered automatically when buttons occupy higher page indexes.
+  final int controlPageCount;
 
   /// Fallback default buttons map, used only when [buttons] lacks an entry
   /// for a role — this happens exclusively for `const ControlLayoutConfig()`
@@ -720,6 +725,7 @@ class ControlLayoutConfig {
     RoleStyleConfig? roleStyles,
     List<AxisKind>? axisOrder,
     Map<String, ButtonConfig>? buttons,
+    int? controlPageCount,
   }) {
     return ControlLayoutConfig(
       sizeConfig: sizeConfig ?? this.sizeConfig,
@@ -729,6 +735,7 @@ class ControlLayoutConfig {
       roleStyles: roleStyles ?? this.roleStyles,
       axisOrder: axisOrder ?? this.axisOrder,
       buttons: buttons ?? this.buttons,
+      controlPageCount: controlPageCount ?? this.controlPageCount,
     );
   }
 
@@ -741,6 +748,7 @@ class ControlLayoutConfig {
     'roleStyles': roleStyles.toJson(),
     'axisOrder': axisOrder.map((a) => a.name).toList(),
     'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
+    'controlPageCount': controlPageCount,
   };
 
   /// Synthesizes the button-centric `buttons` map from the legacy per-axis/
@@ -863,6 +871,7 @@ class ControlLayoutConfig {
       roleStyles: roleStyles,
       axisOrder: _parseAxisOrder(json['axisOrder']),
       buttons: buttons,
+      controlPageCount: _parsePositiveInt(json['controlPageCount']),
     );
   }
 
@@ -907,7 +916,8 @@ class ControlLayoutConfig {
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
           _axisOrderEquals(other.axisOrder, axisOrder) &&
-          _buttonsEqual(other.resolvedButtons, resolvedButtons);
+          _buttonsEqual(other.resolvedButtons, resolvedButtons) &&
+          other.controlPageCount == controlPageCount;
 
   @override
   int get hashCode => Object.hash(
@@ -920,7 +930,14 @@ class ControlLayoutConfig {
     Object.hashAllUnordered(
       resolvedButtons.entries.map((e) => Object.hash(e.key, e.value)),
     ),
+    controlPageCount,
   );
+}
+
+int _parsePositiveInt(dynamic value, {int fallback = 1}) {
+  final parsed = value is num ? value.toInt() : int.tryParse('$value');
+  if (parsed == null || parsed < 1) return fallback;
+  return parsed;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -933,11 +950,11 @@ class ControlLayoutConfig {
 
 enum PushButtonWiringConfig {
   // ── Two-position (push button + toggle) ──────────────────────────────────
-  offMomentary,             // O-T  spring-return one side
-  offLatched,               // O-R  latching one side
+  offMomentary, // O-T  spring-return one side
+  offLatched, // O-R  latching one side
   // ── Three-position (toggle switch only) ──────────────────────────────────
-  springReturnBoth,         // R-O-R  neutral center, both sides spring-return
-  latchingBoth,             // T-O-T  neutral center, both sides latch
+  springReturnBoth, // R-O-R  neutral center, both sides spring-return
+  latchingBoth, // T-O-T  neutral center, both sides latch
   mixedLeftLatchRightSpring, // T-O-R  left latches, right spring-returns
 }
 
@@ -947,41 +964,42 @@ enum PushButtonWiringConfig {
 
 extension PushButtonWiringConfigInfo on PushButtonWiringConfig {
   String get label => switch (this) {
-    PushButtonWiringConfig.offMomentary           => '0-T  ·  Off → Momentary',
-    PushButtonWiringConfig.offLatched             => '0-R  ·  Off → Latched',
-    PushButtonWiringConfig.springReturnBoth       => 'R-O-R  ·  Spring Return Both',
-    PushButtonWiringConfig.latchingBoth           => 'T-O-T  ·  Latching Both Sides',
-    PushButtonWiringConfig.mixedLeftLatchRightSpring => 'T-O-R  ·  Mixed  (Latch ← O → Spring)',
+    PushButtonWiringConfig.offMomentary => '0-T  ·  Off → Momentary',
+    PushButtonWiringConfig.offLatched => '0-R  ·  Off → Latched',
+    PushButtonWiringConfig.springReturnBoth => 'R-O-R  ·  Spring Return Both',
+    PushButtonWiringConfig.latchingBoth => 'T-O-T  ·  Latching Both Sides',
+    PushButtonWiringConfig.mixedLeftLatchRightSpring =>
+      'T-O-R  ·  Mixed  (Latch ← O → Spring)',
   };
 
   String get description => switch (this) {
     PushButtonWiringConfig.offMomentary =>
-        'Hold to activate. Release to stop. Spring-returns to OFF.',
+      'Hold to activate. Release to stop. Spring-returns to OFF.',
     PushButtonWiringConfig.offLatched =>
-        'Tap to latch ON. Tap again to latch OFF. Maintains state after release.',
+      'Tap to latch ON. Tap again to latch OFF. Maintains state after release.',
     PushButtonWiringConfig.springReturnBoth =>
-        'Hold top for first direction, hold bottom for second. '
-        'Both sides spring-return to neutral on release. Toggle Switch only.',
+      'Hold top for first direction, hold bottom for second. '
+          'Both sides spring-return to neutral on release. Toggle Switch only.',
     PushButtonWiringConfig.latchingBoth =>
-        'Tap top or bottom to latch that direction. '
-        'Tap the active side again to return to neutral. Toggle Switch only.',
+      'Tap top or bottom to latch that direction. '
+          'Tap the active side again to return to neutral. Toggle Switch only.',
     PushButtonWiringConfig.mixedLeftLatchRightSpring =>
-        'Top side latches (maintained). '
-        'Bottom side is momentary (spring-returns). Toggle Switch only.',
+      'Top side latches (maintained). '
+          'Bottom side is momentary (spring-returns). Toggle Switch only.',
   };
 
   /// Whether the UP / top side is spring-return.
   /// For three-position toggle-only modes the push-button fallback is false.
   bool get upIsSpringReturn => switch (this) {
     PushButtonWiringConfig.offMomentary => true,
-    _                                   => false,
+    _ => false,
   };
 
   bool get isSpringReturn => upIsSpringReturn;
 
   bool get downIsSpringReturn => switch (this) {
     PushButtonWiringConfig.offMomentary => true,
-    _                                   => false,
+    _ => false,
   };
 
   /// True for modes that only make visual sense on a Toggle Switch widget.

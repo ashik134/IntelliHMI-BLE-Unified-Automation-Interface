@@ -180,6 +180,10 @@ class LayoutValidationService {
     }
 
     final name = config.label.isEmpty ? config.id : config.label;
+    final skipPlacementValidation = isRedundantCrossTravelConfig(
+      config,
+      allButtons,
+    );
     _checkScaleBoundsGeneric(
       '$name height',
       config.heightScale,
@@ -201,11 +205,31 @@ class LayoutValidationService {
         '${ButtonConfig.controlGridColumns} (got ${config.columnSpan}).',
       );
     }
+    if (!skipPlacementValidation && config.pageIndex < 0) {
+      errors.add('$name page index must be zero or greater.');
+    }
+    if (!skipPlacementValidation &&
+        (config.gridX < 0 ||
+            config.gridX + config.gridColumnSpan >
+                ButtonConfig.controlGridColumns)) {
+      errors.add(
+        '$name gridX must keep the widget inside '
+        '${ButtonConfig.controlGridColumns} columns.',
+      );
+    }
+    if (!skipPlacementValidation &&
+        (config.gridY < 0 ||
+            config.gridY + config.gridRowSpan > ButtonConfig.controlGridRows)) {
+      errors.add(
+        '$name gridY must keep the widget inside '
+        '${ButtonConfig.controlGridRows} rows.',
+      );
+    }
     _checkMinTouchTarget(name, config.resolvedHeight, errors);
     _checkUnitRange('$name canvasX', config.canvasX, errors);
     _checkUnitRange('$name canvasY', config.canvasY, errors);
     final role = config.role;
-    if (role != null && role.isMotionControl) {
+    if (!skipPlacementValidation && role != null && role.isMotionControl) {
       final slot = config.slotIndex;
       if (slot == null) {
         errors.add('$name must have a control slot.');

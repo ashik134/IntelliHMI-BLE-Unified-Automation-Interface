@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
@@ -26,6 +27,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
+import 'package:rev_crane_control_ops/widgets/customization/free_button_edit_sheet.dart';
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -253,6 +255,28 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
+  Future<void> _addFreeButton(CustomizationModeController customCtrl) async {
+    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
+    final button = ButtonConfig(
+      id: id,
+      type: ButtonType.pushButton,
+      plcMapping: PlcMapping.up,
+      label: 'New Button',
+      enabled: false,
+      plcMappingEnabled: false,
+      pageIndex: customCtrl.activeControlPage,
+    );
+    final result = customCtrl.addControlButton(button);
+    if (!mounted) return;
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Could not add button.')),
+      );
+      return;
+    }
+    await FreeButtonEditSheet.show(context, id);
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
@@ -345,6 +369,25 @@ class _ControlScreenState extends State<ControlScreen>
                             onPressed: selectedButton == null
                                 ? null
                                 : customCtrl.rotateSelectedButton,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.auto_fix_high_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Auto arrange controls',
+                            onPressed: () =>
+                                customCtrl.autoArrangeControls(slotCount: 2),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.note_add_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Add control page',
+                            onPressed: customCtrl.createControlPage,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded),
+                            color: AppColors.darkTextSub,
+                            tooltip: 'Add button',
+                            onPressed: () => _addFreeButton(customCtrl),
                           ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline_rounded),
@@ -467,8 +510,11 @@ class _ControlScreenState extends State<ControlScreen>
                                 controller.estopLatched ||
                                 !controller.isConnected ||
                                 !config.enabled ||
+                                (config.role == null &&
+                                    !config.plcMappingEnabled) ||
                                 _isMutuallyExcluded(config),
                             onCommand: (id, state) {
+                              final config = layoutCfg.resolvedButtons[id];
                               ButtonStateLog.log(
                                 state == ControlState.idle
                                     ? 'SEND_IDLE  [$id] (PLC14)'
@@ -480,26 +526,44 @@ class _ControlScreenState extends State<ControlScreen>
                               controller.setButtonCommand(
                                 buttonId: id,
                                 state: state,
+                                plcMapping: config?.role == null
+                                    ? config?.plcMapping
+                                    : null,
+                                plcMappingEnabled: config?.role == null
+                                    ? config?.plcMappingEnabled ?? false
+                                    : true,
                               );
                             },
                             onEditButton: (config) {
                               final role = config.role;
                               if (role != null) {
                                 ButtonEditSheet.showForRole(context, role);
+                              } else {
+                                FreeButtonEditSheet.show(context, config.id);
                               }
                             },
                             selectedRole: customCtrl.selectedRole,
+                            selectedButtonId: customCtrl.selectedButton?.id,
+                            onPageChanged: customCtrl.setActiveControlPage,
+                            activePageIndex: customCtrl.activeControlPage,
                             onSelectButton: isEditing
                                 ? customCtrl.selectButton
                                 : null,
                             onSlotDrop: isEditing
-                                ? (dragged, sourceSlot, target, targetSlot) {
+                                ? (
+                                    dragged,
+                                    sourceSlot,
+                                    target,
+                                    targetSlot, {
+                                    required targetPageIndex,
+                                  }) {
                                     final result = buildGridSlotDrop(
                                       buttons: customCtrl.draft.resolvedButtons,
                                       dragged: dragged,
                                       sourceSlot: sourceSlot,
                                       target: target,
                                       targetSlot: targetSlot,
+                                      targetPageIndex: targetPageIndex,
                                       slotCount: 2,
                                     );
                                     if (!result.isValid) {
@@ -510,6 +574,35 @@ class _ControlScreenState extends State<ControlScreen>
                                           content: Text(
                                             result.message ??
                                                 kCrossTravelSpanMessage,
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    customCtrl.applyDraftChange(
+                                      customCtrl.draft.copyWith(
+                                        buttons: result.buttons,
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            onResizeButton: isEditing
+                                ? (config, gridColumns, gridRows) {
+                                    final result = buildButtonResize(
+                                      buttons: customCtrl.draft.resolvedButtons,
+                                      selected: config,
+                                      gridColumns: gridColumns,
+                                      gridRows: gridRows,
+                                      slotCount: 2,
+                                    );
+                                    if (!result.isValid) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            result.message ??
+                                                kWidgetPlacementMessage,
                                           ),
                                         ),
                                       );
@@ -568,7 +661,8 @@ class _ControlScreenState extends State<ControlScreen>
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if ((_localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+      if ((_localActive[excludedId] ?? ControlState.idle) !=
+          ControlState.idle) {
         return true;
       }
     }

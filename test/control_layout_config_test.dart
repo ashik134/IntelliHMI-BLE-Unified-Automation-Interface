@@ -303,7 +303,16 @@ void main() {
       final decoded =
           jsonDecode(const ControlLayoutConfig().toJsonString())
               as Map<String, dynamic>;
-      expect(decoded['schemaVersion'], 4);
+      expect(decoded['schemaVersion'], 5);
+    });
+
+    test('manual control page count round-trips through JSON', () {
+      const original = ControlLayoutConfig(controlPageCount: 4);
+      final restored = ControlLayoutConfig.fromJsonString(
+        original.toJsonString(),
+      );
+      expect(restored.controlPageCount, 4);
+      expect(restored, original);
     });
 
     test('malformed buttons map falls back gracefully', () {
@@ -526,6 +535,53 @@ void main() {
       expect(config.gridRowSpan, 1);
       expect(occupiedGridSlotsFor(config), [2, 3]);
     });
+
+    test('auto arrange creates a new page when page one is full', () {
+      final base = const ControlLayoutConfig().resolvedButtons;
+      final buttons = {
+        ...base,
+        'extraMonitor': const ButtonConfig(
+          id: 'extraMonitor',
+          type: ButtonType.pushButton,
+          plcMapping: PlcMapping.up,
+          role: ControlRole.hoistUp,
+          label: 'Monitor',
+          pageIndex: 0,
+          gridX: 0,
+          gridY: 0,
+          slotIndex: 0,
+        ),
+      };
+
+      final arranged = autoArrangeButtons(buttons);
+
+      expect(arranged.values.any((button) => button.pageIndex == 1), isTrue);
+      expect(validateGridOccupancy(arranged), isEmpty);
+    });
+
+    test(
+      'adding a free button searches the preferred page then spills over',
+      () {
+        final result = buildButtonAdd(
+          buttons: const ControlLayoutConfig().resolvedButtons,
+          preferredPageIndex: 0,
+          button: const ButtonConfig(
+            id: 'custom_1',
+            type: ButtonType.pushButton,
+            plcMapping: PlcMapping.up,
+            label: 'Custom',
+            role: null,
+            enabled: false,
+            plcMappingEnabled: false,
+          ),
+        );
+
+        expect(result.isValid, isTrue);
+        expect(result.buttons!['custom_1']!.pageIndex, 1);
+        expect(result.buttons!['custom_1']!.plcMappingEnabled, isFalse);
+        expect(validateGridOccupancy(result.buttons!), isEmpty);
+      },
+    );
 
     test('cross travel type change merges the paired traverse cell', () {
       final original = const ControlLayoutConfig().copyWith(

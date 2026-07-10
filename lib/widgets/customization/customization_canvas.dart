@@ -37,19 +37,48 @@ class CustomizationCanvas extends StatelessWidget {
         final role = config.role;
         if (role != null) onEditRole(role);
       },
-      onSlotDrop: (dragged, sourceSlot, target, targetSlot) {
+      onSlotDrop:
+          (
+            dragged,
+            sourceSlot,
+            target,
+            targetSlot, {
+            required targetPageIndex,
+          }) {
+            final customCtrl = context.read<CustomizationModeController>();
+            final result = buildGridSlotDrop(
+              buttons: customCtrl.draft.resolvedButtons,
+              dragged: dragged,
+              sourceSlot: sourceSlot,
+              target: target,
+              targetSlot: targetSlot,
+              targetPageIndex: targetPageIndex,
+              slotCount: slotCount ?? ButtonConfig.controlSlotCount,
+            );
+            if (!result.isValid) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(result.message ?? kCrossTravelSpanMessage),
+                ),
+              );
+              return;
+            }
+            customCtrl.applyDraftChange(
+              customCtrl.draft.copyWith(buttons: result.buttons),
+            );
+          },
+      onResizeButton: (config, gridColumns, gridRows) {
         final customCtrl = context.read<CustomizationModeController>();
-        final result = buildGridSlotDrop(
+        final result = buildButtonResize(
           buttons: customCtrl.draft.resolvedButtons,
-          dragged: dragged,
-          sourceSlot: sourceSlot,
-          target: target,
-          targetSlot: targetSlot,
+          selected: config,
+          gridColumns: gridColumns,
+          gridRows: gridRows,
           slotCount: slotCount ?? ButtonConfig.controlSlotCount,
         );
         if (!result.isValid) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.message ?? kCrossTravelSpanMessage)),
+            SnackBar(content: Text(result.message ?? kWidgetPlacementMessage)),
           );
           return;
         }

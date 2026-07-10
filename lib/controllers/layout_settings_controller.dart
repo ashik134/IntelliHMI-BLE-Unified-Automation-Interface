@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/core/constants/app_constants.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutSettingsController
@@ -36,7 +37,9 @@ class LayoutSettingsController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
       if (raw != null && raw.isNotEmpty) {
-        _config = ControlLayoutConfig.fromJsonString(raw);
+        _config = repairControlGridLayout(
+          ControlLayoutConfig.fromJsonString(raw),
+        );
       }
     } catch (_) {
       _config = const ControlLayoutConfig();
@@ -128,9 +131,10 @@ class LayoutSettingsController extends ChangeNotifier {
   /// CustomizationModeController.commit() to persist a fully-edited draft
   /// in one atomic step.
   Future<ValidationResult> replaceConfig(ControlLayoutConfig next) async {
-    final result = _validator.validateFullConfig(next);
+    final repaired = repairControlGridLayout(next);
+    final result = _validator.validateFullConfig(repaired);
     if (!result.isValid) return result;
-    _config = next;
+    _config = repaired;
     notifyListeners();
     await _persist();
     return result;

@@ -803,13 +803,18 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setButtonCommand({
     required String buttonId,
     required ControlState state,
+    PlcMapping? plcMapping,
+    bool plcMappingEnabled = true,
   }) async {
     if (_estopLatched || !isConnected) return;
+    final explicitMapping = plcMappingEnabled ? plcMapping : null;
 
     if (connectedPlcType != PlcType.plc38) {
-      if (buttonId == ControlRole.hoistUp.name) {
+      if (explicitMapping == PlcMapping.up ||
+          buttonId == ControlRole.hoistUp.name) {
         await setHoistCommand(isUp: true, state: state);
-      } else if (buttonId == ControlRole.hoistDown.name) {
+      } else if (explicitMapping == PlcMapping.down ||
+          buttonId == ControlRole.hoistDown.name) {
         await setHoistCommand(isUp: false, state: state);
       } else {
         final joystickField = joystickVirtualFieldFor(buttonId);
@@ -828,8 +833,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _p38ButtonStates[buttonId] = state;
     } else {
       final previousState = _p38ButtonStates[buttonId] ?? ControlState.idle;
-      final previousFields = _fieldsFor(buttonId, previousState);
-      final newFields = _fieldsFor(buttonId, state);
+      final previousFields = _fieldsFor(
+        buttonId,
+        previousState,
+        explicitMapping: explicitMapping,
+      );
+      final newFields = _fieldsFor(
+        buttonId,
+        state,
+        explicitMapping: explicitMapping,
+      );
 
       // Only check fields being NEWLY claimed (not already owned by this button).
       final addedFields = newFields.difference(previousFields);
@@ -860,8 +873,21 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// Returns the set of PLC fields that [buttonId] would assert when its
   /// state is [state]. Used to check ownership before accepting a command and
   /// to release ownership when a button goes idle.
-  Set<PlcMapping> _fieldsFor(String buttonId, ControlState state) {
+  Set<PlcMapping> _fieldsFor(
+    String buttonId,
+    ControlState state, {
+    PlcMapping? explicitMapping,
+  }) {
     if (state == ControlState.idle) return const {};
+
+    if (explicitMapping != null) {
+      final fields = <PlcMapping>{explicitMapping};
+      if (state == ControlState.fast) {
+        final fastField = explicitMapping.correspondingRole?.axis?.fastMapping;
+        if (fastField != null) fields.add(fastField);
+      }
+      return fields;
+    }
 
     // Virtual fast-modifier keys (traverse-only for now; extend via
     // kVirtualFastKeyFields for future axes).

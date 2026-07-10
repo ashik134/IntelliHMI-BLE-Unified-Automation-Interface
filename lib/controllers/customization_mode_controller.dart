@@ -39,16 +39,18 @@ class CustomizationModeController extends ChangeNotifier {
   ControlLayoutConfig _draft = const ControlLayoutConfig();
   final List<ControlLayoutConfig> _undoStack = [];
   final List<ControlLayoutConfig> _redoStack = [];
-  ControlRole? _selectedRole;
+  String? _selectedButtonId;
+  int _activeControlPage = 0;
   ValidationResult _lastValidation = const ValidationResult.valid();
 
   bool get isActive => _isActive;
   ControlLayoutConfig get draft => _draft;
-  ControlRole? get selectedRole => _selectedRole;
+  int get activeControlPage => _activeControlPage;
+  ControlRole? get selectedRole => selectedButton?.role;
   ButtonConfig? get selectedButton {
-    final role = _selectedRole;
-    if (role == null) return null;
-    final button = _draft.buttonFor(role);
+    final id = _selectedButtonId;
+    if (id == null) return null;
+    final button = _draft.resolvedButtons[id];
     if (button == null || !button.visible) return null;
     return button;
   }
@@ -56,7 +58,7 @@ class CustomizationModeController extends ChangeNotifier {
   bool get canDeleteSelectedButton {
     final button = selectedButton;
     final role = button?.role;
-    return button != null && role != null && role.isMotionControl;
+    return button != null && (role == null || role.isMotionControl);
   }
 
   bool get canUndo => _undoStack.isNotEmpty;
@@ -75,18 +77,29 @@ class CustomizationModeController extends ChangeNotifier {
     _draft = _layoutSettings.config;
     _undoStack.clear();
     _redoStack.clear();
-    _selectedRole = null;
+    _selectedButtonId = null;
+    _activeControlPage = 0;
     _lastValidation = const ValidationResult.valid();
     _isActive = true;
     notifyListeners();
   }
 
   void selectRole(ControlRole? role) {
-    _selectedRole = role;
+    _selectedButtonId = role?.name;
     notifyListeners();
   }
 
-  void selectButton(ButtonConfig? button) => selectRole(button?.role);
+  void selectButton(ButtonConfig? button) {
+    _selectedButtonId = button?.id;
+    notifyListeners();
+  }
+
+  void setActiveControlPage(int pageIndex) {
+    final next = pageIndex < 0 ? 0 : pageIndex;
+    if (_activeControlPage == next) return;
+    _activeControlPage = next;
+    notifyListeners();
+  }
 
   void rotateSelectedButton() {
     final button = selectedButton;
@@ -113,9 +126,54 @@ class CustomizationModeController extends ChangeNotifier {
     );
     if (!result.isValid) return result;
     applyDraftChange(_draft.copyWith(buttons: result.buttons));
-    _selectedRole = null;
+    _selectedButtonId = null;
     notifyListeners();
     return result;
+  }
+
+  void createControlPage() {
+    if (!_isActive) return;
+    final nextCount = _draft.controlPageCount + 1;
+    _activeControlPage = nextCount - 1;
+    applyDraftChange(_draft.copyWith(controlPageCount: nextCount));
+  }
+
+  GridMutationResult addControlButton(ButtonConfig button) {
+    if (!_isActive) {
+      return const GridMutationResult.invalid(
+        'Enter customization mode first.',
+      );
+    }
+    final result = buildButtonAdd(
+      buttons: _draft.resolvedButtons,
+      button: button,
+      preferredPageIndex: _activeControlPage,
+    );
+    if (!result.isValid) return result;
+
+    final placed = result.buttons![button.id]!;
+    final nextPageCount = placed.pageIndex + 1 > _draft.controlPageCount
+        ? placed.pageIndex + 1
+        : _draft.controlPageCount;
+    _activeControlPage = placed.pageIndex;
+    applyDraftChange(
+      _draft.copyWith(buttons: result.buttons, controlPageCount: nextPageCount),
+    );
+    _selectedButtonId = button.id;
+    notifyListeners();
+    return result;
+  }
+
+  void autoArrangeControls({int slotCount = ButtonConfig.controlSlotCount}) {
+    if (!_isActive) return;
+    applyDraftChange(
+      _draft.copyWith(
+        buttons: autoArrangeButtons(
+          _draft.resolvedButtons,
+          slotCount: slotCount,
+        ),
+      ),
+    );
   }
 
   /// Pushes the current draft onto the undo stack, clears the redo stack,
@@ -171,7 +229,8 @@ class CustomizationModeController extends ChangeNotifier {
     _draft = _layoutSettings.config;
     _undoStack.clear();
     _redoStack.clear();
-    _selectedRole = null;
+    _selectedButtonId = null;
+    _activeControlPage = 0;
     notifyListeners();
   }
 }
