@@ -131,10 +131,7 @@ class _LoginScreenState extends State<LoginScreen>
                     SizedBox(height: 2),
                     Text(
                       'PLC did not receive credentials in time. Please try again.',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                   ],
                 ),
@@ -224,9 +221,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   0xFFF2F7FD,
                                 ).withValues(alpha: 0.86),
                                 borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: AppColors.connBorder,
-                                ),
+                                border: Border.all(color: AppColors.connBorder),
                                 boxShadow: [
                                   BoxShadow(
                                     color: AppColors.connPrimary.withValues(
@@ -398,6 +393,7 @@ class _LoginScreenState extends State<LoginScreen>
   }) {
     final authSessionReady = _hasAuthenticationSession(controller);
     final errorState = _resolveErrorState(controller.errorMessage);
+    final authenticated = controller.isAuthenticated;
 
     return Container(
       padding: EdgeInsets.all(isWide ? 26 : 20),
@@ -425,216 +421,237 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 14),
           _buildLiveStatusBanner(controller),
+          if (authenticated) ...[
+            const SizedBox(height: 16),
+            _AuthenticatedCard(
+              biometricAvailable: controller.isBiometricAvailable,
+              showEnrollmentOffer: controller.hasPendingEnrollmentOffer,
+              enrolling: controller.isAuthenticating,
+              onContinue: () => _continueAfterAuthentication(controller),
+              onEnroll:
+                  controller.isBiometricAvailable &&
+                      controller.hasPendingEnrollmentOffer
+                  ? () => _continueAfterAuthentication(
+                      controller,
+                      enrollBiometric: true,
+                    )
+                  : null,
+            ),
+          ],
           if (controller.isAuthenticating) ...[
             const SizedBox(height: 12),
             const _BusyCard(),
           ],
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: errorState == null
-                ? const SizedBox.shrink()
-                : Padding(
-                    key: ValueKey(errorState.message),
-                    padding: const EdgeInsets.only(top: 12),
-                    child: _AuthErrorCard(
-                      state: errorState,
-                      onRetry: controller.isAuthenticating ? null : _submit,
-                      onBackToScan: controller.disconnect,
-                    ),
-                  ),
-          ),
-          if (!authSessionReady) ...[
-            const SizedBox(height: 12),
-            _AuthErrorCard(
-              state: const _AuthErrorState(
-                title: 'Connection ended',
-                message:
-                    'The authentication link is no longer active. Return to scan and reconnect to the PLC.',
-                icon: Icons.bluetooth_disabled_rounded,
-              ),
-              onBackToScan: controller.disconnect,
-            ),
-          ],
-          const SizedBox(height: 16),
-          Form(
-            key: _formKey,
-            autovalidateMode: _autovalidateMode,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextFormField(
-                  controller: _emailController,
-                  enabled: !controller.isAuthenticating,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  style: const TextStyle(
-                    color: AppColors.connText,
-                    fontSize: 14,
-                  ),
-                  decoration: _inputDecoration(
-                    label: 'Operator email',
-                    hint: 'operator@company.com',
-                    icon: Icons.alternate_email_rounded,
-                  ),
-                  validator: (value) {
-                    final candidate = value?.trim() ?? '';
-                    if (candidate.isEmpty) {
-                      return 'Email is required to authenticate with the PLC.';
-                    }
-                    final validEmail = RegExp(
-                      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                    ).hasMatch(candidate);
-                    if (!validEmail) {
-                      return 'Enter a valid email format (example: user@domain.com).';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _passwordController,
-                  enabled: !controller.isAuthenticating,
-                  obscureText: _obscurePassword,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _submit(),
-                  style: const TextStyle(
-                    color: AppColors.connText,
-                    fontSize: 14,
-                  ),
-                  decoration: _inputDecoration(
-                    label: 'Password',
-                    hint: 'Enter your password',
-                    icon: Icons.lock_outline_rounded,
-                    suffix: IconButton(
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded,
-                        color: AppColors.connTextMuted,
-                        size: 20,
+          if (!authenticated) ...[
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: errorState == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: ValueKey(errorState.message),
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _AuthErrorCard(
+                        state: errorState,
+                        onRetry: controller.isAuthenticating ? null : _submit,
+                        onBackToScan: controller.disconnect,
                       ),
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Password is required for operator access.';
-                    }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters.';
-                    }
-                    return null;
-                  },
+            ),
+            if (!authSessionReady) ...[
+              const SizedBox(height: 12),
+              _AuthErrorCard(
+                state: const _AuthErrorState(
+                  title: 'Connection ended',
+                  message:
+                      'The authentication link is no longer active. Return to scan and reconnect to the PLC.',
+                  icon: Icons.bluetooth_disabled_rounded,
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Remember credentials on this device',
-                        style: TextStyle(
-                          color: AppColors.connTextSub.withValues(
-                            alpha: 0.85,
-                          ),
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
+                onBackToScan: controller.disconnect,
+              ),
+            ],
+          ],
+          if (!authenticated) ...[
+            const SizedBox(height: 16),
+            Form(
+              key: _formKey,
+              autovalidateMode: _autovalidateMode,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: _emailController,
+                    enabled: !controller.isAuthenticating,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(
+                      color: AppColors.connText,
+                      fontSize: 14,
+                    ),
+                    decoration: _inputDecoration(
+                      label: 'Operator email',
+                      hint: 'operator@company.com',
+                      icon: Icons.alternate_email_rounded,
+                    ),
+                    validator: (value) {
+                      final candidate = value?.trim() ?? '';
+                      if (candidate.isEmpty) {
+                        return 'Email is required to authenticate with the PLC.';
+                      }
+                      final validEmail = RegExp(
+                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                      ).hasMatch(candidate);
+                      if (!validEmail) {
+                        return 'Enter a valid email format (example: user@domain.com).';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _passwordController,
+                    enabled: !controller.isAuthenticating,
+                    obscureText: _obscurePassword,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _submit(),
+                    style: const TextStyle(
+                      color: AppColors.connText,
+                      fontSize: 14,
+                    ),
+                    decoration: _inputDecoration(
+                      label: 'Password',
+                      hint: 'Enter your password',
+                      icon: Icons.lock_outline_rounded,
+                      suffix: IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                          color: AppColors.connTextMuted,
+                          size: 20,
                         ),
                       ),
                     ),
-                    Switch.adaptive(
-                      value: controller.rememberCredentials,
-                      activeThumbColor: AppColors.scanning,
-                      activeTrackColor: AppColors.scanning.withValues(
-                        alpha: 0.35,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Password is required for operator access.';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Remember credentials on this device',
+                          style: TextStyle(
+                            color: AppColors.connTextSub.withValues(
+                              alpha: 0.85,
+                            ),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                      onChanged: controller.isAuthenticating
-                          ? null
-                          : controller.setRememberCredentials,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: controller.isAuthenticating ? null : _submit,
-              icon: controller.isAuthenticating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        color: Colors.white,
+                      Switch.adaptive(
+                        value: controller.rememberCredentials,
+                        activeThumbColor: AppColors.scanning,
+                        activeTrackColor: AppColors.scanning.withValues(
+                          alpha: 0.35,
+                        ),
+                        onChanged: controller.isAuthenticating
+                            ? null
+                            : controller.setRememberCredentials,
                       ),
-                    )
-                  : const Icon(Icons.lock_open_rounded, size: 18),
-              label: Text(
-                controller.isAuthenticating
-                    ? 'AUTHENTICATING...'
-                    : 'AUTHENTICATE SESSION',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.scanning,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: AppColors.neutral,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
+                    ],
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: controller.isAuthenticating
-                      ? null
-                      : controller.disconnect,
-                  icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                  label: const Text('Back to Scan'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.connTextSub,
-                    side: const BorderSide(color: AppColors.connBorder),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: controller.isAuthenticating ? null : _submit,
+                icon: controller.isAuthenticating
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.lock_open_rounded, size: 18),
+                label: Text(
+                  controller.isAuthenticating
+                      ? 'AUTHENTICATING...'
+                      : 'AUTHENTICATE SESSION',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.scanning,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.neutral,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
               ),
-              // const SizedBox(width: 8),
-              // Expanded(
-              //   child: TextButton.icon(
-              //     onPressed: controller.isAuthenticating
-              //         ? null
-              //         : _showDefaultCredentials,
-              //     icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
-              //     label: const Text('Default Login'),
-              //     style: TextButton.styleFrom(
-              //       foregroundColor: AppColors.connPrimary,
-              //       padding: const EdgeInsets.symmetric(vertical: 12),
-              //       shape: RoundedRectangleBorder(
-              //         borderRadius: BorderRadius.circular(12),
-              //         side: const BorderSide(color: AppColors.primarySoft),
-              //       ),
-              //     ),
-              //   ),
-              // ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: controller.isAuthenticating
+                        ? null
+                        : controller.disconnect,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                    label: const Text('Back to Scan'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.connTextSub,
+                      side: const BorderSide(color: AppColors.connBorder),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                // const SizedBox(width: 8),
+                // Expanded(
+                //   child: TextButton.icon(
+                //     onPressed: controller.isAuthenticating
+                //         ? null
+                //         : _showDefaultCredentials,
+                //     icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
+                //     label: const Text('Default Login'),
+                //     style: TextButton.styleFrom(
+                //       foregroundColor: AppColors.connPrimary,
+                //       padding: const EdgeInsets.symmetric(vertical: 12),
+                //       shape: RoundedRectangleBorder(
+                //         borderRadius: BorderRadius.circular(12),
+                //         side: const BorderSide(color: AppColors.primarySoft),
+                //       ),
+                //     ),
+                //   ),
+                // ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -644,16 +661,21 @@ class _LoginScreenState extends State<LoginScreen>
     final status = controller.connectionState.status;
     final bool busy = controller.isAuthenticating;
     final Color tone = switch (status) {
+      BleConnectionStatus.connected ||
       BleConnectionStatus.awaitingAuthentication ||
       BleConnectionStatus.authenticating => AppColors.scanning,
+      BleConnectionStatus.authenticated => AppColors.connected,
       BleConnectionStatus.error => AppColors.error,
       _ => AppColors.neutral,
     };
     final String message = switch (status) {
+      BleConnectionStatus.connected ||
       BleConnectionStatus.awaitingAuthentication =>
         'Connected and waiting for credentials.',
       BleConnectionStatus.authenticating =>
         'Credentials are being verified by the PLC.',
+      BleConnectionStatus.authenticated =>
+        'Authentication accepted by the PLC.',
       BleConnectionStatus.error =>
         'Authentication needs attention before continuing.',
       _ => 'Return to scanning if connection is unavailable.',
@@ -719,10 +741,7 @@ class _LoginScreenState extends State<LoginScreen>
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: AppColors.scanning,
-          width: 1.6,
-        ),
+        borderSide: const BorderSide(color: AppColors.scanning, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -739,14 +758,18 @@ class _LoginScreenState extends State<LoginScreen>
     final status = controller.connectionState.status;
     final hasDevice = controller.connectionState.connectedDevice != null;
     return status == BleConnectionStatus.awaitingAuthentication ||
+        (status == BleConnectionStatus.connected && hasDevice) ||
         status == BleConnectionStatus.authenticating ||
+        (status == BleConnectionStatus.authenticated && hasDevice) ||
         (status == BleConnectionStatus.error && hasDevice);
   }
 
   String _statusTitle(BleConnectionStatus status) {
     return switch (status) {
       BleConnectionStatus.awaitingAuthentication => 'READY',
+      BleConnectionStatus.connected => 'READY',
       BleConnectionStatus.authenticating => 'AUTHENTICATING',
+      BleConnectionStatus.authenticated => 'AUTHENTICATED',
       BleConnectionStatus.error => 'RETRY REQUIRED',
       _ => 'PENDING',
     };
@@ -756,7 +779,9 @@ class _LoginScreenState extends State<LoginScreen>
     return switch (status) {
       BleConnectionStatus.awaitingAuthentication =>
         'Waiting for operator credentials',
+      BleConnectionStatus.connected => 'Waiting for operator credentials',
       BleConnectionStatus.authenticating => 'Handshake in progress',
+      BleConnectionStatus.authenticated => 'Operator verified',
       BleConnectionStatus.error => 'Action required',
       _ => 'Link state unavailable',
     };
@@ -780,7 +805,7 @@ class _LoginScreenState extends State<LoginScreen>
       );
     }
 
-    if (raw == BLEConstants.authTimeout ) {
+    if (raw == BLEConstants.authTimeout) {
       return const _AuthErrorState(
         title: 'Authentication timeout',
         message:
@@ -813,11 +838,16 @@ class _LoginScreenState extends State<LoginScreen>
       _autovalidateMode = AutovalidateMode.onUserInteraction;
     });
 
+    final controller = context.read<CraneController>();
+    if (controller.isAuthenticated) {
+      _continueAfterAuthentication(controller);
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    final controller = context.read<CraneController>();
     if (!_hasAuthenticationSession(controller)) {
       _showSnack(
         'Connection session ended. Return to scan and reconnect before retrying.',
@@ -860,6 +890,28 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
       );
+  }
+
+  Future<void> _continueAfterAuthentication(
+    CraneController controller, {
+    bool enrollBiometric = false,
+  }) async {
+    if (enrollBiometric) {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      if (email.isNotEmpty && password.isNotEmpty) {
+        final enrolled = await controller.enrollBiometrics(
+          email: email,
+          password: password,
+        );
+        if (!mounted) return;
+        if (!enrolled) {
+          _showSnack('Could not save biometric login on this device.');
+          return;
+        }
+      }
+    }
+    controller.completePendingEnrollmentOffer();
   }
 }
 
@@ -1066,6 +1118,112 @@ class _JourneyStep extends StatelessWidget {
   }
 }
 
+class _AuthenticatedCard extends StatelessWidget {
+  const _AuthenticatedCard({
+    required this.biometricAvailable,
+    required this.showEnrollmentOffer,
+    required this.enrolling,
+    required this.onContinue,
+    this.onEnroll,
+  });
+
+  final bool biometricAvailable;
+  final bool showEnrollmentOffer;
+  final bool enrolling;
+  final VoidCallback onContinue;
+  final VoidCallback? onEnroll;
+
+  @override
+  Widget build(BuildContext context) {
+    final canOfferBiometrics = biometricAvailable && showEnrollmentOffer;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: AppColors.connectedBg,
+        border: Border.all(color: AppColors.connectedBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.verified_user_rounded, color: AppColors.connected),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Operator verified',
+                  style: TextStyle(
+                    color: AppColors.connected,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            canOfferBiometrics
+                ? 'The PLC accepted these credentials. Biometric access can be saved on this device before opening controls.'
+                : 'The PLC accepted these credentials. Controls are ready to open.',
+            style: const TextStyle(
+              color: AppColors.connTextSub,
+              fontSize: 12.5,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: enrolling ? null : onContinue,
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('Open controls'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.connected,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 11,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (canOfferBiometrics && onEnroll != null)
+                OutlinedButton.icon(
+                  onPressed: enrolling ? null : onEnroll,
+                  icon: const Icon(Icons.fingerprint_rounded, size: 16),
+                  label: const Text('Save biometric login'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.connected,
+                    side: BorderSide(
+                      color: AppColors.connected.withValues(alpha: 0.35),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 11,
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BusyCard extends StatelessWidget {
   const _BusyCard();
 
@@ -1094,9 +1252,7 @@ class _BusyCard extends StatelessWidget {
           LinearProgressIndicator(
             minHeight: 4,
             backgroundColor: Color(0xFFC8DBF3),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              AppColors.scanning,
-            ),
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.scanning),
           ),
           SizedBox(height: 6),
           Text(

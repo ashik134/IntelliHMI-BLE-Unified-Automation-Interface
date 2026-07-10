@@ -227,6 +227,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
           : _getControlScreenForPlcType(),
 
     BleConnectionStatus.awaitingAuthentication ||
+    BleConnectionStatus.connected ||
     BleConnectionStatus.authenticating => AppScreen.authentication,
     BleConnectionStatus.error
         when _transportConnState.connectedDevice != null =>
