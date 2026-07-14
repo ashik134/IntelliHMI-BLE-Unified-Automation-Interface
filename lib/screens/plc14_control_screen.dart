@@ -20,6 +20,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_slot_grid.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
@@ -321,41 +322,28 @@ class _ControlScreenState extends State<ControlScreen>
                 backgroundColor: AppColors.darkBg,
                 resizeToAvoidBottomInset: false,
                 appBar: AppBar(
+                  actionsPadding: const EdgeInsets.only(right: 8),
                   automaticallyImplyLeading: false,
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.darkText,
+                  backgroundColor: AppColors.appBarBg,
+                  flexibleSpace: const ControlAppBarGlow(),
+                  titleSpacing: isEditing
+                      ? 16
+                      : NavigationToolbar.kMiddleSpacing,
+                  title: isEditing
+                      ? const Text(
+                          'CUSTOMIZE',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.1,
+                            color: AppColors.appBarGlow,
+                          ),
+                        )
+                      : DeviceInfoAppBarTitle(
+                          deviceName: screenTitle,
+                          plcType: controller.connectedPlcType,
+                          rssi: controller.connectedDeviceRssi,
                         ),
-                      ),
-                      if (!isEditing && arrangement.showConnectionSubtitle)
-                        Row(
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              margin: const EdgeInsets.only(right: 5),
-                              decoration: const BoxDecoration(
-                                color: AppColors.upColorLight,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const Text(
-                              'Connected',
-                              style: TextStyle(
-                                color: AppColors.upColorLight,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
                   actions: isEditing
                       ? [
                           IconButton(
@@ -413,16 +401,51 @@ class _ControlScreenState extends State<ControlScreen>
                             tooltip: 'Customize Layout',
                             onPressed: _enterCustomizationMode,
                           ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.bluetooth_disabled,
-                              size: 20,
-                              color: AppColors.darkTextSub,
-                            ),
-                            tooltip: 'Disconnect',
+                          IconButton.filledTonal(
                             onPressed: controller.disconnect,
+                            tooltip: 'Disconnect',
+                            style: IconButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              backgroundColor: AppColors.error.withValues(
+                                alpha: 0.10,
+                              ),
+                              hoverColor: AppColors.error.withValues(
+                                alpha: 0.15,
+                              ),
+                              highlightColor: AppColors.error.withValues(
+                                alpha: 0.20,
+                              ),
+                              minimumSize: const Size(42, 42),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: AppColors.error.withValues(
+                                    alpha: 0.22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.power_settings_new_rounded,
+                              size: 21,
+                            ),
                           ),
                         ],
+                  bottom: isEditing
+                      ? null
+                      : const PreferredSize(
+                          preferredSize: Size.fromHeight(3),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: AppColors.appBarBanner,
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: AppColors.appBarBannerBorder,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                 ),
                 body: SafeArea(
                   maintainBottomViewPadding: true,

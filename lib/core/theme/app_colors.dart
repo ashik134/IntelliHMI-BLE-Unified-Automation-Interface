@@ -42,6 +42,14 @@ class AppColors {
   static const Color darkTextMuted = Color(0xFF94A6B7);
   static const Color darkBorder = Color(0xFF30363D);
 
+  // ── Control Screen AppBar (violet-tinted) ─────────────────────────────
+  static const Color appBarBg = Color(0xFF12101E);
+  static const Color appBarGlow = Color(0xFF8B5CF6);
+  static const Color appBarBanner = Color(0x1A7C3AED); // violet-600 @ 10%
+  static const Color appBarBannerBorder = Color(
+    0x338B5CF6,
+  ); // violet-500 @ 20%
+
   // ── Light theme – Home Screen ────────────────────────────────────────
   static const Color homeBg = Color(0xFFF5F7FA);
   static const Color surface = Color(0xFFFFFFFF);
