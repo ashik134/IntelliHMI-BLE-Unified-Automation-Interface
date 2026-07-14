@@ -39,6 +39,75 @@ class ControlAppBarGlow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CustomizationStatusBanner
+//
+// Replaces the AppBar's thin bottom accent line while Customization Mode is
+// active: a status readout ("Customization mode active — drag widgets to
+// rearrange") plus a "Done" action. Mirrors the violet banner-strip styling
+// used in normal mode so the AppBar's bottom edge stays visually consistent
+// between the two modes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class CustomizationStatusBanner extends StatelessWidget
+    implements PreferredSizeWidget {
+  const CustomizationStatusBanner({super.key, required this.onDone});
+
+  final VoidCallback onDone;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(34);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: preferredSize.height,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: const BoxDecoration(
+        color: AppColors.appBarBanner,
+        border: Border(
+          bottom: BorderSide(color: AppColors.appBarBannerBorder),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle_rounded,
+            size: 14,
+            color: AppColors.appBarGlow,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Customization mode active — drag widgets to rearrange',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.darkText.withAlpha(217),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onDone,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.appBarGlow,
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Done',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DeviceInfoAppBarTitle
 //
 // Normal-mode AppBar title: device name + PLC type + live RSSI, tappable to

@@ -216,6 +216,24 @@ class _ControlScreenState extends State<ControlScreen>
     await context.read<CustomizationModeController>().enter();
   }
 
+  // Mirrors CustomizationModeBar's Apply action — the AppBar's "Done" banner
+  // button is a second entry point to the same commit flow.
+  Future<void> _finishCustomization(
+    CustomizationModeController customCtrl,
+  ) async {
+    final result = await customCtrl.commit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.isValid ? 'Layout applied.' : result.firstError),
+        backgroundColor: result.isValid
+            ? AppColors.darkSuccess
+            : AppColors.eStopColor,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _confirmDeleteSelectedButton(
     CustomizationModeController customCtrl,
   ) async {
@@ -432,7 +450,9 @@ class _ControlScreenState extends State<ControlScreen>
                           ),
                         ],
                   bottom: isEditing
-                      ? null
+                      ? CustomizationStatusBanner(
+                          onDone: () => _finishCustomization(customCtrl),
+                        )
                       : const PreferredSize(
                           preferredSize: Size.fromHeight(3),
                           child: DecoratedBox(
