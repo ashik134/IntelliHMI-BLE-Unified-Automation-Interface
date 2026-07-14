@@ -536,6 +536,28 @@ void main() {
       expect(occupiedGridSlotsFor(config), [2, 3]);
     });
 
+    test('PLC14 role list renders only hoist controls from default layout', () {
+      final pages = buildControlGridPages(
+        layoutCfg: const ControlLayoutConfig(),
+        roles: const [ControlRole.hoistUp, ControlRole.hoistDown],
+        slotCount: 2,
+      );
+
+      final renderedIds = pages
+          .expand((page) => page.items)
+          .map((item) => item.config.id)
+          .toList();
+
+      expect(renderedIds, [
+        ControlRole.hoistUp.name,
+        ControlRole.hoistDown.name,
+      ]);
+      expect(renderedIds, isNot(contains(ControlRole.traverseLeft.name)));
+      expect(renderedIds, isNot(contains(ControlRole.traverseRight.name)));
+      expect(renderedIds, isNot(contains(ControlRole.travelForward.name)));
+      expect(renderedIds, isNot(contains(ControlRole.travelReverse.name)));
+    });
+
     test('auto arrange creates a new page when page one is full', () {
       final base = const ControlLayoutConfig().resolvedButtons;
       final buttons = {

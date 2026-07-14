@@ -208,6 +208,7 @@ List<ControlGridPage> buildControlGridPages({
 
   for (final source in layoutCfg.resolvedButtons.values) {
     if (renderedIds.contains(source.id) || !_isPageControl(source)) continue;
+    if (source.role != null) continue;
     if (isRedundantCrossTravelConfig(source, layoutCfg.resolvedButtons)) {
       continue;
     }
