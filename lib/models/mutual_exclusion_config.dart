@@ -47,9 +47,8 @@ class MutualExclusionConfig {
   };
 
   factory MutualExclusionConfig.fromJson(Map<String, dynamic> json) {
-    Set<String> readSet(String key) => ((json[key] as List?) ?? const [])
-        .map((e) => e.toString())
-        .toSet();
+    Set<String> readSet(String key) =>
+        ((json[key] as List?) ?? const []).map((e) => e.toString()).toSet();
     return MutualExclusionConfig(
       excludedButtonIds: readSet('excludedButtonIds'),
       inclusiveButtonIds: readSet('inclusiveButtonIds'),

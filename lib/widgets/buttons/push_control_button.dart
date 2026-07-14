@@ -47,7 +47,6 @@ class DirectionalPushControlButton extends StatelessWidget {
         onReleased: isSpringReturn
             ? () => onCommandChanged(ControlState.idle)
             : null,
-       
       ),
     );
   }

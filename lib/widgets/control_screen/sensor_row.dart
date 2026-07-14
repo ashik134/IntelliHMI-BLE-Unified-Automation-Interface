@@ -76,7 +76,11 @@ class _SensorCard extends StatelessWidget {
             child: Center(
               child: Text(
                 tag,
-                style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -87,7 +91,10 @@ class _SensorCard extends StatelessWidget {
               children: [
                 Text(
                   label.toUpperCase(),
-                  style: const TextStyle(color: AppColors.darkTextSub, fontSize: 8),
+                  style: const TextStyle(
+                    color: AppColors.darkTextSub,
+                    fontSize: 8,
+                  ),
                 ),
                 Text(
                   '$value',

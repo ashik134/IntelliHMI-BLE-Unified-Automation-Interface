@@ -1146,9 +1146,7 @@ class BleService {
         return;
       } on BleCryptoException catch (e) {
         _logger.e('Encryption failure on digital write: $e');
-        unawaited(
-          _cryptoSafeState('BleCryptoException during encrypt: $e'),
-        );
+        unawaited(_cryptoSafeState('BleCryptoException during encrypt: $e'));
         return;
       } on StateError catch (e) {
         _logger.e('Crypto session state error on digital write: $e');

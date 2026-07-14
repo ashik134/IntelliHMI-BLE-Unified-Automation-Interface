@@ -119,4 +119,3 @@ class _MiniStatCard extends StatelessWidget {
     );
   }
 }
-

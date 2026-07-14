@@ -81,17 +81,14 @@ Map<String, ControlState> toButtonStates({
 }) {
   return {
     if (vertState != ControlState.idle)
-      (vertIsUp ? ControlRole.hoistUp : ControlRole.hoistDown).name:
-          vertState,
+      (vertIsUp ? ControlRole.hoistUp : ControlRole.hoistDown).name: vertState,
     if (travState != ControlState.idle)
-      (travIsLeft ? ControlRole.traverseLeft : ControlRole.traverseRight)
-              .name:
+      (travIsLeft ? ControlRole.traverseLeft : ControlRole.traverseRight).name:
           travState,
     if (tripState != ControlState.idle)
-      (tripIsForward
-              ? ControlRole.travelForward
-              : ControlRole.travelReverse)
-          .name: tripState,
+      (tripIsForward ? ControlRole.travelForward : ControlRole.travelReverse)
+              .name:
+          tripState,
   };
 }
 
@@ -234,56 +231,68 @@ void main() {
         kTraverseLeftFastKey: ControlState.slow,
       });
       expect(cmd.fastLr, isTrue);
-      expect(cmd.left,  isFalse);
+      expect(cmd.left, isFalse);
       expect(cmd.right, isFalse);
     });
 
-    test('left direction + right-slider fast (kTraverseRightFastKey) → left fast', () {
-      final cmd = composeFromButtonStates({
-        ControlRole.traverseLeft.name: ControlState.slow,
-        kTraverseRightFastKey:         ControlState.slow,
-      });
-      expect(cmd.left,   isTrue);
-      expect(cmd.right,  isFalse);
-      expect(cmd.fastLr, isTrue);
-    });
+    test(
+      'left direction + right-slider fast (kTraverseRightFastKey) → left fast',
+      () {
+        final cmd = composeFromButtonStates({
+          ControlRole.traverseLeft.name: ControlState.slow,
+          kTraverseRightFastKey: ControlState.slow,
+        });
+        expect(cmd.left, isTrue);
+        expect(cmd.right, isFalse);
+        expect(cmd.fastLr, isTrue);
+      },
+    );
 
-    test('right direction + left-slider fast (kTraverseLeftFastKey) → right fast', () {
-      final cmd = composeFromButtonStates({
-        ControlRole.traverseRight.name: ControlState.slow,
-        kTraverseLeftFastKey:           ControlState.slow,
-      });
-      expect(cmd.left,   isFalse);
-      expect(cmd.right,  isTrue);
-      expect(cmd.fastLr, isTrue);
-    });
+    test(
+      'right direction + left-slider fast (kTraverseLeftFastKey) → right fast',
+      () {
+        final cmd = composeFromButtonStates({
+          ControlRole.traverseRight.name: ControlState.slow,
+          kTraverseLeftFastKey: ControlState.slow,
+        });
+        expect(cmd.left, isFalse);
+        expect(cmd.right, isTrue);
+        expect(cmd.fastLr, isTrue);
+      },
+    );
 
-    test('ownership prevents two virtual keys from co-existing in the state map', () {
-      // After ownership enforcement, if kTraverseLeftFastKey owns fastLr,
-      // kTraverseRightFastKey is blocked and never added.  The state map
-      // therefore never has both keys simultaneously.
-      // This test simply validates the composition of the legal post-ownership
-      // state (single key only) produces a valid packet.
-      final cmd = composeFromButtonStates({
-        kTraverseLeftFastKey: ControlState.slow,
-        // kTraverseRightFastKey intentionally absent — was blocked
-      });
-      expect(cmd.isValid, isTrue);
-    });
+    test(
+      'ownership prevents two virtual keys from co-existing in the state map',
+      () {
+        // After ownership enforcement, if kTraverseLeftFastKey owns fastLr,
+        // kTraverseRightFastKey is blocked and never added.  The state map
+        // therefore never has both keys simultaneously.
+        // This test simply validates the composition of the legal post-ownership
+        // state (single key only) produces a valid packet.
+        final cmd = composeFromButtonStates({
+          kTraverseLeftFastKey: ControlState.slow,
+          // kTraverseRightFastKey intentionally absent — was blocked
+        });
+        expect(cmd.isValid, isTrue);
+      },
+    );
   });
 
-  group('PLC14 wire format (4-field) is unaffected by the button-centric path', () {
-    test('idle command emits the 4-field idle format', () {
-      final cmd = PlcOutputCommand.idle();
-      expect(cmd.wireFormatFor(PlcType.plc14), '[0,0,0,0]');
-    });
+  group(
+    'PLC14 wire format (4-field) is unaffected by the button-centric path',
+    () {
+      test('idle command emits the 4-field idle format', () {
+        final cmd = PlcOutputCommand.idle();
+        expect(cmd.wireFormatFor(PlcType.plc14), '[0,0,0,0]');
+      });
 
-    test('hoist up fast emits the 4-field motion format', () {
-      final cmd = PlcOutputCommand.motion(
-        direction: HoistDirection.up,
-        speed: HoistSpeed.fast,
-      );
-      expect(cmd.wireFormatFor(PlcType.plc14), '[0,1,0,1]');
-    });
-  });
+      test('hoist up fast emits the 4-field motion format', () {
+        final cmd = PlcOutputCommand.motion(
+          direction: HoistDirection.up,
+          speed: HoistSpeed.fast,
+        );
+        expect(cmd.wireFormatFor(PlcType.plc14), '[0,1,0,1]');
+      });
+    },
+  );
 }

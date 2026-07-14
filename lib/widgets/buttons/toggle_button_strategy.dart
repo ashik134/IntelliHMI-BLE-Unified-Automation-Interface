@@ -20,14 +20,16 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
 
   /// Maps the stored [PushButtonWiringConfig] to the visual [ToggleSwitchMode]
   /// understood by [ToggleSwitchButton].
-  static ToggleSwitchMode _modeFor(PushButtonWiringConfig wiring) =>
-      switch (wiring) {
-        PushButtonWiringConfig.offMomentary           => ToggleSwitchMode.springReturnOneSide,
-        PushButtonWiringConfig.offLatched             => ToggleSwitchMode.latchingOneSide,
-        PushButtonWiringConfig.springReturnBoth       => ToggleSwitchMode.springReturnBoth,
-        PushButtonWiringConfig.latchingBoth           => ToggleSwitchMode.latchingBoth,
-        PushButtonWiringConfig.mixedLeftLatchRightSpring => ToggleSwitchMode.mixed,
-      };
+  static ToggleSwitchMode _modeFor(
+    PushButtonWiringConfig wiring,
+  ) => switch (wiring) {
+    PushButtonWiringConfig.offMomentary => ToggleSwitchMode.springReturnOneSide,
+    PushButtonWiringConfig.offLatched => ToggleSwitchMode.latchingOneSide,
+    PushButtonWiringConfig.springReturnBoth =>
+      ToggleSwitchMode.springReturnBoth,
+    PushButtonWiringConfig.latchingBoth => ToggleSwitchMode.latchingBoth,
+    PushButtonWiringConfig.mixedLeftLatchRightSpring => ToggleSwitchMode.mixed,
+  };
 
   @override
   Widget build({
@@ -41,9 +43,10 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
     final (defaultColor, defaultColorLight) = role != null
         ? colorsForRole(role)
         : (Colors.blueGrey, Colors.blueGrey.shade200);
-    final activeColor      = config.style.resolvePrimary(defaultColor);
+    final activeColor = config.style.resolvePrimary(defaultColor);
     final activeColorLight = config.style.resolveActive(defaultColorLight);
-    final icon = config.icon ??
+    final icon =
+        config.icon ??
         (role != null ? iconForRole(role) : Icons.radio_button_checked);
     final mode = _modeFor(config.behavior.wiring);
 
@@ -57,10 +60,8 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
       isSpringReturn: config.behavior.isSpringReturn,
       mode: mode,
       // T-O-R: top (left) latches, bottom (right) spring-returns.
-      leftIsSpringReturn:
-          mode == ToggleSwitchMode.mixed ? false : null,
-      rightIsSpringReturn:
-          mode == ToggleSwitchMode.mixed ? true : null,
+      leftIsSpringReturn: mode == ToggleSwitchMode.mixed ? false : null,
+      rightIsSpringReturn: mode == ToggleSwitchMode.mixed ? true : null,
       style: config.style,
       onCommandChanged: (state) => onCommand(config.id, state),
     );

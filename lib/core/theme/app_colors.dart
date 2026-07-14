@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-
 class AppColors {
   AppColors._();
   // ── Dark theme – Crane Control Screen ───────────────────────────────

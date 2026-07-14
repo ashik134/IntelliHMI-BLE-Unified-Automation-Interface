@@ -48,12 +48,12 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
     // buildPaired instead (see plc38_control_screen.dart's traverse axis).
     final endpoints = _traverseEndpointsFor(config);
 
-    bool isLeftZoneBlocked  = false;
+    bool isLeftZoneBlocked = false;
     bool isRightZoneBlocked = false;
     if (!isDisabled) {
       final ctrl = _tryReadController(context);
       if (ctrl != null) {
-        isLeftZoneBlocked  = ctrl.isFieldBlockedForButton(endpoints.leftId);
+        isLeftZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.leftId);
         isRightZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.rightId);
       }
     }
@@ -81,7 +81,7 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
     required String rightLabel,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
-    bool isLeftZoneBlocked  = false,
+    bool isLeftZoneBlocked = false,
     bool isRightZoneBlocked = false,
   }) {
     return CrossTravelSlider(
@@ -144,12 +144,12 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
 
     // Per-zone blocking: prevents this slider from entering the zone that
     // would claim a PLC field already owned by another button.
-    bool isLeftZoneBlocked  = false;
+    bool isLeftZoneBlocked = false;
     bool isRightZoneBlocked = false;
     if (!isDisabled) {
       final ctrl = _tryReadController(context);
       if (ctrl != null) {
-        isLeftZoneBlocked  = ctrl.isFieldBlockedForButton(endpoints.leftId);
+        isLeftZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.leftId);
         isRightZoneBlocked = ctrl.isFieldBlockedForButton(endpoints.rightId);
       }
     }

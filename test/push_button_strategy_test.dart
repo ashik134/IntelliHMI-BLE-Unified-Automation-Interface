@@ -58,83 +58,80 @@ void main() {
         expect(
           commands,
           contains((id: ControlRole.hoistUp.name, state: ControlState.slow)),
-          reason: 'pointer down on a spring-return push button must send ACTIVE',
+          reason:
+              'pointer down on a spring-return push button must send ACTIVE',
         );
 
         await gesture.up();
         await tester.pump();
 
-        expect(
-          commands.last,
-          (id: ControlRole.hoistUp.name, state: ControlState.idle),
-          reason: 'release must send IDLE',
-        );
+        expect(commands.last, (
+          id: ControlRole.hoistUp.name,
+          state: ControlState.idle,
+        ), reason: 'release must send IDLE');
       },
     );
 
-    testWidgets(
-      'latching: tap ON sends ACTIVE, tap OFF sends IDLE',
-      (tester) async {
-        final commands = <({String id, ControlState state})>[];
-        var externalActive = false;
+    testWidgets('latching: tap ON sends ACTIVE, tap OFF sends IDLE', (
+      tester,
+    ) async {
+      final commands = <({String id, ControlState state})>[];
+      var externalActive = false;
 
-        Widget buildTree() => MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) {
-                final config = ButtonConfig(
-                  id: ControlRole.hoistDown.name,
-                  type: ButtonType.pushButton,
-                  plcMapping: ControlRole.hoistDown.plcMapping!,
-                  role: ControlRole.hoistDown,
-                  label: 'DOWN',
-                  behavior: const ButtonBehaviorConfig(
-                    wiring: PushButtonWiringConfig.offLatched, // latching
-                  ),
-                );
-                return const PushButtonStrategy().build(
-                  context: context,
-                  config: config,
-                  activeState: externalActive
-                      ? ControlState.slow
-                      : ControlState.idle,
-                  isDisabled: false,
-                  onCommand: (id, state) =>
-                      commands.add((id: id, state: state)),
-                );
-              },
-            ),
+      Widget buildTree() => MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              final config = ButtonConfig(
+                id: ControlRole.hoistDown.name,
+                type: ButtonType.pushButton,
+                plcMapping: ControlRole.hoistDown.plcMapping!,
+                role: ControlRole.hoistDown,
+                label: 'DOWN',
+                behavior: const ButtonBehaviorConfig(
+                  wiring: PushButtonWiringConfig.offLatched, // latching
+                ),
+              );
+              return const PushButtonStrategy().build(
+                context: context,
+                config: config,
+                activeState: externalActive
+                    ? ControlState.slow
+                    : ControlState.idle,
+                isDisabled: false,
+                onCommand: (id, state) => commands.add((id: id, state: state)),
+              );
+            },
           ),
-        );
+        ),
+      );
 
-        await tester.pumpWidget(buildTree());
+      await tester.pumpWidget(buildTree());
 
-        // Tap ON.
-        await tester.tap(find.byType(IndustrialSpringButton));
-        await tester.pump();
+      // Tap ON.
+      await tester.tap(find.byType(IndustrialSpringButton));
+      await tester.pump();
 
-        expect(
-          commands,
-          contains((id: ControlRole.hoistDown.name, state: ControlState.slow)),
-          reason:
-              'tapping a latching push button ON must send ACTIVE via onChanged '
-              '(this was the missing wiring that caused no PLC output)',
-        );
+      expect(
+        commands,
+        contains((id: ControlRole.hoistDown.name, state: ControlState.slow)),
+        reason:
+            'tapping a latching push button ON must send ACTIVE via onChanged '
+            '(this was the missing wiring that caused no PLC output)',
+      );
 
-        externalActive = true;
-        await tester.pumpWidget(buildTree());
-        await tester.pump();
+      externalActive = true;
+      await tester.pumpWidget(buildTree());
+      await tester.pump();
 
-        // Tap OFF.
-        await tester.tap(find.byType(IndustrialSpringButton));
-        await tester.pump();
+      // Tap OFF.
+      await tester.tap(find.byType(IndustrialSpringButton));
+      await tester.pump();
 
-        expect(
-          commands.last,
-          (id: ControlRole.hoistDown.name, state: ControlState.idle),
-          reason: 'tapping a latching push button OFF must send IDLE',
-        );
-      },
-    );
+      expect(commands.last, (
+        id: ControlRole.hoistDown.name,
+        state: ControlState.idle,
+      ), reason: 'tapping a latching push button OFF must send IDLE');
+    });
   });
 }

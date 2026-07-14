@@ -393,7 +393,6 @@ class _PlcTypeBadge extends StatelessWidget {
   final bool compact;
 
   bool get _isKnown => plcType != PlcType.unknown;
-
   @override
   Widget build(BuildContext context) {
     final Color bg = _isKnown

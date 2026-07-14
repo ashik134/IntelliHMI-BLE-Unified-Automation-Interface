@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -128,9 +128,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             physics: const BouncingScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: _ProfessionalHeader(
-                  onSettingsTap: _navigateToSettings,
-                ),
+                child: _ProfessionalHeader(onSettingsTap: _navigateToSettings),
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
@@ -351,9 +349,10 @@ class _ConnectPlcCardState extends State<_ConnectPlcCard>
       vsync: this,
       duration: const Duration(milliseconds: 120),
     );
-    _pressAnim = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut),
-    );
+    _pressAnim = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -551,9 +550,10 @@ class _QuickActionCardState extends State<_QuickActionCard>
       vsync: this,
       duration: const Duration(milliseconds: 120),
     );
-    _pressAnim = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut),
-    );
+    _pressAnim = Tween<double>(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -775,18 +775,18 @@ class _HealthMetricRow extends StatelessWidget {
   final bool isLast;
 
   Color get _color => switch (status) {
-        _MetricStatus.ok => AppColors.homeSuccess,
-        _MetricStatus.warning => AppColors.homeWarning,
-        _MetricStatus.error => AppColors.homeDanger,
-        _MetricStatus.neutral => AppColors.lightTextMuted,
-      };
+    _MetricStatus.ok => AppColors.homeSuccess,
+    _MetricStatus.warning => AppColors.homeWarning,
+    _MetricStatus.error => AppColors.homeDanger,
+    _MetricStatus.neutral => AppColors.lightTextMuted,
+  };
 
   Color get _bgColor => switch (status) {
-        _MetricStatus.ok => AppColors.homeSuccessLight,
-        _MetricStatus.warning => AppColors.homeWarningLight,
-        _MetricStatus.error => AppColors.homeDangerLight,
-        _MetricStatus.neutral => AppColors.homeSurfaceAlt,
-      };
+    _MetricStatus.ok => AppColors.homeSuccessLight,
+    _MetricStatus.warning => AppColors.homeWarningLight,
+    _MetricStatus.error => AppColors.homeDangerLight,
+    _MetricStatus.neutral => AppColors.homeSurfaceAlt,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -819,7 +819,10 @@ class _HealthMetricRow extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: _bgColor,
                   borderRadius: BorderRadius.circular(8),
@@ -921,8 +924,7 @@ class _CommStatsPanel extends StatelessWidget {
             firstChild: const SizedBox.shrink(),
             secondChild: const Column(
               children: [
-                Divider(
-                    height: 1, thickness: 0.5, color: AppColors.homeBorder),
+                Divider(height: 1, thickness: 0.5, color: AppColors.homeBorder),
                 Padding(
                   padding: EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
@@ -1010,7 +1012,9 @@ class _StatRowItem extends StatelessWidget {
               Text(
                 value,
                 style: TextStyle(
-                  color: isWarning ? AppColors.homeWarning : AppColors.lightText,
+                  color: isWarning
+                      ? AppColors.homeWarning
+                      : AppColors.lightText,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   fontFeatures: const [FontFeature.tabularFigures()],

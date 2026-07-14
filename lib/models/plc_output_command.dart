@@ -53,18 +53,30 @@ class PlcOutputCommand {
   factory PlcOutputCommand.idle() {
     return const PlcOutputCommand._(
       estop: false,
-      up: false, down: false, fastUd: false,
-      left: false, right: false, fastLr: false,
-      forward: false, reverse: false, fastFb: false,
+      up: false,
+      down: false,
+      fastUd: false,
+      left: false,
+      right: false,
+      fastLr: false,
+      forward: false,
+      reverse: false,
+      fastFb: false,
     );
   }
 
   factory PlcOutputCommand.emergencyStop() {
     return const PlcOutputCommand._(
       estop: true,
-      up: false, down: false, fastUd: false,
-      left: false, right: false, fastLr: false,
-      forward: false, reverse: false, fastFb: false,
+      up: false,
+      down: false,
+      fastUd: false,
+      left: false,
+      right: false,
+      fastLr: false,
+      forward: false,
+      reverse: false,
+      fastFb: false,
     );
   }
 
@@ -78,8 +90,12 @@ class PlcOutputCommand {
       up: direction == HoistDirection.up,
       down: direction == HoistDirection.down,
       fastUd: speed == HoistSpeed.fast,
-      left: false, right: false, fastLr: false,
-      forward: false, reverse: false, fastFb: false,
+      left: false,
+      right: false,
+      fastLr: false,
+      forward: false,
+      reverse: false,
+      fastFb: false,
     );
   }
 
@@ -93,11 +109,15 @@ class PlcOutputCommand {
     final base = existing ?? PlcOutputCommand.idle();
     return PlcOutputCommand._(
       estop: false,
-      up: base.up, down: base.down, fastUd: base.fastUd,
+      up: base.up,
+      down: base.down,
+      fastUd: base.fastUd,
       left: direction == TraverseDirection.left,
       right: direction == TraverseDirection.right,
       fastLr: speed == ControlState.fast,
-      forward: base.forward, reverse: base.reverse, fastFb: base.fastFb,
+      forward: base.forward,
+      reverse: base.reverse,
+      fastFb: base.fastFb,
     );
   }
 
@@ -111,8 +131,12 @@ class PlcOutputCommand {
     final base = existing ?? PlcOutputCommand.idle();
     return PlcOutputCommand._(
       estop: false,
-      up: base.up, down: base.down, fastUd: base.fastUd,
-      left: base.left, right: base.right, fastLr: base.fastLr,
+      up: base.up,
+      down: base.down,
+      fastUd: base.fastUd,
+      left: base.left,
+      right: base.right,
+      fastLr: base.fastLr,
       forward: direction == TravelDirection.forward,
       reverse: direction == TravelDirection.reverse,
       fastFb: speed == ControlState.fast,
@@ -123,15 +147,27 @@ class PlcOutputCommand {
   /// when building composed PLC38 commands from independent axis states.
   factory PlcOutputCommand.compose({
     required bool estop,
-    required bool up, required bool down, required bool fastUd,
-    required bool left, required bool right, required bool fastLr,
-    required bool forward, required bool reverse, required bool fastFb,
+    required bool up,
+    required bool down,
+    required bool fastUd,
+    required bool left,
+    required bool right,
+    required bool fastLr,
+    required bool forward,
+    required bool reverse,
+    required bool fastFb,
   }) {
     return PlcOutputCommand._(
       estop: estop,
-      up: up, down: down, fastUd: fastUd,
-      left: left, right: right, fastLr: fastLr,
-      forward: forward, reverse: reverse, fastFb: fastFb,
+      up: up,
+      down: down,
+      fastUd: fastUd,
+      left: left,
+      right: right,
+      fastLr: fastLr,
+      forward: forward,
+      reverse: reverse,
+      fastFb: fastFb,
     );
   }
 
@@ -169,15 +205,21 @@ class PlcOutputCommand {
       }
 
       // PLC14/PLC21: [estop, up, down, fast]
-      final up   = parts.length > 1 ? parts[1] != 0 : false;
+      final up = parts.length > 1 ? parts[1] != 0 : false;
       final down = parts.length > 2 ? parts[2] != 0 : false;
       final fast = parts.length > 3 ? parts[3] != 0 : false;
 
       return PlcOutputCommand._(
         estop: false,
-        up: up, down: down, fastUd: fast,
-        left: false, right: false, fastLr: false,
-        forward: false, reverse: false, fastFb: false,
+        up: up,
+        down: down,
+        fastUd: fast,
+        left: false,
+        right: false,
+        fastLr: false,
+        forward: false,
+        reverse: false,
+        fastFb: false,
       );
     } catch (_) {
       return PlcOutputCommand.idle();
@@ -264,9 +306,15 @@ class PlcOutputCommand {
 
   PlcOutputCommand copyWith({
     bool? estop,
-    bool? up, bool? down, bool? fastUd,
-    bool? left, bool? right, bool? fastLr,
-    bool? forward, bool? reverse, bool? fastFb,
+    bool? up,
+    bool? down,
+    bool? fastUd,
+    bool? left,
+    bool? right,
+    bool? fastLr,
+    bool? forward,
+    bool? reverse,
+    bool? fastFb,
   }) {
     return PlcOutputCommand._(
       estop: estop ?? this.estop,
@@ -300,5 +348,15 @@ class PlcOutputCommand {
 
   @override
   int get hashCode => Object.hash(
-      estop, up, down, fastUd, left, right, fastLr, forward, reverse, fastFb);
+    estop,
+    up,
+    down,
+    fastUd,
+    left,
+    right,
+    fastLr,
+    forward,
+    reverse,
+    fastFb,
+  );
 }

@@ -167,6 +167,10 @@ class _ControlTabState extends State<_ControlTab> {
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        if (_controllerRef!.currentScreen == AppScreen.connection) {
+          _subShellPushed = false;
+          return;
+        }
         context.read<NavigationController>().navigateToControl();
         Navigator.of(
           context,

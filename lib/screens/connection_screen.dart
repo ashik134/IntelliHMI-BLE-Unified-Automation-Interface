@@ -20,6 +20,7 @@ class ConnectionScreen extends StatefulWidget {
 class _ConnectionScreenState extends State<ConnectionScreen> {
   CraneController? _controller;
   String? _lastShownError;
+  bool _leavingToHome = false;
 
   @override
   void didChangeDependencies() {
@@ -132,13 +133,44 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  Future<void> _leaveToHome() async {
+    if (_leavingToHome) return;
+    _leavingToHome = true;
+
+    final controller = context.read<CraneController>();
+    final navigation = context.read<NavigationController>();
+
+    try {
+      if (controller.isScanning) {
+        await controller.stopScan();
+      }
+
+      if (controller.isConnecting ||
+          controller.isDiscoveringServices ||
+          controller.isConfiguringNotifications) {
+        await controller.cancelConnecting();
+      }
+
+      if (controller.isConnectionActive ||
+          controller.isConnected ||
+          controller.connectionState.connectedDevice != null) {
+        await controller.disconnect();
+      }
+    } finally {
+      if (!mounted) {
+        // ignore: control_flow_in_finally
+        return;
+      }
+      navigation.navigateToHome();
+      _leavingToHome = false;
+    }
+  }
+
   Widget _buildAppBar(CraneController controller) {
     return IndustrialAppBar(
       title: 'Scan Devices',
       showBackButton: true,
-      onBackPressed: () {
-        context.read<NavigationController>().navigateToHome();
-      },
+      onBackPressed: _leaveToHome,
       isScanning: controller.isScanning,
       canScan:
           !controller.isConnectionActive &&
@@ -154,44 +186,53 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
+    final isActiveTab = context.watch<NavigationController>().currentIndex == 1;
 
-    return Scaffold(
-      backgroundColor: AppColors.connBg,
-      body: controller.isInitializing
-          ? const _InitializingView()
-          : Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFF7F9FC), AppColors.connBg],
+    return PopScope(
+      canPop: !isActiveTab,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (!isActiveTab) return;
+        _leaveToHome();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.connBg,
+        body: controller.isInitializing
+            ? const _InitializingView()
+            : Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFF7F9FC), AppColors.connBg],
+                  ),
                 ),
-              ),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    _buildAppBar(controller),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                        child: Column(
-                          children: [
-                            HeroStatusCard(controller: controller),
-                            const SizedBox(height: 12),
-                            QuickStatusRow(controller: controller),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              child: DevicesPanel(controller: controller),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
+                child: SafeArea(
+                  child: Column(
+                    children: [
+                      _buildAppBar(controller),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          child: Column(
+                            children: [
+                              HeroStatusCard(controller: controller),
+                              const SizedBox(height: 12),
+                              QuickStatusRow(controller: controller),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: DevicesPanel(controller: controller),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -307,8 +348,6 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 
   Widget _buildBackButton(BuildContext context) {
-    final canPop = Navigator.canPop(context);
-
     return Padding(
       padding: const EdgeInsets.only(right: 10),
       child: Material(
@@ -316,9 +355,7 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: () {
-            if (canPop) {
-              Navigator.pop(context);
-            } else if (onBackPressed != null) {
+            if (onBackPressed != null) {
               onBackPressed!();
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -345,7 +382,9 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
             child: Icon(
               Icons.arrow_back_sharp,
               size: 20,
-              color: canPop ? AppColors.lightText : AppColors.lightTextMuted,
+              color: onBackPressed != null
+                  ? AppColors.lightText
+                  : AppColors.lightTextMuted,
             ),
           ),
         ),
@@ -424,7 +463,7 @@ class IndustrialAppBar extends StatelessWidget implements PreferredSizeWidget {
                   disabledForegroundColor: AppColors.lightText.withAlpha(115),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: const BorderSide(color: AppColors.darkBorder)
+                    side: const BorderSide(color: AppColors.darkBorder),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   minimumSize: const Size(80, 40),

@@ -24,13 +24,11 @@ IconData iconForRole(ControlRole role) => switch (role) {
 (Color, Color) colorsForRole(ControlRole role) => switch (role) {
   ControlRole.hoistUp => (AppColors.upColor, AppColors.upColorLight),
   ControlRole.hoistDown => (AppColors.downColor, AppColors.downColorLight),
-  ControlRole.traverseLeft ||
-  ControlRole.traverseRight => (
+  ControlRole.traverseLeft || ControlRole.traverseRight => (
     AppColors.traverseColor,
     AppColors.traverseColorLight,
   ),
-  ControlRole.travelForward ||
-  ControlRole.travelReverse => (
+  ControlRole.travelForward || ControlRole.travelReverse => (
     AppColors.travelColor,
     AppColors.travelColorLight,
   ),

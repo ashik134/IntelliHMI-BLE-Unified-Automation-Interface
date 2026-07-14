@@ -43,7 +43,11 @@ class SafetyActionPanel extends StatelessWidget {
       curve: Curves.easeOut,
       width: double.infinity,
       child: estopLatched
-          ? _ResetSection(resetLabel: resetLabel, compact: compact, onResetActivated: onResetActivated)
+          ? _ResetSection(
+              resetLabel: resetLabel,
+              compact: compact,
+              onResetActivated: onResetActivated,
+            )
           : _EStopButton(
               compact: compact,
               height: height,
@@ -104,9 +108,16 @@ class _EStopButton extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(31),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withAlpha(64), width: 2),
+                  border: Border.all(
+                    color: Colors.white.withAlpha(64),
+                    width: 2,
+                  ),
                 ),
-                child: const Icon(Icons.power_settings_new, color: Colors.white, size: 18),
+                child: const Icon(
+                  Icons.power_settings_new,
+                  color: Colors.white,
+                  size: 18,
+                ),
               ),
               SizedBox(width: compact ? 10 : 12),
               Column(
@@ -128,7 +139,10 @@ class _EStopButton extends StatelessWidget {
                     'Tap to stop all crane operations',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white60, fontSize: compact ? 9 : 10),
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: compact ? 9 : 10,
+                    ),
                   ),
                 ],
               ),
@@ -161,7 +175,10 @@ class _ResetSection extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.eStopColor.withAlpha(31),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.eStopColor.withAlpha(153), width: 2),
+            border: Border.all(
+              color: AppColors.eStopColor.withAlpha(153),
+              width: 2,
+            ),
           ),
           child: Row(
             children: [
@@ -190,7 +207,10 @@ class _ResetSection extends StatelessWidget {
                     ),
                     Text(
                       'All crane controls are locked',
-                      style: TextStyle(color: AppColors.darkTextSub, fontSize: 10),
+                      style: TextStyle(
+                        color: AppColors.darkTextSub,
+                        fontSize: 10,
+                      ),
                     ),
                   ],
                 ),

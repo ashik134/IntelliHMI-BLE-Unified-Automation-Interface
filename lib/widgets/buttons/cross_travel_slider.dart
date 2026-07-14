@@ -43,7 +43,7 @@ class CrossTravelSlider extends StatefulWidget {
   /// Fired on every zone transition.  [isLeft] selects the output direction;
   /// [state] encodes speed (idle / slow / fast).
   final void Function({required bool isLeft, required ControlState state})
-      onCommandChanged;
+  onCommandChanged;
 
   /// Five-zone emits slow and fast. Three-zone emits idle/left-slow/right-slow
   /// only, even at the far end of the track.
@@ -274,148 +274,152 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, box) {
-      final w = box.maxWidth;
-      final halfTrack = (w - _thumbW) / 2.0;
-      final thumbCX = w / 2.0 + _value * halfTrack;
+    return LayoutBuilder(
+      builder: (ctx, box) {
+        final w = box.maxWidth;
+        final halfTrack = (w - _thumbW) / 2.0;
+        final thumbCX = w / 2.0 + _value * halfTrack;
 
-      final zone = _zoneFor(_value);
-      final isFast = zone == _TravZone.leftFast || zone == _TravZone.rightFast;
-      final isLeft = zone == _TravZone.leftSlow || zone == _TravZone.leftFast;
-      final isRight = zone == _TravZone.rightSlow || zone == _TravZone.rightFast;
-      final slowOnly =
-          widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly;
+        final zone = _zoneFor(_value);
+        final isFast =
+            zone == _TravZone.leftFast || zone == _TravZone.rightFast;
+        final isLeft = zone == _TravZone.leftSlow || zone == _TravZone.leftFast;
+        final isRight =
+            zone == _TravZone.rightSlow || zone == _TravZone.rightFast;
+        final slowOnly =
+            widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly;
 
-      final Color trackColor = widget.isDisabled
-          ? AppColors.idleColor
-          : isFast
-              ? AppColors.fastColor
-              : AppColors.traverseColor;
+        final Color trackColor = widget.isDisabled
+            ? AppColors.idleColor
+            : isFast
+            ? AppColors.fastColor
+            : AppColors.traverseColor;
 
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (d) => _dragStart(d, halfTrack),
-        onHorizontalDragUpdate: (d) => _dragUpdate(d, halfTrack),
-        onHorizontalDragEnd: _dragEnd,
-        onHorizontalDragCancel: _dragCancel,
-        child: SizedBox(
-          width: w,
-          height: box.maxHeight,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // ── Zone labels (top row) ─────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: slowOnly
-                    ? Row(
-                        children: [
-                          _zoneLabel(
-                            '< ${widget.leftLabel}',
-                            zone == _TravZone.leftSlow,
-                            AppColors.traverseColor,
-                          ),
-                          const Spacer(),
-                          _zoneLabel(
-                            'SLOW ONLY',
-                            isLeft || isRight,
-                            AppColors.traverseColor,
-                          ),
-                          const Spacer(),
-                          _zoneLabel(
-                            '${widget.rightLabel} >',
-                            zone == _TravZone.rightSlow,
-                            AppColors.traverseColor,
-                          ),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          _zoneLabel(
-                            '< ${widget.leftLabel} FAST',
-                            zone == _TravZone.leftFast,
-                            AppColors.fastColor,
-                          ),
-                          const Spacer(),
-                          _zoneLabel(
-                            'SLOW',
-                            zone == _TravZone.leftSlow,
-                            AppColors.traverseColor,
-                          ),
-                          const SizedBox(width: 10),
-                          _zoneLabel(
-                            'SLOW',
-                            zone == _TravZone.rightSlow,
-                            AppColors.traverseColor,
-                          ),
-                          const Spacer(),
-                          _zoneLabel(
-                            'FAST ${widget.rightLabel} >',
-                            zone == _TravZone.rightFast,
-                            AppColors.fastColor,
-                          ),
-                        ],
-                      ),
-              ),
-              const SizedBox(height: 5),
-
-              // ── Track + thumb ─────────────────────────────────────────────
-              SizedBox(
-                width: w,
-                height: _thumbH,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    // Track
-                    CustomPaint(
-                      size: Size(w, _trackH),
-                      painter: _TrackPainter(
-                        value: _value,
-                        halfTrack: halfTrack,
-                        deadZone: _deadZone,
-                        fastZone: _fastZone,
-                        showFastMarkers: !slowOnly,
-                        fillColor: widget.isDisabled
-                            ? AppColors.idleColor.withAlpha(70)
-                            : trackColor.withAlpha(200),
-                        isActive: !widget.isDisabled,
-                      ),
-                    ),
-                    // Thumb
-                    Positioned(
-                      left: thumbCX - _thumbW / 2,
-                      child: _Thumb(
-                        width: _thumbW,
-                        height: _thumbH,
-                        color: trackColor,
-                        isDragging: _isDragging,
-                        isDisabled: widget.isDisabled,
-                      ),
-                    ),
-                  ],
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (d) => _dragStart(d, halfTrack),
+          onHorizontalDragUpdate: (d) => _dragUpdate(d, halfTrack),
+          onHorizontalDragEnd: _dragEnd,
+          onHorizontalDragCancel: _dragCancel,
+          child: SizedBox(
+            width: w,
+            height: box.maxHeight,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ── Zone labels (top row) ─────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: slowOnly
+                      ? Row(
+                          children: [
+                            _zoneLabel(
+                              '< ${widget.leftLabel}',
+                              zone == _TravZone.leftSlow,
+                              AppColors.traverseColor,
+                            ),
+                            const Spacer(),
+                            _zoneLabel(
+                              'SLOW ONLY',
+                              isLeft || isRight,
+                              AppColors.traverseColor,
+                            ),
+                            const Spacer(),
+                            _zoneLabel(
+                              '${widget.rightLabel} >',
+                              zone == _TravZone.rightSlow,
+                              AppColors.traverseColor,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            _zoneLabel(
+                              '< ${widget.leftLabel} FAST',
+                              zone == _TravZone.leftFast,
+                              AppColors.fastColor,
+                            ),
+                            const Spacer(),
+                            _zoneLabel(
+                              'SLOW',
+                              zone == _TravZone.leftSlow,
+                              AppColors.traverseColor,
+                            ),
+                            const SizedBox(width: 10),
+                            _zoneLabel(
+                              'SLOW',
+                              zone == _TravZone.rightSlow,
+                              AppColors.traverseColor,
+                            ),
+                            const Spacer(),
+                            _zoneLabel(
+                              'FAST ${widget.rightLabel} >',
+                              zone == _TravZone.rightFast,
+                              AppColors.fastColor,
+                            ),
+                          ],
+                        ),
                 ),
-              ),
-              const SizedBox(height: 5),
+                const SizedBox(height: 5),
 
-              // ── Direction labels (bottom row) ─────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Row(
-                  children: [
-                    _dirLabel(widget.leftLabel, isLeft),
-                    const Spacer(),
-                    _statusDot(zone, trackColor),
-                    const Spacer(),
-                    _dirLabel(widget.rightLabel, isRight),
-                  ],
+                // ── Track + thumb ─────────────────────────────────────────────
+                SizedBox(
+                  width: w,
+                  height: _thumbH,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      // Track
+                      CustomPaint(
+                        size: Size(w, _trackH),
+                        painter: _TrackPainter(
+                          value: _value,
+                          halfTrack: halfTrack,
+                          deadZone: _deadZone,
+                          fastZone: _fastZone,
+                          showFastMarkers: !slowOnly,
+                          fillColor: widget.isDisabled
+                              ? AppColors.idleColor.withAlpha(70)
+                              : trackColor.withAlpha(200),
+                          isActive: !widget.isDisabled,
+                        ),
+                      ),
+                      // Thumb
+                      Positioned(
+                        left: thumbCX - _thumbW / 2,
+                        child: _Thumb(
+                          width: _thumbW,
+                          height: _thumbH,
+                          color: trackColor,
+                          isDragging: _isDragging,
+                          isDisabled: widget.isDisabled,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 5),
+
+                // ── Direction labels (bottom row) ─────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    children: [
+                      _dirLabel(widget.leftLabel, isLeft),
+                      const Spacer(),
+                      _statusDot(zone, trackColor),
+                      const Spacer(),
+                      _dirLabel(widget.rightLabel, isRight),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 
   // ── Label helpers ─────────────────────────────────────────────────────────
@@ -438,9 +442,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
       style: TextStyle(
         fontSize: 9,
         fontWeight: FontWeight.bold,
-        color: active
-            ? AppColors.traverseColorLight
-            : AppColors.darkTextMuted,
+        color: active ? AppColors.traverseColorLight : AppColors.darkTextMuted,
         letterSpacing: 1.0,
       ),
     );
@@ -494,10 +496,7 @@ class _TrackPainter extends CustomPainter {
 
     // ── Background track ──────────────────────────────────────────────────
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 0, size.width, size.height),
-        r,
-      ),
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, size.width, size.height), r),
       Paint()..color = const Color.fromARGB(255, 255, 252, 252),
     );
 
@@ -575,8 +574,8 @@ class _Thumb extends StatelessWidget {
     final borderColor = isDisabled
         ? AppColors.idleColor
         : isDragging
-            ? color
-            : color.withAlpha(160);
+        ? color
+        : color.withAlpha(160);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 120),
@@ -586,13 +585,10 @@ class _Thumb extends StatelessWidget {
         color: isDisabled
             ? AppColors.darkBg
             : isDragging
-                ? color.withAlpha(28)
-                : AppColors.darkBg,
+            ? color.withAlpha(28)
+            : AppColors.darkBg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: borderColor,
-          width: isDragging ? 2.5 : 1.5,
-        ),
+        border: Border.all(color: borderColor, width: isDragging ? 2.5 : 1.5),
         boxShadow: isDragging && !isDisabled
             ? [
                 BoxShadow(
@@ -617,11 +613,11 @@ class _Thumb extends StatelessWidget {
   }
 
   Widget _grip(int _) => Container(
-        width: width * 0.38,
-        height: 2,
-        decoration: BoxDecoration(
-          color: isDisabled ? AppColors.idleColor : color.withAlpha(160),
-          borderRadius: BorderRadius.circular(1),
-        ),
-      );
+    width: width * 0.38,
+    height: 2,
+    decoration: BoxDecoration(
+      color: isDisabled ? AppColors.idleColor : color.withAlpha(160),
+      borderRadius: BorderRadius.circular(1),
+    ),
+  );
 }
