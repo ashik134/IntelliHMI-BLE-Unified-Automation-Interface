@@ -458,61 +458,71 @@ class _OverflowMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          _MenuTile(
-            icon: Icons.dashboard_rounded,
-            label: 'Layout Elements',
-            onTap: () {
-              Navigator.of(context).pop();
-              _showLayoutElementsDialog(hostContext);
-            },
-          ),
-          _MenuTile(
-            icon: Icons.warning_amber_rounded,
-            label: 'Safety Labels',
-            onTap: () {
-              Navigator.of(context).pop();
-              _showSafetyLabelsDialog(hostContext);
-            },
-          ),
-          _MenuTile(
-            icon: Icons.copy_rounded,
-            label: 'Export Layout (copy JSON)',
-            onTap: () {
-              Navigator.of(context).pop();
-              _exportLayout(hostContext);
-            },
-          ),
-          _MenuTile(
-            icon: Icons.paste_rounded,
-            label: 'Import Layout (paste JSON)',
-            onTap: () {
-              Navigator.of(context).pop();
-              _importLayout(hostContext);
-            },
-          ),
-          _MenuTile(
-            icon: Icons.dashboard_customize_rounded,
-            label: 'Load Template',
-            onTap: () {
-              Navigator.of(context).pop();
-              _showTemplatesDialog(hostContext);
-            },
-          ),
-          _MenuTile(
-            icon: Icons.restore_rounded,
-            label: 'Reset to Factory Defaults',
-            iconColor: AppColors.eStopColor,
-            onTap: () {
-              Navigator.of(context).pop();
-              _confirmResetToDefaults(hostContext);
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.dashboard_rounded,
+              label: 'Layout Elements',
+              onTap: () {
+                Navigator.of(context).pop();
+                _showLayoutElementsDialog(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.warning_amber_rounded,
+              label: 'Safety Labels',
+              onTap: () {
+                Navigator.of(context).pop();
+                _showSafetyLabelsDialog(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.aspect_ratio_rounded,
+              label: 'Safety Size',
+              onTap: () {
+                Navigator.of(context).pop();
+                _showSafetySizeDialog(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.copy_rounded,
+              label: 'Export Layout (copy JSON)',
+              onTap: () {
+                Navigator.of(context).pop();
+                _exportLayout(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.paste_rounded,
+              label: 'Import Layout (paste JSON)',
+              onTap: () {
+                Navigator.of(context).pop();
+                _importLayout(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.dashboard_customize_rounded,
+              label: 'Load Template',
+              onTap: () {
+                Navigator.of(context).pop();
+                _showTemplatesDialog(hostContext);
+              },
+            ),
+            _MenuTile(
+              icon: Icons.restore_rounded,
+              label: 'Reset to Factory Defaults',
+              iconColor: AppColors.eStopColor,
+              onTap: () {
+                Navigator.of(context).pop();
+                _confirmResetToDefaults(hostContext);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
@@ -754,6 +764,222 @@ class _OverflowMenu extends StatelessWidget {
               Navigator.of(ctx).pop();
             },
             child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Safety Size dialog is deliberately separate from the per-button
+  // ButtonEditSheet: E-Stop is never wrapped in EditableControlTile (it must
+  // stay live and tappable during Customization Mode), so it has no pencil
+  // badge / per-button sheet entry point of its own — this overflow-menu
+  // entry is its only sizing UI. Every change flows through
+  // applyDraftChange, so Discard reverts it like any other draft edit.
+  void _showSafetySizeDialog(BuildContext context) {
+    final customCtrl = context.read<CustomizationModeController>();
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final sizing = customCtrl.draft.sizeConfig;
+          final heightScale = sizing.estopButtonHeightScale;
+          final widthScale = sizing.estopButtonWidthScale;
+          final resolvedHeight = sizing.resolvedEstopHeight;
+          final resolvedWidth = sizing.resolvedEstopWidth;
+          final heightBelowMin =
+              resolvedHeight < ControlWidgetSizeConfig.minTouchTargetPx;
+          final widthBelowMin =
+              resolvedWidth < ControlWidgetSizeConfig.minTouchTargetPx;
+
+          void update(ControlWidgetSizeConfig next) {
+            customCtrl.applyDraftChange(
+              customCtrl.draft.copyWith(sizeConfig: next),
+            );
+            setDialogState(() {});
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.panel,
+            title: const Text(
+              'Safety Size',
+              style: TextStyle(color: AppColors.darkText),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'E-STOP BUTTON HEIGHT',
+                      style: TextStyle(
+                        color: AppColors.darkTextMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${resolvedHeight.toStringAsFixed(0)} px',
+                          style: TextStyle(
+                            color: heightBelowMin
+                                ? AppColors.eStopColor
+                                : AppColors.darkSuccess,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          '×${heightScale.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: AppColors.darkTextMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: heightBelowMin
+                            ? AppColors.eStopColor
+                            : AppColors.accent,
+                        thumbColor: heightBelowMin
+                            ? AppColors.eStopColor
+                            : AppColors.accent,
+                        inactiveTrackColor: AppColors.darkBorder,
+                      ),
+                      child: Slider(
+                        value: heightScale,
+                        min: ControlWidgetSizeConfig.minHeightScale,
+                        max: ControlWidgetSizeConfig.maxHeightScale,
+                        divisions: 16,
+                        onChanged: (v) =>
+                            update(sizing.copyWith(estopButtonHeightScale: v)),
+                      ),
+                    ),
+                    if (heightBelowMin)
+                      const _InfoNote(
+                        message:
+                            'Below the 48px minimum industrial touch target. '
+                            'Increase the scale before applying.',
+                        color: AppColors.eStopColor,
+                      ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'E-STOP BUTTON WIDTH',
+                      style: TextStyle(
+                        color: AppColors.darkTextMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${resolvedWidth.toStringAsFixed(0)} px',
+                          style: TextStyle(
+                            color: widthBelowMin
+                                ? AppColors.eStopColor
+                                : AppColors.darkSuccess,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          '×${widthScale.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: AppColors.darkTextMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: widthBelowMin
+                            ? AppColors.eStopColor
+                            : AppColors.accent,
+                        thumbColor: widthBelowMin
+                            ? AppColors.eStopColor
+                            : AppColors.accent,
+                        inactiveTrackColor: AppColors.darkBorder,
+                      ),
+                      child: Slider(
+                        value: widthScale,
+                        min: ControlWidgetSizeConfig.minWidthScale,
+                        max: ControlWidgetSizeConfig.maxWidthScale,
+                        divisions: 16,
+                        onChanged: (v) =>
+                            update(sizing.copyWith(estopButtonWidthScale: v)),
+                      ),
+                    ),
+                    if (widthBelowMin)
+                      const _InfoNote(
+                        message:
+                            'Below the 48px minimum industrial touch target. '
+                            'Increase the scale before applying.',
+                        color: AppColors.eStopColor,
+                      ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Resizing E-Stop does not affect the Reset section, '
+                      'which always stays full width.',
+                      style: TextStyle(
+                        color: AppColors.darkTextSub,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => update(const ControlWidgetSizeConfig()),
+                child: const Text('Reset'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _InfoNote extends StatelessWidget {
+  const _InfoNote({required this.message, this.color = AppColors.darkInfo});
+  final String message;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 13, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: color, fontSize: 11, height: 1.4),
+            ),
           ),
         ],
       ),

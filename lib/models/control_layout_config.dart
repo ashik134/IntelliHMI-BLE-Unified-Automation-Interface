@@ -19,37 +19,69 @@ enum ControlWidgetType { sliderButton, pushButton, toggle, joystick, rotary }
 /// [AxisControlConfig.heightScale] instead — there's only ever one E-Stop
 /// button, so no per-axis concept applies to it.
 class ControlWidgetSizeConfig {
-  const ControlWidgetSizeConfig({this.estopButtonHeightScale = 1.0});
+  const ControlWidgetSizeConfig({
+    this.estopButtonHeightScale = 1.0,
+    this.estopButtonWidthScale = 1.0,
+  });
 
   static const double minHeightScale = 0.7;
   static const double maxHeightScale = 1.5;
 
+  /// Same bounds as height — width is a relative multiplier of
+  /// [baseEstopButtonWidth], with no independent concept of its own.
+  static const double minWidthScale = 0.7;
+  static const double maxWidthScale = 1.5;
+
   /// Base height for the E-Stop swipe button.
   static const double baseEstopButtonHeight = 74.0;
+
+  /// Base width for the E-Stop button, used only while [estopButtonWidthScale]
+  /// differs from 1.0 — at the default scale the button still stretches to
+  /// fill its parent (see SafetyActionPanel), matching prior behavior.
+  static const double baseEstopButtonWidth = 320.0;
 
   /// Industrial HMI minimum touch target (per IEC 62264 / Material guidance).
   static const double minTouchTargetPx = 48.0;
 
   final double estopButtonHeightScale;
+  final double estopButtonWidthScale;
 
   double get resolvedEstopHeight =>
       baseEstopButtonHeight * estopButtonHeightScale;
 
-  ControlWidgetSizeConfig copyWith({double? estopButtonHeightScale}) {
+  double get resolvedEstopWidth =>
+      baseEstopButtonWidth * estopButtonWidthScale;
+
+  /// `null` at the default width scale (1.0) — callers should fall back to
+  /// filling the available panel width, matching pre-customization behavior.
+  /// Otherwise the operator-configured absolute width, capped by the panel
+  /// at render time so it never overflows on a narrow screen.
+  double? get resolvedEstopWidthOrFill =>
+      estopButtonWidthScale == 1.0 ? null : resolvedEstopWidth;
+
+  ControlWidgetSizeConfig copyWith({
+    double? estopButtonHeightScale,
+    double? estopButtonWidthScale,
+  }) {
     return ControlWidgetSizeConfig(
       estopButtonHeightScale:
           estopButtonHeightScale ?? this.estopButtonHeightScale,
+      estopButtonWidthScale:
+          estopButtonWidthScale ?? this.estopButtonWidthScale,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'estopButtonHeightScale': estopButtonHeightScale,
+    'estopButtonWidthScale': estopButtonWidthScale,
   };
 
   factory ControlWidgetSizeConfig.fromJson(Map<String, dynamic> json) {
     return ControlWidgetSizeConfig(
       estopButtonHeightScale:
           (json['estopButtonHeightScale'] as num?)?.toDouble() ?? 1.0,
+      estopButtonWidthScale:
+          (json['estopButtonWidthScale'] as num?)?.toDouble() ?? 1.0,
     );
   }
 
@@ -57,10 +89,12 @@ class ControlWidgetSizeConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ControlWidgetSizeConfig &&
-          other.estopButtonHeightScale == estopButtonHeightScale;
+          other.estopButtonHeightScale == estopButtonHeightScale &&
+          other.estopButtonWidthScale == estopButtonWidthScale;
 
   @override
-  int get hashCode => estopButtonHeightScale.hashCode;
+  int get hashCode =>
+      Object.hash(estopButtonHeightScale, estopButtonWidthScale);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

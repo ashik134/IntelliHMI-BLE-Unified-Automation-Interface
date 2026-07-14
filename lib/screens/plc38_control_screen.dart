@@ -463,6 +463,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                           estopLatched: controller.estopLatched,
                           compact: metrics.isCompact,
                           height: metrics.estopHeight,
+                          width: sizing.resolvedEstopWidthOrFill,
                           instructionLabel: labels.estopSwipeInstruction,
                           resetLabel: labels.resetEstopLabel,
                           onEStopTap: _onEStopTap,

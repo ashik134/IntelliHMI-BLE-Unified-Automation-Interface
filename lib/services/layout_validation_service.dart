@@ -35,8 +35,20 @@ class LayoutValidationService {
       config.estopButtonHeightScale,
       errors,
     );
+    _checkScaleBoundsGeneric(
+      'E-Stop button width',
+      config.estopButtonWidthScale,
+      ControlWidgetSizeConfig.minWidthScale,
+      ControlWidgetSizeConfig.maxWidthScale,
+      errors,
+    );
 
     _checkMinTouchTarget('E-Stop button', config.resolvedEstopHeight, errors);
+    _checkMinTouchTarget(
+      'E-Stop button width',
+      config.resolvedEstopWidth,
+      errors,
+    );
 
     return errors.isEmpty
         ? const ValidationResult.valid()

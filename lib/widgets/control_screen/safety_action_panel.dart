@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/estop_swipe_button.dart';
 
@@ -22,6 +23,7 @@ class SafetyActionPanel extends StatelessWidget {
     required this.estopLatched,
     required this.compact,
     required this.height,
+    this.width,
     required this.instructionLabel,
     required this.resetLabel,
     required this.onEStopTap,
@@ -31,6 +33,12 @@ class SafetyActionPanel extends StatelessWidget {
   final bool estopLatched;
   final bool compact;
   final double height;
+
+  /// Operator-configured E-Stop button width (Safety Size customization).
+  /// `null` (the factory default) stretches the button to fill the panel,
+  /// matching prior behavior. [_ResetSection] never reads this — its width
+  /// is always `double.infinity`, independent of E-Stop sizing.
+  final double? width;
   final String instructionLabel;
   final String resetLabel;
   final VoidCallback onEStopTap;
@@ -48,11 +56,22 @@ class SafetyActionPanel extends StatelessWidget {
               compact: compact,
               onResetActivated: onResetActivated,
             )
-          : _EStopButton(
-              compact: compact,
-              height: height,
-              instructionLabel: instructionLabel,
-              onTap: onEStopTap,
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                // Cap the operator-configured width to whatever the panel
+                // actually has available, so a wide Safety Size setting can
+                // never overflow onto a narrower screen than it was tuned on.
+                final resolvedWidth = width?.clamp(0.0, constraints.maxWidth);
+                return Center(
+                  child: _EStopButton(
+                    compact: compact,
+                    height: height,
+                    width: resolvedWidth,
+                    instructionLabel: instructionLabel,
+                    onTap: onEStopTap,
+                  ),
+                );
+              },
             ),
     );
   }
@@ -61,15 +80,25 @@ class SafetyActionPanel extends StatelessWidget {
 class _EStopButton extends StatelessWidget {
   const _EStopButton({
     required this.height,
+    this.width,
     required this.compact,
     required this.instructionLabel,
     required this.onTap,
   });
 
   final double height;
+  final double? width;
   final bool compact;
   final String instructionLabel;
   final VoidCallback onTap;
+
+  /// Below this rendered width there isn't room for the title/subtitle
+  /// column without truncation or overflow — collapse to icon-only instead.
+  static const double _iconOnlyWidthThreshold = 150.0;
+
+  /// Below this rendered height the subtitle is dropped first (title stays,
+  /// scaled down) to avoid squeezing two lines of text into a short button.
+  static const double _subtitleMinHeight = 64.0;
 
   @override
   Widget build(BuildContext context) {
@@ -81,8 +110,12 @@ class _EStopButton extends StatelessWidget {
         splashColor: Colors.white.withAlpha(50),
         highlightColor: Colors.white.withAlpha(20),
         child: Container(
-          width: double.infinity,
-          constraints: BoxConstraints(minHeight: compact ? 100 : 100),
+          width: width ?? double.infinity,
+          constraints: BoxConstraints(
+            minHeight: height,
+            maxHeight: height,
+            minWidth: ControlWidgetSizeConfig.minTouchTargetPx,
+          ),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [Color(0xFF6B0000), AppColors.eStopColor],
@@ -99,54 +132,100 @@ class _EStopButton extends StatelessWidget {
               ),
             ],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: compact ? 32 : 34,
-                height: compact ? 32 : 34,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(31),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withAlpha(64),
-                    width: 2,
-                  ),
-                ),
-                child: const Icon(
-                  Icons.power_settings_new,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-              SizedBox(width: compact ? 10 : 12),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'STOP',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final renderedWidth = constraints.maxWidth;
+              final iconOnly = renderedWidth < _iconOnlyWidthThreshold;
+              final showSubtitle = !iconOnly && height >= _subtitleMinHeight;
+
+              // Icon and title scale down gently on very short/narrow
+              // buttons rather than clipping or overflowing.
+              final iconBoxSize = compact ? 32.0 : 34.0;
+              final iconSize = compact ? 18.0 : 19.0;
+              final titleFontSize = height < 56
+                  ? 12.0
+                  : (compact ? 14.0 : 15.0);
+
+              if (iconOnly) {
+                return Center(
+                  child: Container(
+                    width: iconBoxSize,
+                    height: iconBoxSize,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(31),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withAlpha(64),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.power_settings_new,
                       color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
+                      size: iconSize,
                     ),
                   ),
-                  Text(
-                    'Tap to stop all crane operations',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: compact ? 9 : 10,
+                );
+              }
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: iconBoxSize,
+                      height: iconBoxSize,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(31),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withAlpha(64),
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.power_settings_new,
+                        color: Colors.white,
+                        size: iconSize,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    SizedBox(width: compact ? 10 : 12),
+                    Flexible(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'STOP',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: titleFontSize,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                          if (showSubtitle)
+                            Text(
+                              'Tap to stop all crane operations',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white60,
+                                fontSize: compact ? 9 : 10,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -170,6 +249,7 @@ class _ResetSection extends StatelessWidget {
     return Column(
       children: [
         Container(
+          height: MediaQuery.of(context).size.height * 0.0,
           width: double.infinity,
           padding: EdgeInsets.all(compact ? 8 : 10),
           decoration: BoxDecoration(
@@ -201,7 +281,7 @@ class _ResetSection extends StatelessWidget {
                       style: TextStyle(
                         color: AppColors.eStopColorLight,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 10,
                         letterSpacing: 0.8,
                       ),
                     ),
