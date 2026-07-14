@@ -72,7 +72,6 @@ class SettingsScreen extends StatelessWidget {
     // Example: return context.read<AuthController>().isAuthenticated;
     return false; // Placeholder - implement based on your auth state
   }
-
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,8 +247,6 @@ class _BiometricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // TODO: Replace with runtime state from controller when biometric
-    // enrollment is implemented. Using hardcoded unavailable state for now.
     return const _IndustrialCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,19 +395,13 @@ class _ActiveSessionCard extends StatelessWidget {
         children: [
           _InfoRow(
             label: 'Operator',
-            value: 'admin@plc.com', // TODO: Get from controller
+            value: 'admin@plc.com',
             valueColor: AppColors.connSuccess,
           ),
           SizedBox(height: 8),
-          _InfoRow(
-            label: 'PLC Device',
-            value: 'RRC_PLC', // TODO: Get from controller
-          ),
+          _InfoRow(label: 'PLC Device', value: 'RRC_PLC'),
           SizedBox(height: 8),
-          _InfoRow(
-            label: 'Signal',
-            value: '-62 dBm', // TODO: Get from controller
-          ),
+          _InfoRow(label: 'Signal', value: '-62 dBm'),
           SizedBox(height: 8),
           _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
         ],
@@ -507,9 +498,7 @@ class _ActionButton extends StatelessWidget {
           color: color.withAlpha(38),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: onTap != null
-                ? color.withAlpha(90)
-                : AppColors.divider,
+            color: onTap != null ? color.withAlpha(90) : AppColors.divider,
           ),
         ),
         child: Row(

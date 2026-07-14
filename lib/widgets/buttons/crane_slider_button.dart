@@ -219,9 +219,9 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
         final footerHeight = showFooter ? 24.0 : 0.0;
         final bodyHeight = (height - footerHeight).clamp(0.0, height);
 
-        const showScale = false;
+        // const showScale = false;
         // const scaleWidth =  0.0;
-        const gap = 0.0;
+        // const gap = 0.0;
 
         final sliderLaneWidth = width.clamp(56.0, 72.0).toDouble();
         final trackLength = bodyHeight.clamp(90.0, 360.0).toDouble();
@@ -253,7 +253,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
                     //       isDisabled: widget.isDisabled,
                     //     ),
                     //   ),
-                    if (showScale) SizedBox(width: gap),
+                    // if (showScale) const SizedBox(width: gap),
                     SizedBox(
                       width: sliderLaneWidth,
                       height: bodyHeight,
@@ -418,136 +418,136 @@ class _SliderFooter extends StatelessWidget {
   }
 }
 
-class _SliderScale extends StatelessWidget {
-  final double value;
-  final bool isUp;
-  final double fastThreshold;
-  final Color activeColor;
-  final Color axisColor;
-  final bool isDisabled;
+// class _SliderScale extends StatelessWidget {
+//   final double value;
+//   final bool isUp;
+//   final double fastThreshold;
+//   final Color activeColor;
+//   final Color axisColor;
+//   final bool isDisabled;
 
-  const _SliderScale({
-    required this.value,
-    required this.isUp,
-    required this.fastThreshold,
-    required this.activeColor,
-    required this.axisColor,
-    required this.isDisabled,
-  });
+//   const _SliderScale({
+//     required this.value,
+//     required this.isUp,
+//     required this.fastThreshold,
+//     required this.activeColor,
+//     required this.axisColor,
+//     required this.isDisabled,
+//   });
 
-  bool get _isIdle => value <= 0.01;
-  bool get _isSlow => value > 0.01 && value < fastThreshold;
-  bool get _isFast => value >= fastThreshold;
+//   bool get _isIdle => value <= 0.01;
+//   bool get _isSlow => value > 0.01 && value < fastThreshold;
+//   bool get _isFast => value >= fastThreshold;
 
-  @override
-  Widget build(BuildContext context) {
-    final labels = isUp
-        ? <Widget>[
-            _ScaleLabel(
-              text: 'IDLE',
-              active: _isIdle,
-              activeColor: AppColors.darkTextSub,
-            ),
-            _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
-            _ScaleLabel(
-              text: 'FAST',
-              active: _isFast,
-              activeColor: AppColors.fastColor,
-            ),
-          ]
-        : <Widget>[
-            _ScaleLabel(
-              text: 'FAST',
-              active: _isFast,
-              activeColor: AppColors.fastColor,
-            ),
-            _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
-            _ScaleLabel(
-              text: 'IDLE',
-              active: _isIdle,
-              activeColor: AppColors.darkTextSub,
-            ),
-          ];
+//   @override
+//   Widget build(BuildContext context) {
+//     final labels = isUp
+//         ? <Widget>[
+//             _ScaleLabel(
+//               text: 'IDLE',
+//               active: _isIdle,
+//               activeColor: AppColors.darkTextSub,
+//             ),
+//             _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
+//             _ScaleLabel(
+//               text: 'FAST',
+//               active: _isFast,
+//               activeColor: AppColors.fastColor,
+//             ),
+//           ]
+//         : <Widget>[
+//             _ScaleLabel(
+//               text: 'FAST',
+//               active: _isFast,
+//               activeColor: AppColors.fastColor,
+//             ),
+//             _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
+//             _ScaleLabel(
+//               text: 'IDLE',
+//               active: _isIdle,
+//               activeColor: AppColors.darkTextSub,
+//             ),
+//           ];
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        ...labels,
-        const SizedBox(height: 5),
-        _StatusDot(
-          isDisabled: isDisabled,
-          isIdle: _isIdle,
-          activeColor: activeColor,
-        ),
-      ],
-    );
-  }
-}
+//     return Column(
+//       mainAxisAlignment: MainAxisAlignment.center,
+//       children: [
+//         ...labels,
+//         const SizedBox(height: 5),
+//         _StatusDot(
+//           isDisabled: isDisabled,
+//           isIdle: _isIdle,
+//           activeColor: activeColor,
+//         ),
+//       ],
+//     );
+//   }
+// }
 
-class _ScaleLabel extends StatelessWidget {
-  final String text;
-  final bool active;
-  final Color activeColor;
+// class _ScaleLabel extends StatelessWidget {
+//   final String text;
+//   final bool active;
+//   final Color activeColor;
 
-  const _ScaleLabel({
-    required this.text,
-    required this.active,
-    required this.activeColor,
-  });
+//   const _ScaleLabel({
+//     required this.text,
+//     required this.active,
+//     required this.activeColor,
+//   });
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.clip,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 7.5,
-          fontWeight: active ? FontWeight.bold : FontWeight.normal,
-          color: active ? activeColor : AppColors.darkTextMuted.withAlpha(90),
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     return Padding(
+//       padding: const EdgeInsets.symmetric(vertical: 3),
+//       child: Text(
+//         text,
+//         maxLines: 1,
+//         overflow: TextOverflow.clip,
+//         textAlign: TextAlign.center,
+//         style: TextStyle(
+//           fontSize: 7.5,
+//           fontWeight: active ? FontWeight.bold : FontWeight.normal,
+//           color: active ? activeColor : AppColors.darkTextMuted.withAlpha(90),
+//           letterSpacing: 0.3,
+//         ),
+//       ),
+//     );
+//   }
+// }
 
-class _StatusDot extends StatelessWidget {
-  final bool isDisabled;
-  final bool isIdle;
-  final Color activeColor;
+// class _StatusDot extends StatelessWidget {
+//   final bool isDisabled;
+//   final bool isIdle;
+//   final Color activeColor;
 
-  const _StatusDot({
-    required this.isDisabled,
-    required this.isIdle,
-    required this.activeColor,
-  });
+//   const _StatusDot({
+//     required this.isDisabled,
+//     required this.isIdle,
+//     required this.activeColor,
+//   });
 
-  @override
-  Widget build(BuildContext context) {
-    if (isDisabled) {
-      return const Text(
-        '—',
-        style: TextStyle(
-          fontSize: 9,
-          color: AppColors.darkTextMuted,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-    }
+//   @override
+//   Widget build(BuildContext context) {
+//     if (isDisabled) {
+//       return const Text(
+//         '—',
+//         style: TextStyle(
+//           fontSize: 9,
+//           color: AppColors.darkTextMuted,
+//           fontWeight: FontWeight.bold,
+//         ),
+//       );
+//     }
 
-    return Text(
-      '●',
-      style: TextStyle(
-        fontSize: 9,
-        color: isIdle ? AppColors.idleColor : activeColor,
-      ),
-    );
-  }
-}
+//     return Text(
+//       '●',
+//       style: TextStyle(
+//         fontSize: 9,
+//         color: isIdle ? AppColors.idleColor : activeColor,
+//       ),
+//     );
+//   }
+// }
 
 class _CraneTrackPainter extends CustomPainter {
   final double value;

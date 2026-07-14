@@ -1,5 +1,6 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -45,9 +46,11 @@ void main() {
         final gesture = await tester.startGesture(center);
         await tester.pump();
         expect(
-          tester.widget<IndustrialSpringButton>(
-            find.byType(IndustrialSpringButton),
-          ).isActive,
+          tester
+              .widget<IndustrialSpringButton>(
+                find.byType(IndustrialSpringButton),
+              )
+              .isActive,
           isTrue,
           reason: 'press should immediately activate',
         );
@@ -70,8 +73,8 @@ void main() {
           find.byType(IndustrialSpringButton),
         );
         expect(
-          semantics.hasFlag(SemanticsFlag.isToggled),
-          isFalse,
+          semantics.flagsCollection.isToggled,
+          Tristate.isFalse,
           reason:
               'a stale post-release "active" update must not reactivate the '
               'button; only a fresh pointer-down may do that',

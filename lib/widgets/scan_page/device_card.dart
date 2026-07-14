@@ -439,91 +439,91 @@ class _PlcTypeBadge extends StatelessWidget {
 // RSSI Bar
 // ═══════════════════════════════════════════════════════════
 
-class _RSSIBar extends StatelessWidget {
-  const _RSSIBar({required this.rssi});
+// class _RSSIBar extends StatelessWidget {
+//   const _RSSIBar({required this.rssi});
 
-  final int rssi;
+//   final int rssi;
 
-  double get _signalStrength => ((rssi + 100) / 70).clamp(0.0, 1.0);
+//   double get _signalStrength => ((rssi + 100) / 70).clamp(0.0, 1.0);
 
-  Color get _signalColor {
-    if (_signalStrength >= 0.65) return AppColors.connTextSub;
-    if (_signalStrength >= 0.35) return AppColors.connWarning;
-    return AppColors.error;
-  }
+//   Color get _signalColor {
+//     if (_signalStrength >= 0.65) return AppColors.connTextSub;
+//     if (_signalStrength >= 0.35) return AppColors.connWarning;
+//     return AppColors.error;
+//   }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final iconSize = (w * 0.07).clamp(14.0, 22.0);
-        final containerSize = (w * 0.11).clamp(20.0, 30.0);
-        final fontSize = (w * 0.028).clamp(8.0, 10.0);
+//   @override
+//   Widget build(BuildContext context) {
+//     return LayoutBuilder(
+//       builder: (context, constraints) {
+//         final w = constraints.maxWidth;
+//         final iconSize = (w * 0.07).clamp(14.0, 22.0);
+//         final containerSize = (w * 0.11).clamp(20.0, 30.0);
+//         final fontSize = (w * 0.028).clamp(8.0, 10.0);
 
-        return Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: (w * 0.02).clamp(6.0, 10.0),
-            vertical: (w * 0.015).clamp(4.0, 8.0),
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: containerSize,
-                height: containerSize,
-                decoration: BoxDecoration(
-                  color: _signalColor.withAlpha(20),
-                  borderRadius: BorderRadius.circular(containerSize * 0.28),
-                ),
-                child: Icon(
-                  Icons.signal_cellular_alt_rounded,
-                  color: _signalColor,
-                  size: iconSize,
-                ),
-              ),
+//         return Container(
+//           padding: EdgeInsets.symmetric(
+//             horizontal: (w * 0.02).clamp(6.0, 10.0),
+//             vertical: (w * 0.015).clamp(4.0, 8.0),
+//           ),
+//           decoration: BoxDecoration(
+//             color: Colors.white,
+//             borderRadius: BorderRadius.circular(10),
+//           ),
+//           child: Row(
+//             children: [
+//               Container(
+//                 width: containerSize,
+//                 height: containerSize,
+//                 decoration: BoxDecoration(
+//                   color: _signalColor.withAlpha(20),
+//                   borderRadius: BorderRadius.circular(containerSize * 0.28),
+//                 ),
+//                 child: Icon(
+//                   Icons.signal_cellular_alt_rounded,
+//                   color: _signalColor,
+//                   size: iconSize,
+//                 ),
+//               ),
 
-              SizedBox(width: (w * 0.015).clamp(4.0, 8.0)),
-              Flexible(
-                child: Text(
-                  '$rssi dBm',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _signalColor,
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              // Expanded(child: SizedBox(width: (w * 0.015).clamp(4.0, 8.0))),
-              // Signal percentage badge
-              // Container(
-              //   padding: EdgeInsets.symmetric(
-              //     horizontal: (w * 0.015).clamp(4.0, 7.0),
-              //     vertical: 2,
-              //   ),
-              //   decoration: BoxDecoration(
-              //     color: _signalColor.withAlpha(20),
-              //     borderRadius: BorderRadius.circular(6),
-              //   ),
-              //   child: Text(
-              //     '${(_signalStrength * 100).toInt()}%',
-              //     style: TextStyle(
-              //       color: _signalColor,
-              //       fontSize: fontSize,
-              //       fontWeight: FontWeight.w800,
-              //       fontFamily: 'monospace',
-              //     ),
-              //   ),
-              // ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
+//               SizedBox(width: (w * 0.015).clamp(4.0, 8.0)),
+//               Flexible(
+//                 child: Text(
+//                   '$rssi dBm',
+//                   overflow: TextOverflow.ellipsis,
+//                   style: TextStyle(
+//                     color: _signalColor,
+//                     fontSize: fontSize,
+//                     fontWeight: FontWeight.w700,
+//                     fontFamily: 'monospace',
+//                   ),
+//                 ),
+//               ),
+//               // Expanded(child: SizedBox(width: (w * 0.015).clamp(4.0, 8.0))),
+//               // Signal percentage badge
+//               // Container(
+//               //   padding: EdgeInsets.symmetric(
+//               //     horizontal: (w * 0.015).clamp(4.0, 7.0),
+//               //     vertical: 2,
+//               //   ),
+//               //   decoration: BoxDecoration(
+//               //     color: _signalColor.withAlpha(20),
+//               //     borderRadius: BorderRadius.circular(6),
+//               //   ),
+//               //   child: Text(
+//               //     '${(_signalStrength * 100).toInt()}%',
+//               //     style: TextStyle(
+//               //       color: _signalColor,
+//               //       fontSize: fontSize,
+//               //       fontWeight: FontWeight.w800,
+//               //       fontFamily: 'monospace',
+//               //     ),
+//               //   ),
+//               // ),
+//             ],
+//           ),
+//         );
+//       },
+//     );
+//   }
+// }

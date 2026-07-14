@@ -57,9 +57,9 @@ const _kGrooveTop = Color(0xFF080E15);
 const _kGrooveBottom = Color(0xFF162030);
 
 // Knob colours (idle vs. active)
-const _kKnobIdle = Color(0xFF4A5E72);
-const _kKnobIdleDark = Color(0xFF2A3A4A);
-const _kKnobIdleBorder = Color(0xFF1C2C3C);
+// const _kKnobIdle = Color(0xFF4A5E72);
+// const _kKnobIdleDark = Color(0xFF2A3A4A);
+// const _kKnobIdleBorder = Color(0xFF1C2C3C);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleSwitchButton
@@ -365,9 +365,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     if (_activePointerId != null) return;
     _activePointerId = event.pointer;
     _suppressExternalReactivation = false;
-    ButtonStateLog.log(
-      'USER_DOWN [${widget.label}] pointer=${event.pointer}',
-    );
+    ButtonStateLog.log('USER_DOWN [${widget.label}] pointer=${event.pointer}');
     _dragStartDy = event.localPosition.dy;
     _dragStartKnobY = _knobCtrl.value;
     _dragVelocityPxS = 0.0;
@@ -959,9 +957,9 @@ class _HintLabel extends StatelessWidget {
 /// Knob y-alignments.  ±0.36 keeps the knob well within the pill's rounded
 /// end caps — enough visual margin so the thumb never appears to touch the
 /// lever body edge.
-const _kAlignTop = Alignment(0.0, -0.36);
-const _kAlignCenter = Alignment(0.0, 0.00);
-const _kAlignBottom = Alignment(0.0, 0.36);
+// const _kAlignTop = Alignment(0.0, -0.36);
+// const _kAlignCenter = Alignment(0.0, 0.00);
+// const _kAlignBottom = Alignment(0.0, 0.36);
 
 // Lever housing colours — direct ports from the HTML CSS variables.
 // const _kBodyBorder    = Color(0xFF24394C);
@@ -971,7 +969,7 @@ const _kOffLedColor = Color(0xFFE74C3C); // --off
 const _kOffLedBorder = Color(0xFFA93226);
 const _kKnobOffBase = Color(0xFFE74C3C);
 const _kKnobOffDark = Color(0xFFC0392B);
-const _kLabelInactive = Color(0xFF4A5568);
+// const _kLabelInactive = Color(0xFF4A5568);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleSwitchButton
@@ -1798,42 +1796,42 @@ class _Knob extends StatelessWidget {
 // _Led
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _Led extends StatelessWidget {
-  const _Led({required this.isOn, required this.color, required this.size});
+// class _Led extends StatelessWidget {
+//   const _Led({required this.isOn, required this.color, required this.size});
 
-  final bool isOn;
-  final Color color;
-  final double size;
+//   final bool isOn;
+//   final Color color;
+//   final double size;
 
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: _kColorDur,
-      width: size,
-      height: size,
-      margin: EdgeInsets.symmetric(vertical: size * 0.3),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: isOn ? color : const Color(0xFF2C3E50),
-        boxShadow: isOn
-            ? [
-                BoxShadow(
-                  color: color.withAlpha(140),
-                  blurRadius: 16,
-                  spreadRadius: 2,
-                ),
-              ]
-            : [
-                BoxShadow(
-                  color: Colors.black.withAlpha(128),
-                  blurRadius: 3,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     return AnimatedContainer(
+//       duration: _kColorDur,
+//       width: size,
+//       height: size,
+//       margin: EdgeInsets.symmetric(vertical: size * 0.3),
+//       decoration: BoxDecoration(
+//         shape: BoxShape.circle,
+//         color: isOn ? color : const Color(0xFF2C3E50),
+//         boxShadow: isOn
+//             ? [
+//                 BoxShadow(
+//                   color: color.withAlpha(140),
+//                   blurRadius: 16,
+//                   spreadRadius: 2,
+//                 ),
+//               ]
+//             : [
+//                 BoxShadow(
+//                   color: Colors.black.withAlpha(128),
+//                   blurRadius: 3,
+//                   offset: const Offset(0, 1),
+//                 ),
+//               ],
+//       ),
+//     );
+//   }
+// // }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _HintLabel

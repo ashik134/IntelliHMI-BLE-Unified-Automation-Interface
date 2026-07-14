@@ -75,10 +75,7 @@ class _CustomCircularStepProgressIndicatorState
     );
 
     _rotationAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _rotationController,
-        curve: Curves.linear,
-      ),
+      CurvedAnimation(parent: _rotationController, curve: Curves.linear),
     );
 
     if (widget.isAnimating) {
@@ -116,7 +113,7 @@ class _CustomCircularStepProgressIndicatorState
   int get _safeCurrentStep =>
       widget.currentStep.clamp(0, _safeTotalSteps).toInt();
 
-  double get _progressPercent => _safeCurrentStep / _safeTotalSteps;
+  // double get _progressPercent => _safeCurrentStep / _safeTotalSteps;
 
   @override
   Widget build(BuildContext context) {
@@ -124,10 +121,7 @@ class _CustomCircularStepProgressIndicatorState
       width: widget.width,
       height: widget.height,
       child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(
-          begin: 0,
-          end: _safeCurrentStep.toDouble(),
-        ),
+        tween: Tween<double>(begin: 0, end: _safeCurrentStep.toDouble()),
         duration: widget.animationDuration,
         curve: Curves.easeOutCubic,
         builder: (context, animatedStep, _) {
@@ -161,10 +155,7 @@ class _CustomCircularStepProgressIndicatorState
 
     if (!widget.isAnimating) return indicator;
 
-    return RotationTransition(
-      turns: _rotationAnimation,
-      child: indicator,
-    );
+    return RotationTransition(turns: _rotationAnimation, child: indicator);
   }
 
   void _handleTap(TapDownDetails details, BuildContext context) {
@@ -298,10 +289,7 @@ class _CircularStepPainter extends CustomPainter {
 
     final panelPaint = Paint()
       ..shader = RadialGradient(
-        colors: [
-          Colors.white.withAlpha(26),
-          Colors.black.withAlpha(18),
-        ],
+        colors: [Colors.white.withAlpha(26), Colors.black.withAlpha(18)],
       ).createShader(Rect.fromCircle(center: center, radius: panelRadius));
 
     canvas.drawCircle(center, panelRadius, panelPaint);
@@ -314,37 +302,32 @@ class _CircularStepPainter extends CustomPainter {
     canvas.drawCircle(center, panelRadius, borderPaint);
   }
 
-  void _drawBackgroundRing(Canvas canvas, Rect rect) {
-    final paint = Paint()
-      ..color = backgroundColor!
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stepSize + 2
-      ..strokeCap = strokeCap;
+  // void _drawBackgroundRing(Canvas canvas, Rect rect) {
+  //   final paint = Paint()
+  //     ..color = backgroundColor!
+  //     ..style = PaintingStyle.stroke
+  //     ..strokeWidth = stepSize + 2
+  //     ..strokeCap = strokeCap;
 
-    canvas.drawArc(rect, startingAngle, arcSize, false, paint);
-  }
+  //   canvas.drawArc(rect, startingAngle, arcSize, false, paint);
+  // }
 
-  void _drawStepBackground(
-    Canvas canvas,
-    Rect rect,
-    double start,
-    double sweep,
-  ) {
-    final paint = Paint()
-      ..color = unselectedColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stepSize
-      ..strokeCap = strokeCap;
+  // void _drawStepBackground(
+  //   Canvas canvas,
+  //   Rect rect,
+  //   double start,
+  //   double sweep,
+  // ) {
+  //   final paint = Paint()
+  //     ..color = unselectedColor
+  //     ..style = PaintingStyle.stroke
+  //     ..strokeWidth = stepSize
+  //     ..strokeCap = strokeCap;
 
-    canvas.drawArc(rect, start, sweep, false, paint);
-  }
+  //   canvas.drawArc(rect, start, sweep, false, paint);
+  // // }
 
-  void _drawSelectedStep(
-    Canvas canvas,
-    Rect rect,
-    double start,
-    double sweep,
-  ) {
+  void _drawSelectedStep(Canvas canvas, Rect rect, double start, double sweep) {
     // if (showGlow) {
     //   final glowPaint = Paint()
     //     ..color = selectedColor.withAlpha(75)
@@ -426,47 +409,47 @@ class _CircularStepPainter extends CustomPainter {
   }
 }
 
-class _CenterContent extends StatelessWidget {
-  const _CenterContent({
-    required this.title,
-    required this.subtitle,
-    required this.color,
-  });
+// class _CenterContent extends StatelessWidget {
+//   const _CenterContent({
+//     required this.title,
+//     required this.subtitle,
+//     required this.color,
+//   });
 
-  final String title;
-  final String subtitle;
-  final Color color;
+//   final String title;
+//   final String subtitle;
+//   final Color color;
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                color: color,
-                letterSpacing: -0.8,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              subtitle.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Colors.white.withAlpha(150),
-                letterSpacing: 1.1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     return Center(
+//       child: FittedBox(
+//         fit: BoxFit.scaleDown,
+//         child: Column(
+//           mainAxisSize: MainAxisSize.min,
+//           children: [
+//             Text(
+//               title,
+//               style: TextStyle(
+//                 fontSize: 28,
+//                 fontWeight: FontWeight.w900,
+//                 color: color,
+//                 letterSpacing: -0.8,
+//               ),
+//             ),
+//             const SizedBox(height: 3),
+//             Text(
+//               subtitle.toUpperCase(),
+//               style: TextStyle(
+//                 fontSize: 10,
+//                 fontWeight: FontWeight.w700,
+//                 color: Colors.white.withAlpha(150),
+//                 letterSpacing: 1.1,
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }

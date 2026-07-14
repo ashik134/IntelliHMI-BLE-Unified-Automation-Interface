@@ -412,46 +412,44 @@ class _BarIconButton extends StatelessWidget {
   }
 }
 
-class _ToolbarDragHandle extends StatelessWidget {
-  const _ToolbarDragHandle({
-    this.onDragStart,
-    required this.onDragUpdate,
-    this.onDragEnd,
-  });
+// class _ToolbarDragHandle extends StatelessWidget {
+//   const _ToolbarDragHandle({
+//     required this.onDragUpdate,
+//   }) : onDragStart = null : onDragEnd;
 
-  final VoidCallback? onDragStart;
-  final ValueChanged<DragUpdateDetails>? onDragUpdate;
-  final VoidCallback? onDragEnd;
+//   final VoidCallback? onDragStart;
+//   final ValueChanged<DragUpdateDetails>? onDragUpdate;
+//   final VoidCallback? onDragEnd;
 
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.move,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: onDragStart == null ? null : (_) => onDragStart!(),
-        onPanUpdate: onDragUpdate,
-        onPanEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
-        onPanCancel: onDragEnd,
-        child: Container(
-          width: 42,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.darkBg.withAlpha(140),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.darkBorder.withAlpha(190)),
-          ),
-          child: const Icon(
-            Icons.drag_indicator_rounded,
-            size: 22,
-            color: AppColors.darkTextSub,
-          ),
-        ),
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     return MouseRegion(
+//       cursor: SystemMouseCursors.move,
+//       child: GestureDetector(
+//         behavior: HitTestBehavior.opaque,
+//         onPanStart: onDragStart == null ? null : (_) => onDragStart!(),
+//         onPanUpdate: onDragUpdate,
+//         onPanEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
+//         onPanCancel: onDragEnd,
+//         child: Container(
+//           width: 42,
+//           height: 34,
+//           alignment: Alignment.center,
+//           decoration: BoxDecoration(
+//             color: AppColors.darkBg.withAlpha(140),
+//             borderRadius: BorderRadius.circular(8),
+//             border: Border.all(color: AppColors.darkBorder.withAlpha(190)),
+//           ),
+//           child: const Icon(
+//             Icons.drag_indicator_rounded,
+//             size: 22,
+//             color: AppColors.darkTextSub,
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 class _OverflowMenu extends StatelessWidget {
   const _OverflowMenu({required this.hostContext});

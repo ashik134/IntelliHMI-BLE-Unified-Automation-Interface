@@ -112,7 +112,8 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     // return button that was just locally released must stay idle until a
     // new physical press; late/stale external "active" feedback is ignored.
     if (widget.isActive != oldWidget.isActive) {
-      final isStaleReactivation = widget.isSpringReturn &&
+      final isStaleReactivation =
+          widget.isSpringReturn &&
           widget.isActive &&
           _suppressExternalReactivation;
       if (isStaleReactivation) {
@@ -256,7 +257,9 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
                   final hasBoundedWidth = constraints.hasBoundedWidth;
                   final hasBoundedHeight = constraints.hasBoundedHeight;
                   final width = hasBoundedWidth ? constraints.maxWidth : 152.0;
-                  final height = hasBoundedHeight ? constraints.maxHeight : 184.0;
+                  final height = hasBoundedHeight
+                      ? constraints.maxHeight
+                      : 184.0;
 
                   return SizedBox(
                     width: hasBoundedWidth ? double.infinity : width,
@@ -338,31 +341,32 @@ class _IndustrialButtonContent extends StatelessWidget {
     final statusLabel = isLocked
         ? 'LOCKED'
         : isActive
-            ? 'ACTIVE'
-            : isPressed
-                ? 'PRESSED'
-                : 'READY';
+        ? 'ACTIVE'
+        : isPressed
+        ? 'PRESSED'
+        : 'READY';
     final modeLabel = isSpringReturn
         ? 'HOLD'
         : isLatched
-            ? 'LATCHED'
-            : 'TAP';
+        ? 'LATCHED'
+        : 'TAP';
     final labelColor = isLocked
         ? AppColors.darkTextMuted.withAlpha(_alpha(0.9))
         : isActive
-            ? activeColorLight
-            : AppColors.darkText;
+        ? activeColorLight
+        : AppColors.darkText;
     final mutedColor = isLocked
         ? AppColors.darkTextMuted.withAlpha(_alpha(0.85))
         : isActive
-            ? activeColorLight
-            : isPressed
-                ? activeColor.withAlpha(_alpha(0.8))
-                : AppColors.darkTextMuted;
+        ? activeColorLight
+        : isPressed
+        ? activeColor.withAlpha(_alpha(0.8))
+        : AppColors.darkTextMuted;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxHeight < 180 || constraints.maxWidth < 150;
+        final compact =
+            constraints.maxHeight < 180 || constraints.maxWidth < 150;
         final padding = compact
             ? const EdgeInsets.fromLTRB(10, 8, 10, 8)
             : const EdgeInsets.fromLTRB(16, 12, 16, 12);
@@ -483,8 +487,8 @@ class _IndustrialButtonContent extends StatelessWidget {
                                             _alpha(0.45),
                                           )
                                         : isActive
-                                            ? Colors.white
-                                            : AppColors.darkText,
+                                        ? Colors.white
+                                        : AppColors.darkText,
                                     shadows: [
                                       Shadow(
                                         color: Colors.black.withAlpha(
@@ -502,16 +506,22 @@ class _IndustrialButtonContent extends StatelessWidget {
                                   Container(
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: Colors.black.withAlpha(_alpha(0.25)),
+                                      color: Colors.black.withAlpha(
+                                        _alpha(0.25),
+                                      ),
                                       border: Border.all(
-                                        color: Colors.white.withAlpha(_alpha(0.08)),
+                                        color: Colors.white.withAlpha(
+                                          _alpha(0.08),
+                                        ),
                                         width: 1.5,
                                       ),
                                     ),
                                     child: Icon(
                                       Icons.lock_outline_rounded,
                                       size: diameter * 0.2,
-                                      color: Colors.white.withAlpha(_alpha(0.3)),
+                                      color: Colors.white.withAlpha(
+                                        _alpha(0.3),
+                                      ),
                                     ),
                                   ),
                               ],
@@ -620,60 +630,59 @@ class _IndicatorLed extends StatelessWidget {
   }
 }
 
-class _StatusRail extends StatelessWidget {
-  const _StatusRail({
-    required this.color,
-    required this.isActive,
-    required this.isPressed,
-    required this.isEnabled,
-    this.isCompact = false,
-  });
+// class _StatusRail extends StatelessWidget {
+//   const _StatusRail({
+//     required this.color,
+//     required this.isActive,
+//     required this.isPressed,
+//     required this.isEnabled,
+//   }) : isCompact = false;
 
-  final Color color;
-  final bool isActive;
-  final bool isPressed;
-  final bool isEnabled;
-  final bool isCompact;
+//   final Color color;
+//   final bool isActive;
+//   final bool isPressed;
+//   final bool isEnabled;
+//   final bool isCompact;
 
-  int _alpha(double opacity) {
-    return (opacity.clamp(0.0, 1.0) * 255).round();
-  }
+//   int _alpha(double opacity) {
+//     return (opacity.clamp(0.0, 1.0) * 255).round();
+//   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool isLocked = !isEnabled;
-    final double railHeight = isCompact ? 2.5 : 3;
+//   @override
+//   Widget build(BuildContext context) {
+//     final bool isLocked = !isEnabled;
+//     final double railHeight = isCompact ? 2.5 : 3;
 
-    return SizedBox(
-      height: railHeight + 4,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        width: double.infinity,
-        height: railHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(railHeight / 2),
-          color: isLocked
-              ? Colors.grey.withAlpha(_alpha(0.15))
-              : isActive
-                  ? color
-                  : isPressed
-                      ? color.withAlpha(_alpha(0.5))
-                      : Colors.grey.withAlpha(_alpha(0.1)),
-          boxShadow: (isActive || isPressed) && !isLocked
-              ? [
-                  BoxShadow(
-                    color: color.withAlpha(_alpha(0.3)),
-                    blurRadius: 4,
-                    spreadRadius: 0,
-                  ),
-                ]
-              : [],
-        ),
-      ),
-    );
-  }
-}
+//     return SizedBox(
+//       height: railHeight + 4,
+//       child: AnimatedContainer(
+//         duration: const Duration(milliseconds: 200),
+//         curve: Curves.easeInOut,
+//         width: double.infinity,
+//         height: railHeight,
+//         decoration: BoxDecoration(
+//           borderRadius: BorderRadius.circular(railHeight / 2),
+//           color: isLocked
+//               ? Colors.grey.withAlpha(_alpha(0.15))
+//               : isActive
+//               ? color
+//               : isPressed
+//               ? color.withAlpha(_alpha(0.5))
+//               : Colors.grey.withAlpha(_alpha(0.1)),
+//           boxShadow: (isActive || isPressed) && !isLocked
+//               ? [
+//                   BoxShadow(
+//                     color: color.withAlpha(_alpha(0.3)),
+//                     blurRadius: 4,
+//                     spreadRadius: 0,
+//                   ),
+//                 ]
+//               : [],
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 class _IndustrialRoundButtonPainter extends CustomPainter {
   const _IndustrialRoundButtonPainter({
