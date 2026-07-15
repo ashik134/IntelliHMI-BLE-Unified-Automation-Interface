@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -414,7 +415,7 @@ void main() {
         final pushTemplate = service.templates.firstWhere(
           (template) => template.name == 'Push Button Panel',
         );
-        final config = pushTemplate.build();
+        final config = pushTemplate.build(LayoutBucket.plc38);
 
         expect(config.buttons.length, ControlRole.values.length);
         expect(
@@ -427,6 +428,48 @@ void main() {
         );
       },
     );
+
+    test('factory default template uses the current PLC bucket layout', () {
+      const service = LayoutTemplateService();
+      final factoryTemplate = service.templates.firstWhere(
+        (template) => template.name == 'Factory Default',
+      );
+      final config = factoryTemplate.build(LayoutBucket.plc14);
+      final pages = buildControlGridPages(
+        layoutCfg: config,
+        roles: const [
+          ControlRole.hoistUp,
+          ControlRole.hoistDown,
+          ControlRole.traverseLeft,
+          ControlRole.traverseRight,
+          ControlRole.travelForward,
+          ControlRole.travelReverse,
+        ],
+      );
+
+      expect(
+        config.buttonFor(ControlRole.hoistUp)!.type,
+        ButtonType.sliderButton,
+      );
+      expect(
+        config.buttonFor(ControlRole.hoistDown)!.type,
+        ButtonType.sliderButton,
+      );
+      expect(occupiedGridSlotsFor(config.buttonFor(ControlRole.hoistUp)!), [
+        0,
+        2,
+        4,
+      ]);
+      expect(occupiedGridSlotsFor(config.buttonFor(ControlRole.hoistDown)!), [
+        1,
+        3,
+        5,
+      ]);
+      expect(pages.single.items.map((item) => item.config.id), [
+        ControlRole.hoistUp.name,
+        ControlRole.hoistDown.name,
+      ]);
+    });
 
     test('migration seeds traverse slider type as crossTravel by default', () {
       final legacyJson =
@@ -536,11 +579,35 @@ void main() {
       expect(occupiedGridSlotsFor(config), [2, 3]);
     });
 
-    test('PLC14 role list renders only hoist controls from default layout', () {
+    test('PLC14 default spans UP and DOWN across the 6-slot grid', () {
+      final config = ControlLayoutConfig.defaultForBucket(LayoutBucket.plc14);
+      final up = config.buttonFor(ControlRole.hoistUp)!;
+      final down = config.buttonFor(ControlRole.hoistDown)!;
+
+      expect(up.type, ButtonType.sliderButton);
+      expect(down.type, ButtonType.sliderButton);
+      expect(up.gridX, 0);
+      expect(up.gridY, 0);
+      expect(up.gridColumnSpan, 1);
+      expect(up.gridRowSpan, 3);
+      expect(down.gridX, 1);
+      expect(down.gridY, 0);
+      expect(down.gridColumnSpan, 1);
+      expect(down.gridRowSpan, 3);
+      expect(occupiedGridSlotsFor(up), [0, 2, 4]);
+      expect(occupiedGridSlotsFor(down), [1, 3, 5]);
+
       final pages = buildControlGridPages(
-        layoutCfg: const ControlLayoutConfig(),
-        roles: const [ControlRole.hoistUp, ControlRole.hoistDown],
-        slotCount: 2,
+        layoutCfg: config,
+        roles: const [
+          ControlRole.hoistUp,
+          ControlRole.hoistDown,
+          ControlRole.traverseLeft,
+          ControlRole.traverseRight,
+          ControlRole.travelForward,
+          ControlRole.travelReverse,
+        ],
+        slotCount: ButtonConfig.controlSlotCount,
       );
 
       final renderedIds = pages
@@ -556,6 +623,16 @@ void main() {
       expect(renderedIds, isNot(contains(ControlRole.traverseRight.name)));
       expect(renderedIds, isNot(contains(ControlRole.travelForward.name)));
       expect(renderedIds, isNot(contains(ControlRole.travelReverse.name)));
+      expect(pages.single.occupants[0]!.config.id, ControlRole.hoistUp.name);
+      expect(pages.single.occupants[2]!.config.id, ControlRole.hoistUp.name);
+      expect(pages.single.occupants[4]!.config.id, ControlRole.hoistUp.name);
+      expect(pages.single.occupants[1]!.config.id, ControlRole.hoistDown.name);
+      expect(pages.single.occupants[3]!.config.id, ControlRole.hoistDown.name);
+      expect(pages.single.occupants[5]!.config.id, ControlRole.hoistDown.name);
+      expect(
+        const LayoutValidationService().validateFullConfig(config).isValid,
+        isTrue,
+      );
     });
 
     test('auto arrange creates a new page when page one is full', () {

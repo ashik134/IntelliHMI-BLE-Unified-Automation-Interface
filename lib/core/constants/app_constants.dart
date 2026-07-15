@@ -10,14 +10,17 @@ class AppConstants {
   static const String prefsKeyDeviceId = 'last_device_id';
 
   /// Legacy single-config key from before per-PLC-type layout storage.
-  /// Kept only as a one-time migration source — see
-  /// [prefsKeyLayoutConfigHoistOnly] / [prefsKeyLayoutConfigFull].
+  /// Kept only as a one-time migration source.
   static const String prefsKeyLayoutConfig = 'control_layout_config_v2';
 
-  /// PLC14 / PLC21 (hoist-only hardware) — shares one bucket since both
-  /// route to the same control screen today.
+  /// PLC14 layout. The key name is retained for backward compatibility with
+  /// earlier hoist-only layout storage.
   static const String prefsKeyLayoutConfigHoistOnly =
       'control_layout_config_v2_hoist_only';
+
+  /// PLC21 layout.
+  static const String prefsKeyLayoutConfigPlc21 =
+      'control_layout_config_v2_plc21';
 
   /// PLC38 (all three motion axes).
   static const String prefsKeyLayoutConfigFull =

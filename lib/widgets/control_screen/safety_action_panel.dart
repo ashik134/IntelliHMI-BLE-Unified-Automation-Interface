@@ -248,55 +248,42 @@ class _ResetSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(
-          height: MediaQuery.of(context).size.height * 0.0,
-          width: double.infinity,
-          padding: EdgeInsets.all(compact ? 8 : 10),
-          decoration: BoxDecoration(
-            color: AppColors.eStopColor.withAlpha(31),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.eStopColor.withAlpha(153),
-              width: 2,
+        Row(
+          children: [
+            CircleAvatar(
+              radius: compact ? 13 : 16,
+              backgroundColor: AppColors.eStopColor,
+              child: Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.white,
+                size: compact ? 15 : 18,
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: compact ? 13 : 16,
-                backgroundColor: AppColors.eStopColor,
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: compact ? 15 : 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'EMERGENCY STOP ACTIVE',
-                      style: TextStyle(
-                        color: AppColors.eStopColorLight,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                        letterSpacing: 0.8,
-                      ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'EMERGENCY STOP ACTIVE',
+                    style: TextStyle(
+                      color: AppColors.eStopColorLight,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                      letterSpacing: 0.8,
                     ),
-                    Text(
-                      'All crane controls are locked',
-                      style: TextStyle(
-                        color: AppColors.darkTextSub,
-                        fontSize: 10,
-                      ),
+                  ),
+                  Text(
+                    'All crane controls are locked',
+                    style: TextStyle(
+                      color: AppColors.darkTextSub,
+                      fontSize: 10,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         SizedBox(height: compact ? 6 : 8),
         EStopSwipeButton(

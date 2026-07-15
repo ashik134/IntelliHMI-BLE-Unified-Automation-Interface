@@ -40,11 +40,8 @@ class ControlScreen extends StatefulWidget {
 class _ControlScreenState extends State<ControlScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // All 6 motion roles are always passed to ControlSlotGrid so PLC14/PLC21
-  // get the same 6-slot grid shape as PLC38. Only hoistUp/hoistDown are
-  // visible by default (see ControlLayoutConfig.defaultForBucket) — the
-  // other 4 slots render empty and are user-addable via "Add button", since
-  // this hardware class has no traverse/travel PLC output (see
-  // CraneController.setButtonCommand's PLC38-only gate for those roles).
+  // get the same 6-slot grid shape as PLC38. Each PLC type's default layout
+  // decides which role buttons are visible and how many grid cells they span.
   static const List<ControlRole> _motionRoles = [
     ControlRole.hoistUp,
     ControlRole.hoistDown,
@@ -317,9 +314,10 @@ class _ControlScreenState extends State<ControlScreen>
     >(
       builder: (ctx, controller, layoutCtrl, customCtrl, _) {
         final isEditing = customCtrl.isActive;
+        final bucket = LayoutBucket.forPlcType(controller.connectedPlcType);
         final layoutCfg = isEditing
             ? customCtrl.draft
-            : layoutCtrl.configFor(LayoutBucket.hoistOnly);
+            : layoutCtrl.configFor(bucket);
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;

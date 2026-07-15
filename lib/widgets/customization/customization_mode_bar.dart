@@ -588,7 +588,7 @@ class _OverflowMenu extends StatelessWidget {
                     Navigator.of(ctx).pop();
                     context
                         .read<CustomizationModeController>()
-                        .applyDraftChange(template.build());
+                        .applyTemplate(template);
                   },
                 ),
             ],
@@ -632,9 +632,7 @@ class _OverflowMenu extends StatelessWidget {
       ),
     );
     if (confirmed == true && context.mounted) {
-      context.read<CustomizationModeController>().applyDraftChange(
-        const ControlLayoutConfig(),
-      );
+      context.read<CustomizationModeController>().resetDraftToFactoryDefaults();
     }
   }
 

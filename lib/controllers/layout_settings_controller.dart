@@ -11,11 +11,9 @@ import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutSettingsController
 //
-// Holds one persisted ControlLayoutConfig PER LayoutBucket (hoistOnly for
-// PLC14/PLC21, full for PLC38) rather than a single app-wide config.
-// Customizing PLC14's grid must never affect PLC38's and vice versa — before
-// this, both screens shared one config/prefs key, so a PLC38 user's 6-slot
-// layout and a PLC14 user's layout were literally the same stored object.
+// Holds one persisted ControlLayoutConfig per PLC layout bucket rather than a
+// single app-wide config. Customizing one PLC type's grid must never affect
+// another PLC type's screen.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LayoutSettingsController extends ChangeNotifier {
@@ -36,8 +34,15 @@ class LayoutSettingsController extends ChangeNotifier {
   bool get isLoaded => _loaded;
 
   static String _prefsKeyFor(LayoutBucket bucket) => switch (bucket) {
-    LayoutBucket.hoistOnly => AppConstants.prefsKeyLayoutConfigHoistOnly,
-    LayoutBucket.full => AppConstants.prefsKeyLayoutConfigFull,
+    LayoutBucket.plc14 => AppConstants.prefsKeyLayoutConfigHoistOnly,
+    LayoutBucket.plc21 => AppConstants.prefsKeyLayoutConfigPlc21,
+    LayoutBucket.plc38 => AppConstants.prefsKeyLayoutConfigFull,
+  };
+
+  static String _migrationPrefsKeyFor(LayoutBucket bucket) => switch (bucket) {
+    LayoutBucket.plc14 => AppConstants.prefsKeyLayoutConfigHoistOnly,
+    LayoutBucket.plc21 => AppConstants.prefsKeyLayoutConfigHoistOnly,
+    LayoutBucket.plc38 => AppConstants.prefsKeyLayoutConfigFull,
   };
 
   // ── Persistence ────────────────────────────────────────────────────────────
@@ -64,10 +69,17 @@ class LayoutSettingsController extends ChangeNotifier {
           _configs[bucket] = repairControlGridLayout(
             ControlLayoutConfig.fromJsonString(raw),
           );
-        } else if (legacyRaw != null && legacyRaw.isNotEmpty) {
-          _configs[bucket] = repairControlGridLayout(
-            ControlLayoutConfig.fromJsonString(legacyRaw),
-          );
+        } else {
+          final migrationRaw = prefs.getString(_migrationPrefsKeyFor(bucket));
+          if (migrationRaw != null && migrationRaw.isNotEmpty) {
+            _configs[bucket] = repairControlGridLayout(
+              ControlLayoutConfig.fromJsonString(migrationRaw),
+            );
+          } else if (legacyRaw != null && legacyRaw.isNotEmpty) {
+            _configs[bucket] = repairControlGridLayout(
+              ControlLayoutConfig.fromJsonString(legacyRaw),
+            );
+          }
         }
       }
     } catch (_) {

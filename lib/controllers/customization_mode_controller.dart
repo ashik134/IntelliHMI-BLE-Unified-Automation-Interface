@@ -7,6 +7,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
@@ -45,7 +46,7 @@ class CustomizationModeController extends ChangeNotifier {
   static const int _maxHistoryDepth = 50;
 
   bool _isActive = false;
-  LayoutBucket _bucket = LayoutBucket.hoistOnly;
+  LayoutBucket _bucket = LayoutBucket.plc14;
   ControlLayoutConfig _draft = const ControlLayoutConfig();
   final List<ControlLayoutConfig> _undoStack = [];
   final List<ControlLayoutConfig> _redoStack = [];
@@ -55,6 +56,7 @@ class CustomizationModeController extends ChangeNotifier {
 
   bool get isActive => _isActive;
   ControlLayoutConfig get draft => _draft;
+  LayoutBucket get activeBucket => _bucket;
   int get activeControlPage => _activeControlPage;
   ControlRole? get selectedRole => selectedButton?.role;
   ButtonConfig? get selectedButton {
@@ -199,6 +201,16 @@ class CustomizationModeController extends ChangeNotifier {
     _draft = next;
     _lastValidation = _validator.validateFullConfig(_draft);
     notifyListeners();
+  }
+
+  void applyTemplate(LayoutTemplate template) {
+    if (!_isActive) return;
+    applyDraftChange(template.build(_bucket));
+  }
+
+  void resetDraftToFactoryDefaults() {
+    if (!_isActive) return;
+    applyDraftChange(ControlLayoutConfig.defaultForBucket(_bucket));
   }
 
   void undo() {

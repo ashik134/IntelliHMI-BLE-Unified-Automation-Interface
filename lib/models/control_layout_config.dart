@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart' show Color, FontWeight;
 
-import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
+import 'package:rev_crane_control_ops/models/app_enums.dart'
+    show LayoutBucket, PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 
@@ -837,11 +838,9 @@ class ControlLayoutConfig {
     ControlLabelConfig labelConfig = const ControlLabelConfig(),
   }) => _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
 
-  /// Roles hidden by default in [LayoutBucket.hoistOnly] — PLC14/PLC21
-  /// hardware has no traverse/travel outputs, so those four grid slots
-  /// start empty (user-addable via "Add button") rather than showing
-  /// buttons that would silently no-op when pressed (see
-  /// CraneController.setButtonCommand's PLC38-only gate).
+  /// Roles hidden by default on PLC14/PLC21 hardware. These PLC types have no
+  /// traverse/travel outputs, so those controls start hidden rather than
+  /// showing buttons that would silently no-op when pressed.
   static const List<ControlRole> _hoistOnlyHiddenRoles = [
     ControlRole.traverseLeft,
     ControlRole.traverseRight,
@@ -849,18 +848,49 @@ class ControlLayoutConfig {
     ControlRole.travelReverse,
   ];
 
-  /// Fresh-install default for [bucket]: the full legacy-synthesized button
-  /// set, with the axes that bucket's hardware doesn't support hidden
-  /// (`visible: false`) rather than omitted — so re-enabling one later (via
-  /// "Add button" placing a role button back, or a future PLC upgrade) has
-  /// a well-formed [ButtonConfig] to start from instead of a missing entry.
+  /// Fresh-install default for [bucket], keeping persisted storage bucketed by
+  /// PLC type while sharing the same 2 x 3 control grid model.
   factory ControlLayoutConfig.defaultForBucket(LayoutBucket bucket) {
+    return switch (bucket) {
+      LayoutBucket.plc14 => ControlLayoutConfig.defaultForPlcType(
+        PlcType.plc14,
+      ),
+      LayoutBucket.plc21 => ControlLayoutConfig.defaultForPlcType(
+        PlcType.plc21,
+      ),
+      LayoutBucket.plc38 => ControlLayoutConfig.defaultForPlcType(
+        PlcType.plc38,
+      ),
+    };
+  }
+
+  factory ControlLayoutConfig.defaultForPlcType(PlcType plcType) {
     final buttons = buttonsFromLegacy();
-    if (bucket == LayoutBucket.full) {
+    if (plcType == PlcType.plc38) {
       return ControlLayoutConfig(buttons: buttons);
     }
+
     final hoistOnly = {
       ...buttons,
+      ControlRole.hoistUp.name: buttons[ControlRole.hoistUp.name]!.copyWith(
+        type: ButtonType.sliderButton,
+        pageIndex: 0,
+        gridX: 0,
+        gridY: 0,
+        gridColumns: 1,
+        gridRows: ButtonConfig.controlGridRows,
+        slotIndex: 0,
+      ),
+      ControlRole.hoistDown.name: buttons[ControlRole.hoistDown.name]!
+          .copyWith(
+            type: ButtonType.sliderButton,
+            pageIndex: 0,
+            gridX: 1,
+            gridY: 0,
+            gridColumns: 1,
+            gridRows: ButtonConfig.controlGridRows,
+            slotIndex: 1,
+          ),
       for (final role in _hoistOnlyHiddenRoles)
         role.name: buttons[role.name]!.copyWith(visible: false),
     };

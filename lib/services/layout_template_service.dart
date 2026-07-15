@@ -1,3 +1,5 @@
+import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,7 +20,7 @@ class LayoutTemplate {
 
   final String name;
   final String description;
-  final ControlLayoutConfig Function() build;
+  final ControlLayoutConfig Function(LayoutBucket bucket) build;
 }
 
 class LayoutTemplateService {
@@ -27,7 +29,7 @@ class LayoutTemplateService {
   List<LayoutTemplate> get templates => const [
     LayoutTemplate(
       name: 'Factory Default',
-      description: 'Sliders on every axis, standard sizing.',
+      description: 'Factory controls for the connected PLC type.',
       build: _factoryDefault,
     ),
     LayoutTemplate(
@@ -42,9 +44,10 @@ class LayoutTemplateService {
     ),
   ];
 
-  static ControlLayoutConfig _factoryDefault() => const ControlLayoutConfig();
+  static ControlLayoutConfig _factoryDefault(LayoutBucket bucket) =>
+      ControlLayoutConfig.defaultForBucket(bucket);
 
-  static ControlLayoutConfig _pushButtonPanel() {
+  static ControlLayoutConfig _pushButtonPanel(LayoutBucket bucket) {
     const axisCfg = AxisControlConfig(
       widgetType: ControlWidgetType.pushButton,
       wiringConfig: PushButtonWiringConfig.offMomentary,
@@ -54,13 +57,13 @@ class LayoutTemplateService {
       traverse: axisCfg,
       travel: axisCfg,
     );
-    return const ControlLayoutConfig().copyWith(
+    return ControlLayoutConfig.defaultForBucket(bucket).copyWith(
       axisConfigs: axisConfigs,
-      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
+      buttons: _buttonsForBucketTemplate(bucket, axisConfigs: axisConfigs),
     );
   }
 
-  static ControlLayoutConfig _largeTouchTargets() {
+  static ControlLayoutConfig _largeTouchTargets(LayoutBucket bucket) {
     const axisCfg = AxisControlConfig(
       widgetType: ControlWidgetType.pushButton,
       wiringConfig: PushButtonWiringConfig.offMomentary,
@@ -71,10 +74,36 @@ class LayoutTemplateService {
       traverse: axisCfg,
       travel: axisCfg,
     );
-    return const ControlLayoutConfig().copyWith(
+    return ControlLayoutConfig.defaultForBucket(bucket).copyWith(
       axisConfigs: axisConfigs,
       sizeConfig: const ControlWidgetSizeConfig(estopButtonHeightScale: 1.25),
-      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
+      buttons: _buttonsForBucketTemplate(bucket, axisConfigs: axisConfigs),
     );
+  }
+
+  static Map<String, ButtonConfig> _buttonsForBucketTemplate(
+    LayoutBucket bucket, {
+    required AxisConfigSet axisConfigs,
+  }) {
+    final bucketDefault = ControlLayoutConfig.defaultForBucket(bucket);
+    final templateButtons = ControlLayoutConfig.buttonsFromLegacy(
+      axisConfigs: axisConfigs,
+    );
+    if (bucket == LayoutBucket.plc38) {
+      return templateButtons;
+    }
+
+    return {
+      for (final entry in templateButtons.entries)
+        entry.key: entry.value.copyWith(
+          visible: bucketDefault.resolvedButtons[entry.key]?.visible,
+          pageIndex: bucketDefault.resolvedButtons[entry.key]?.pageIndex,
+          gridX: bucketDefault.resolvedButtons[entry.key]?.gridX,
+          gridY: bucketDefault.resolvedButtons[entry.key]?.gridY,
+          gridColumns: bucketDefault.resolvedButtons[entry.key]?.gridColumns,
+          gridRows: bucketDefault.resolvedButtons[entry.key]?.gridRows,
+          slotIndex: bucketDefault.resolvedButtons[entry.key]?.slotIndex,
+        ),
+    };
   }
 }
