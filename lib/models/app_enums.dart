@@ -36,6 +36,22 @@ enum PlcType {
   }
 }
 
+/// Which control-layout storage bucket a [PlcType] uses. PLC14/PLC21 share
+/// one bucket (both route to the same hoist-only control screen and
+/// hardware class today); PLC38 gets its own with all three motion axes
+/// visible by default. Introduced so each hardware class keeps an
+/// independent persisted layout — customizing PLC14's grid must never
+/// affect PLC38's, and vice versa.
+enum LayoutBucket {
+  hoistOnly,
+  full;
+
+  static LayoutBucket forPlcType(PlcType type) => switch (type) {
+    PlcType.plc38 => LayoutBucket.full,
+    PlcType.plc14 || PlcType.plc21 || PlcType.unknown => LayoutBucket.hoistOnly,
+  };
+}
+
 const Map<ControlState, List<int>> plcOutputUp = {
   ControlState.idle: [0, 0, 0, 0],
   ControlState.slow: [0, 1, 0, 0],

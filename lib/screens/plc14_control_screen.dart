@@ -39,9 +39,19 @@ class ControlScreen extends StatefulWidget {
 
 class _ControlScreenState extends State<ControlScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  // All 6 motion roles are always passed to ControlSlotGrid so PLC14/PLC21
+  // get the same 6-slot grid shape as PLC38. Only hoistUp/hoistDown are
+  // visible by default (see ControlLayoutConfig.defaultForBucket) — the
+  // other 4 slots render empty and are user-addable via "Add button", since
+  // this hardware class has no traverse/travel PLC output (see
+  // CraneController.setButtonCommand's PLC38-only gate for those roles).
   static const List<ControlRole> _motionRoles = [
     ControlRole.hoistUp,
     ControlRole.hoistDown,
+    ControlRole.traverseLeft,
+    ControlRole.traverseRight,
+    ControlRole.travelForward,
+    ControlRole.travelReverse,
   ];
 
   late final AnimationController _pulseController;
@@ -266,7 +276,7 @@ class _ControlScreenState extends State<ControlScreen>
       ),
     );
     if (!mounted || confirmed != true) return;
-    final result = customCtrl.deleteSelectedButton(slotCount: 2);
+    final result = customCtrl.deleteSelectedButton();
     if (!result.isValid && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.message ?? 'Could not delete button.')),
@@ -307,7 +317,9 @@ class _ControlScreenState extends State<ControlScreen>
     >(
       builder: (ctx, controller, layoutCtrl, customCtrl, _) {
         final isEditing = customCtrl.isActive;
-        final layoutCfg = isEditing ? customCtrl.draft : layoutCtrl.config;
+        final layoutCfg = isEditing
+            ? customCtrl.draft
+            : layoutCtrl.configFor(LayoutBucket.hoistOnly);
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
@@ -380,8 +392,7 @@ class _ControlScreenState extends State<ControlScreen>
                             icon: const Icon(Icons.auto_fix_high_rounded),
                             color: AppColors.darkTextSub,
                             tooltip: 'Auto arrange controls',
-                            onPressed: () =>
-                                customCtrl.autoArrangeControls(slotCount: 2),
+                            onPressed: customCtrl.autoArrangeControls,
                           ),
                           IconButton(
                             icon: const Icon(Icons.note_add_rounded),
@@ -546,7 +557,6 @@ class _ControlScreenState extends State<ControlScreen>
                           child: ControlSlotGrid(
                             layoutCfg: layoutCfg,
                             roles: _motionRoles,
-                            slotCount: 2,
                             isEditing: isEditing,
                             activeStateFor: (config) =>
                                 _activeStateForButton(controller, config),
@@ -608,7 +618,6 @@ class _ControlScreenState extends State<ControlScreen>
                                       target: target,
                                       targetSlot: targetSlot,
                                       targetPageIndex: targetPageIndex,
-                                      slotCount: 2,
                                     );
                                     if (!result.isValid) {
                                       ScaffoldMessenger.of(
@@ -637,7 +646,6 @@ class _ControlScreenState extends State<ControlScreen>
                                       selected: config,
                                       gridColumns: gridColumns,
                                       gridRows: gridRows,
-                                      slotCount: 2,
                                     );
                                     if (!result.isValid) {
                                       ScaffoldMessenger.of(

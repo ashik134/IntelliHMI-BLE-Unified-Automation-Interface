@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -14,10 +15,18 @@ import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 //
 // Owns the DRAFT layout config while Customization Mode is active. This is
 // the safety boundary between "editing" and "operating": normal screens read
-// LayoutSettingsController.config (committed); while isActive, screens read
-// `draft` instead. Nothing reaches SharedPreferences — and therefore nothing
-// can affect the live control screen once Customization Mode exits — until
-// commit() is called and passes validation.
+// LayoutSettingsController.configFor(bucket) (committed); while isActive,
+// screens read `draft` instead. Nothing reaches SharedPreferences — and
+// therefore nothing can affect the live control screen once Customization
+// Mode exits — until commit() is called and passes validation.
+//
+// Single app-wide instance (constructed once at the provider root, before any
+// PLC is connected), so it cannot be told which LayoutBucket it's editing at
+// construction time. Instead, [enter] reads CraneController.connectedPlcType
+// at the moment editing starts and pins that bucket for the whole session —
+// commit()/discard() write back to/read from that same pinned bucket, never
+// whatever's currently connected (which could theoretically change mid-edit
+// on a disconnect/reconnect).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CustomizationModeController extends ChangeNotifier {
@@ -36,6 +45,7 @@ class CustomizationModeController extends ChangeNotifier {
   static const int _maxHistoryDepth = 50;
 
   bool _isActive = false;
+  LayoutBucket _bucket = LayoutBucket.hoistOnly;
   ControlLayoutConfig _draft = const ControlLayoutConfig();
   final List<ControlLayoutConfig> _undoStack = [];
   final List<ControlLayoutConfig> _redoStack = [];
@@ -63,18 +73,20 @@ class CustomizationModeController extends ChangeNotifier {
 
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
-  bool get hasUnsavedChanges => _draft != _layoutSettings.config;
+  bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
   ValidationResult get lastValidation => _lastValidation;
 
-  /// Enters Customization Mode: seeds the draft from the committed config,
-  /// clears undo/redo history, and stops any in-flight motion as
-  /// defense-in-depth (the real gating mechanism is per-control
+  /// Enters Customization Mode: pins the layout bucket for this session from
+  /// the currently-connected PLC type, seeds the draft from that bucket's
+  /// committed config, clears undo/redo history, and stops any in-flight
+  /// motion as defense-in-depth (the real gating mechanism is per-control
   /// AbsorbPointer, wired in EditableControlTile — this is a belt-and-
   /// suspenders guarantee that nothing is moving when editing begins).
   Future<void> enter() async {
     if (_isActive) return;
     await _craneController.stopAllMotion();
-    _draft = _layoutSettings.config;
+    _bucket = LayoutBucket.forPlcType(_craneController.connectedPlcType);
+    _draft = _layoutSettings.configFor(_bucket);
     _undoStack.clear();
     _redoStack.clear();
     _selectedButtonId = null;
@@ -205,11 +217,12 @@ class CustomizationModeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Validates and persists the draft. On success, exits Customization Mode.
-  /// On failure, stays active so the errors can be surfaced in the UI —
-  /// the operator can then fix the offending field or discard.
+  /// Validates and persists the draft to the pinned bucket (see [enter]).
+  /// On success, exits Customization Mode. On failure, stays active so the
+  /// errors can be surfaced in the UI — the operator can then fix the
+  /// offending field or discard.
   Future<ValidationResult> commit() async {
-    final result = await _layoutSettings.replaceConfig(_draft);
+    final result = await _layoutSettings.replaceConfig(_bucket, _draft);
     _lastValidation = result;
     if (result.isValid) {
       _exitInternal();
@@ -225,7 +238,7 @@ class CustomizationModeController extends ChangeNotifier {
 
   void _exitInternal() {
     _isActive = false;
-    _draft = _layoutSettings.config;
+    _draft = _layoutSettings.configFor(_bucket);
     _undoStack.clear();
     _redoStack.clear();
     _selectedButtonId = null;

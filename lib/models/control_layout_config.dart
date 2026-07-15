@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart' show Color, FontWeight;
 
+import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 
@@ -835,6 +836,36 @@ class ControlLayoutConfig {
     RoleStyleConfig roleStyles = const RoleStyleConfig(),
     ControlLabelConfig labelConfig = const ControlLabelConfig(),
   }) => _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
+
+  /// Roles hidden by default in [LayoutBucket.hoistOnly] — PLC14/PLC21
+  /// hardware has no traverse/travel outputs, so those four grid slots
+  /// start empty (user-addable via "Add button") rather than showing
+  /// buttons that would silently no-op when pressed (see
+  /// CraneController.setButtonCommand's PLC38-only gate).
+  static const List<ControlRole> _hoistOnlyHiddenRoles = [
+    ControlRole.traverseLeft,
+    ControlRole.traverseRight,
+    ControlRole.travelForward,
+    ControlRole.travelReverse,
+  ];
+
+  /// Fresh-install default for [bucket]: the full legacy-synthesized button
+  /// set, with the axes that bucket's hardware doesn't support hidden
+  /// (`visible: false`) rather than omitted — so re-enabling one later (via
+  /// "Add button" placing a role button back, or a future PLC upgrade) has
+  /// a well-formed [ButtonConfig] to start from instead of a missing entry.
+  factory ControlLayoutConfig.defaultForBucket(LayoutBucket bucket) {
+    final buttons = buttonsFromLegacy();
+    if (bucket == LayoutBucket.full) {
+      return ControlLayoutConfig(buttons: buttons);
+    }
+    final hoistOnly = {
+      ...buttons,
+      for (final role in _hoistOnlyHiddenRoles)
+        role.name: buttons[role.name]!.copyWith(visible: false),
+    };
+    return ControlLayoutConfig(buttons: hoistOnly);
+  }
 
   static AxisKind? _tryParseAxisKind(dynamic name) {
     for (final a in AxisKind.values) {

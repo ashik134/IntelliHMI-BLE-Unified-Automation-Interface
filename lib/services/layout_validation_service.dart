@@ -192,10 +192,15 @@ class LayoutValidationService {
     }
 
     final name = config.label.isEmpty ? config.id : config.label;
-    final skipPlacementValidation = isRedundantCrossTravelConfig(
-      config,
-      allButtons,
-    );
+    // An invisible button occupies no grid cell — its stored gridX/gridY/
+    // slotIndex are stale placement data (e.g. a hoist-only layout's hidden
+    // traverseRight, still carrying its crossTravel-span-2 default position)
+    // rather than a live conflict, so placement geometry is never checked
+    // for it. Mirrors the same visible-only assumption validateGridOccupancy
+    // and buildControlGridPages already make via _isPageControl.
+    final skipPlacementValidation =
+        !config.visible ||
+        isRedundantCrossTravelConfig(config, allButtons);
     _checkScaleBoundsGeneric(
       '$name height',
       config.heightScale,

@@ -315,7 +315,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     >(
       builder: (ctx, controller, layoutCtrl, customCtrl, _) {
         final isEditing = customCtrl.isActive;
-        final layoutCfg = isEditing ? customCtrl.draft : layoutCtrl.config;
+        final layoutCfg = isEditing
+            ? customCtrl.draft
+            : layoutCtrl.configFor(LayoutBucket.full);
         final labels = layoutCfg.labelConfig;
         final sizing = layoutCfg.sizeConfig;
         final arrangement = layoutCfg.arrangementConfig;
