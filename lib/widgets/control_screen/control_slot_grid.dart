@@ -36,6 +36,7 @@ typedef ButtonSlotDropHandler =
       int targetSlot, {
       required int targetPageIndex,
     });
+typedef VacantSlotHandler = void Function(int pageIndex, int slotIndex);
 
 class ControlSlotGrid extends StatefulWidget {
   const ControlSlotGrid({
@@ -52,6 +53,7 @@ class ControlSlotGrid extends StatefulWidget {
     this.onSelectButton,
     this.onSlotDrop,
     this.onResizeButton,
+    this.onSelectVacantSlot,
     this.onPageChanged,
     this.activePageIndex = 0,
     this.slotCount = ButtonConfig.controlSlotCount,
@@ -73,6 +75,7 @@ class ControlSlotGrid extends StatefulWidget {
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
   final ButtonResizeHandler? onResizeButton;
+  final VacantSlotHandler? onSelectVacantSlot;
   final ValueChanged<int>? onPageChanged;
   final int activePageIndex;
   final int slotCount;
@@ -190,6 +193,7 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
                   onSelectButton: widget.onSelectButton,
                   onSlotDrop: widget.onSlotDrop,
                   onResizeButton: widget.onResizeButton,
+                  onSelectVacantSlot: widget.onSelectVacantSlot,
                 ),
               ),
             ),
@@ -238,6 +242,7 @@ class _SlotGridBody extends StatelessWidget {
     required this.onSelectButton,
     required this.onSlotDrop,
     required this.onResizeButton,
+    required this.onSelectVacantSlot,
   });
 
   final ControlGridPage page;
@@ -254,6 +259,7 @@ class _SlotGridBody extends StatelessWidget {
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
   final ButtonResizeHandler? onResizeButton;
+  final VacantSlotHandler? onSelectVacantSlot;
 
   @override
   Widget build(BuildContext context) {
@@ -325,6 +331,7 @@ class _SlotGridBody extends StatelessWidget {
                         onSelectButton: onSelectButton,
                         onSlotDrop: onSlotDrop,
                         onResizeButton: onResizeButton,
+                        onSelectVacantSlot: onSelectVacantSlot,
                       ),
                     ),
               for (final item in page.items)
@@ -349,6 +356,7 @@ class _SlotGridBody extends StatelessWidget {
                     onSelectButton: onSelectButton,
                     onSlotDrop: onSlotDrop,
                     onResizeButton: onResizeButton,
+                    onSelectVacantSlot: onSelectVacantSlot,
                   ),
                 ),
               if (isEditing && selectedItem != null && onResizeButton != null)
@@ -451,6 +459,7 @@ class _SlotTarget extends StatefulWidget {
     required this.onSelectButton,
     required this.onSlotDrop,
     required this.onResizeButton,
+    required this.onSelectVacantSlot,
   });
 
   final int pageIndex;
@@ -466,6 +475,7 @@ class _SlotTarget extends StatefulWidget {
   final ButtonSelectionHandler? onSelectButton;
   final ButtonSlotDropHandler? onSlotDrop;
   final ButtonResizeHandler? onResizeButton;
+  final VacantSlotHandler? onSelectVacantSlot;
 
   @override
   State<_SlotTarget> createState() => _SlotTargetState();
@@ -518,12 +528,26 @@ class _SlotTargetState extends State<_SlotTarget> {
             widget.item?.config.role != null &&
                 widget.item!.config.role == widget.selectedRole ||
             widget.item?.config.id == widget.selectedButtonId;
+        final vacantSlotId = vacantSlotSelectionId(
+          widget.pageIndex,
+          widget.slotIndex,
+        );
+        final vacantSelected = widget.selectedButtonId == vacantSlotId;
         return _SlotFrame(
           isEditing: true,
           isHighlighted: highlighted,
-          isSelected: selected,
+          isSelected: selected || vacantSelected,
           child: widget.item == null
-              ? _EmptySlot(slotIndex: widget.slotIndex)
+              ? _EmptySlot(
+                  slotIndex: widget.slotIndex,
+                  isSelected: vacantSelected,
+                  onTap: widget.onSelectVacantSlot == null
+                      ? null
+                      : () => widget.onSelectVacantSlot!(
+                          widget.pageIndex,
+                          widget.slotIndex,
+                        ),
+                )
               : _DraggableSlotContent(
                   item: widget.item!,
                   activeState: widget.activeStateFor(widget.item!.config),
@@ -689,24 +713,108 @@ class _ButtonBody extends StatelessWidget {
 }
 
 class _EmptySlot extends StatelessWidget {
-  const _EmptySlot({required this.slotIndex});
+  const _EmptySlot({
+    required this.slotIndex,
+    required this.isSelected,
+    required this.onTap,
+  });
 
   final int slotIndex;
+  final bool isSelected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        'SLOT ${slotIndex + 1}',
-        style: const TextStyle(
-          color: AppColors.darkTextMuted,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0,
+    // A vacant slot is safe-by-construction: tapping it only opens the
+    // add/edit flow (see onSelectVacantSlot wiring in the control screens)
+    // and never dispatches a PLC command, so it needs no isDisabled/
+    // onCommand plumbing the way an occupied slot's ConfigurableButton does.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: DottedSlotBorder(
+          color: isSelected ? AppColors.accent : AppColors.darkBorder,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Text(
+                'SLOT ${slotIndex + 1}',
+                style: TextStyle(
+                  color: isSelected
+                      ? AppColors.accent
+                      : AppColors.darkTextMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: CustomizationBadge(
+                  icon: Icons.edit_rounded,
+                  color: isSelected ? AppColors.accent : AppColors.darkBg,
+                  onTap: onTap ?? () {},
+                  tooltip: 'Add control',
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class DottedSlotBorder extends StatelessWidget {
+  const DottedSlotBorder({super.key, required this.color, required this.child});
+
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _DashedRRectPainter(color: color),
+      child: Padding(padding: const EdgeInsets.all(2), child: child),
+    );
+  }
+}
+
+class _DashedRRectPainter extends CustomPainter {
+  const _DashedRRectPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(8),
+    );
+    final path = Path()..addRRect(rrect);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    const dashWidth = 5.0;
+    const dashGap = 4.0;
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = math.min(distance + dashWidth, metric.length);
+        canvas.drawPath(metric.extractPath(distance, next), paint);
+        distance = next + dashGap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRRectPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _PageDots extends StatelessWidget {

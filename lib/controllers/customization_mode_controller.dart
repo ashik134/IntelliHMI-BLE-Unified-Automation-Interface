@@ -67,6 +67,12 @@ class CustomizationModeController extends ChangeNotifier {
     return button;
   }
 
+  /// Raw selection id, unlike [selectedButton] this does not resolve
+  /// against [_draft.resolvedButtons] — it stays set for a selected vacant
+  /// slot (see [vacantSlotSelectionId]), which has no backing ButtonConfig,
+  /// so the grid can still draw that slot's selection highlight.
+  String? get selectedSlotId => _selectedButtonId;
+
   bool get canDeleteSelectedButton {
     final button = selectedButton;
     final role = button?.role;
@@ -107,6 +113,15 @@ class CustomizationModeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Selects a vacant grid slot so it draws the same highlight as a selected
+  /// occupied slot. Uses a synthetic id (see [vacantSlotSelectionId]) that
+  /// never resolves in [selectedButton], so rotate/delete stay disabled —
+  /// there is no button here yet, only a placeholder.
+  void selectVacantSlot(int pageIndex, int slotIndex) {
+    _selectedButtonId = vacantSlotSelectionId(pageIndex, slotIndex);
+    notifyListeners();
+  }
+
   void setActiveControlPage(int pageIndex) {
     final next = pageIndex < 0 ? 0 : pageIndex;
     if (_activeControlPage == next) return;
@@ -138,7 +153,7 @@ class CustomizationModeController extends ChangeNotifier {
       slotCount: slotCount,
     );
     if (!result.isValid) return result;
-    applyDraftChange(_draft.copyWith(buttons: result.buttons));
+    applyDraftChangeAndCompact(_draft.copyWith(buttons: result.buttons));
     _selectedButtonId = null;
     notifyListeners();
     return result;
@@ -151,7 +166,11 @@ class CustomizationModeController extends ChangeNotifier {
     applyDraftChange(_draft.copyWith(controlPageCount: nextCount));
   }
 
-  GridMutationResult addControlButton(ButtonConfig button) {
+  GridMutationResult addControlButton(
+    ButtonConfig button, {
+    int? preferredPageIndex,
+    int? preferredSlot,
+  }) {
     if (!_isActive) {
       return const GridMutationResult.invalid(
         'Enter customization mode first.',
@@ -160,7 +179,8 @@ class CustomizationModeController extends ChangeNotifier {
     final result = buildButtonAdd(
       buttons: _draft.resolvedButtons,
       button: button,
-      preferredPageIndex: _activeControlPage,
+      preferredPageIndex: preferredPageIndex ?? _activeControlPage,
+      preferredSlot: preferredSlot,
     );
     if (!result.isValid) return result;
 
@@ -187,6 +207,25 @@ class CustomizationModeController extends ChangeNotifier {
         ),
       ),
     );
+  }
+
+  /// Like [applyDraftChange], but also drops any control page left fully
+  /// vacant by [next] (delete, drag-off, resize-off) as part of the same
+  /// undo step, and re-points [_activeControlPage] at wherever the active
+  /// page landed after compaction. Screens use this instead of
+  /// [applyDraftChange] for slot-drop and resize mutations, since either can
+  /// empty a page as a side effect. Never used for additive flows
+  /// (createControlPage, addControlButton) — those intentionally leave a
+  /// page blank for the operator to fill next.
+  void applyDraftChangeAndCompact(ControlLayoutConfig next) {
+    final compacted = compactControlPages(next);
+    applyDraftChange(compacted);
+    if (compacted.controlPageCount != next.controlPageCount) {
+      _activeControlPage = _activeControlPage.clamp(
+        0,
+        compacted.controlPageCount - 1,
+      );
+    }
   }
 
   /// Pushes the current draft onto the undo stack, clears the redo stack,

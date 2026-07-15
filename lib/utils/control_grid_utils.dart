@@ -8,6 +8,14 @@ const String kCrossTravelSpanMessage =
 const String kWidgetPlacementMessage =
     'That widget cannot fit there without overlapping another control.';
 
+/// Synthetic selection id for a vacant slot — never a real [ButtonConfig.id],
+/// so `CustomizationModeController.selectedButton` correctly resolves to
+/// null for it (there's no button yet) while `selectedSlotId` still lets
+/// the grid draw the same highlight styling used for a selected occupied
+/// slot.
+String vacantSlotSelectionId(int pageIndex, int slotIndex) =>
+    '__vacant_${pageIndex}_$slotIndex';
+
 class GridMutationResult {
   const GridMutationResult.valid(this.buttons) : isValid = true, message = null;
 
@@ -301,6 +309,69 @@ ButtonConfig normalizeButtonPlacement(
   );
 }
 
+/// Drops control pages that hold no visible page-control button, shifting
+/// later pages down so page indices stay contiguous. Page 0 is always kept
+/// (it's the base grid every screen renders), even if empty. Returns the
+/// same [layout] instance if nothing changed.
+///
+/// Called after any mutation that can empty a page (delete, drag off,
+/// resize) so a Customization Mode session never leaves a blank page behind
+/// for the operator to page into.
+ControlLayoutConfig compactControlPages(
+  ControlLayoutConfig layout, {
+  int slotCount = ButtonConfig.controlSlotCount,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+}) {
+  final buttons = layout.resolvedButtons;
+  final occupiedPages = <int>{};
+  for (final rawButton in buttons.values) {
+    if (!_isPageControl(rawButton)) continue;
+    if (isRedundantCrossTravelConfig(rawButton, buttons)) continue;
+    final normalized = normalizeButtonPlacement(
+      rawButton,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    occupiedPages.add(normalized.pageIndex);
+  }
+
+  final highestOccupied = occupiedPages.fold<int>(
+    0,
+    (max, page) => page > max ? page : max,
+  );
+  final keptPages = [
+    0,
+    for (var page = 1; page <= highestOccupied; page++)
+      if (occupiedPages.contains(page)) page,
+  ];
+  final nextPageCount = keptPages.length;
+  if (nextPageCount == layout.controlPageCount &&
+      keptPages.every((page) => keptPages.indexOf(page) == page)) {
+    return layout;
+  }
+
+  final remap = <int, int>{
+    for (var i = 0; i < keptPages.length; i++) keptPages[i]: i,
+  };
+  final nextButtons = <String, ButtonConfig>{};
+  var changed = false;
+  for (final entry in buttons.entries) {
+    final button = entry.value;
+    final mappedPage = remap[button.pageIndex];
+    if (mappedPage == null || mappedPage == button.pageIndex) {
+      nextButtons[entry.key] = button;
+      continue;
+    }
+    nextButtons[entry.key] = button.copyWith(pageIndex: mappedPage);
+    changed = true;
+  }
+
+  if (!changed && nextPageCount == layout.controlPageCount) return layout;
+  return layout.copyWith(buttons: nextButtons, controlPageCount: nextPageCount);
+}
+
 ControlLayoutConfig repairControlGridLayout(
   ControlLayoutConfig layout, {
   int slotCount = ButtonConfig.controlSlotCount,
@@ -512,6 +583,7 @@ GridMutationResult buildButtonAdd({
   required Map<String, ButtonConfig> buttons,
   required ButtonConfig button,
   required int preferredPageIndex,
+  int? preferredSlot,
   int slotCount = ButtonConfig.controlSlotCount,
   int columns = ButtonConfig.controlGridColumns,
   int rows = ButtonConfig.controlGridRows,
@@ -520,7 +592,37 @@ GridMutationResult buildButtonAdd({
     return const GridMutationResult.invalid('A button with that id exists.');
   }
   final occupied = _occupiedExcept(buttons, const {}, columns, rows, slotCount);
-  final placed = _findFirstPlacement(
+
+  ButtonConfig? placed;
+  if (preferredSlot != null) {
+    final anchor = normalizeGridAnchorSlot(
+      button,
+      preferredSlot,
+      slotCount: slotCount,
+      columns: columns,
+    );
+    final candidate = normalizeButtonPlacement(
+      button.copyWith(
+        pageIndex: preferredPageIndex,
+        gridX: anchor % columns,
+        gridY: anchor ~/ columns,
+        slotIndex: anchor,
+      ),
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    if (_isPlacementFree(
+      candidate,
+      occupied,
+      columns: columns,
+      rows: rows,
+      slotCount: slotCount,
+    )) {
+      placed = candidate;
+    }
+  }
+  placed ??= _findFirstPlacement(
     button,
     occupied: occupied,
     columns: columns,

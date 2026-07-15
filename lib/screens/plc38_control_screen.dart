@@ -304,6 +304,42 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     await FreeButtonEditSheet.show(context, id);
   }
 
+  // Tapping a vacant grid slot (or its edit icon) in Customization Mode opens
+  // the same add-button flow as the AppBar's "+" action, but anchored to the
+  // exact slot the operator tapped instead of the first free cell — this is
+  // what makes an empty placeholder feel directly editable rather than just
+  // a drop target. Never sends a PLC command: the new button is created
+  // disabled/unmapped, same as _addFreeButton, until configured in the sheet.
+  Future<void> _addButtonAtSlot(
+    CustomizationModeController customCtrl,
+    int pageIndex,
+    int slotIndex,
+  ) async {
+    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
+    final button = ButtonConfig(
+      id: id,
+      type: ButtonType.pushButton,
+      plcMapping: PlcMapping.up,
+      label: 'New Button',
+      enabled: false,
+      plcMappingEnabled: false,
+      pageIndex: pageIndex,
+    );
+    final result = customCtrl.addControlButton(
+      button,
+      preferredPageIndex: pageIndex,
+      preferredSlot: slotIndex,
+    );
+    if (!mounted) return;
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Could not add button.')),
+      );
+      return;
+    }
+    await FreeButtonEditSheet.show(context, id);
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
@@ -599,7 +635,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                               }
                             },
                             selectedRole: customCtrl.selectedRole,
-                            selectedButtonId: customCtrl.selectedButton?.id,
+                            selectedButtonId: customCtrl.selectedSlotId,
                             onPageChanged: customCtrl.setActiveControlPage,
                             activePageIndex: customCtrl.activeControlPage,
                             onSelectButton: isEditing
@@ -634,7 +670,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                       );
                                       return;
                                     }
-                                    customCtrl.applyDraftChange(
+                                    customCtrl.applyDraftChangeAndCompact(
                                       customCtrl.draft.copyWith(
                                         buttons: result.buttons,
                                       ),
@@ -642,7 +678,13 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   }
                                 : null,
                             onResizeButton: isEditing
-                                ? (config, gridColumns, gridRows, {anchorX, anchorY}) {
+                                ? (
+                                    config,
+                                    gridColumns,
+                                    gridRows, {
+                                    anchorX,
+                                    anchorY,
+                                  }) {
                                     final result = buildButtonResize(
                                       buttons: customCtrl.draft.resolvedButtons,
                                       selected: config,
@@ -664,10 +706,23 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                       );
                                       return;
                                     }
-                                    customCtrl.applyDraftChange(
+                                    customCtrl.applyDraftChangeAndCompact(
                                       customCtrl.draft.copyWith(
                                         buttons: result.buttons,
                                       ),
+                                    );
+                                  }
+                                : null,
+                            onSelectVacantSlot: isEditing
+                                ? (pageIndex, slotIndex) {
+                                    customCtrl.selectVacantSlot(
+                                      pageIndex,
+                                      slotIndex,
+                                    );
+                                    _addButtonAtSlot(
+                                      customCtrl,
+                                      pageIndex,
+                                      slotIndex,
                                     );
                                   }
                                 : null,

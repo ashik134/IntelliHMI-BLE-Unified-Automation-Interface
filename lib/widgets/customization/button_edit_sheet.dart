@@ -1396,35 +1396,35 @@ class _BehaviorCard extends StatelessWidget {
               ],
             ),
           ),
-        _TabCard(
-          title: '${role.defaultLabel} · SWITCH WIRING',
-          child: wiringApplicable
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final cfg in PushButtonWiringConfig.values)
-                      // Three-position modes only make sense for Toggle Switch.
-                      if (!cfg.isToggleOnly || config.type == ButtonType.toggle)
-                        _WiringTile(
-                          cfg: cfg,
-                          isSelected: config.behavior.wiring == cfg,
-                          onTap: () => customCtrl.applyDraftChange(
-                            draft.withButton(
-                              role.name,
-                              config.copyWith(
-                                behavior: config.behavior.copyWith(wiring: cfg),
-                              ),
-                            ),
-                          ),
-                        ),
-                  ],
-                )
-              : const _InfoNote(
-                  message:
-                      'Not applicable — Slider/Cross Travel controls use '
-                      'continuous drag speed, not switch wiring.',
-                ),
-        ),
+        // _TabCard(
+        //   title: '${role.defaultLabel} · SWITCH WIRING',
+        //   child: wiringApplicable
+        //       ? Column(
+        //           crossAxisAlignment: CrossAxisAlignment.start,
+        //           children: [
+        //             for (final cfg in PushButtonWiringConfig.values)
+        //               // Three-position modes only make sense for Toggle Switch.
+        //               if (!cfg.isToggleOnly || config.type == ButtonType.toggle)
+        //                 _WiringTile(
+        //                   cfg: cfg,
+        //                   isSelected: config.behavior.wiring == cfg,
+        //                   onTap: () => customCtrl.applyDraftChange(
+        //                     draft.withButton(
+        //                       role.name,
+        //                       config.copyWith(
+        //                         behavior: config.behavior.copyWith(wiring: cfg),
+        //                       ),
+        //                     ),
+        //                   ),
+        //                 ),
+        //           ],
+        //         )
+        //       : const _InfoNote(
+        //           message:
+        //               'Not applicable — Slider/Cross Travel controls use '
+        //               'continuous drag speed, not switch wiring.',
+        //         ),
+        // ),
         _TabCard(
           title: '${role.defaultLabel} · REPEAT WHILE HELD',
           child: Column(
