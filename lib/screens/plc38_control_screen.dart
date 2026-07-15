@@ -20,6 +20,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_slot_grid.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
@@ -224,6 +225,24 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
     await context.read<CustomizationModeController>().enter();
   }
 
+  // Mirrors CustomizationModeBar's Apply action — the AppBar's "Done" banner
+  // button is a second entry point to the same commit flow.
+  Future<void> _finishCustomization(
+    CustomizationModeController customCtrl,
+  ) async {
+    final result = await customCtrl.commit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.isValid ? 'Layout applied.' : result.firstError),
+        backgroundColor: result.isValid
+            ? AppColors.darkSuccess
+            : AppColors.eStopColor,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _confirmDeleteSelectedButton(
     CustomizationModeController customCtrl,
   ) async {
@@ -351,8 +370,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
             appBar: _Plc38AppBar(
               isEditing: isEditing,
               labels: labels,
-              showConnectionSubtitle: arrangement.showConnectionSubtitle,
               onEnterCustomization: _enterCustomizationMode,
+              onFinishCustomization: _finishCustomization,
               onAddButton: _addButton,
               onConfirmDeleteSelectedButton: _confirmDeleteSelectedButton,
             ),
@@ -484,22 +503,22 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
   const _Plc38AppBar({
     required this.isEditing,
     required this.labels,
-    required this.showConnectionSubtitle,
     required this.onEnterCustomization,
+    required this.onFinishCustomization,
     required this.onAddButton,
     required this.onConfirmDeleteSelectedButton,
   });
 
   final bool isEditing;
   final ControlLabelConfig labels;
-  final bool showConnectionSubtitle;
   final VoidCallback onEnterCustomization;
+  final void Function(CustomizationModeController) onFinishCustomization;
   final void Function(CustomizationModeController) onAddButton;
   final void Function(CustomizationModeController)
   onConfirmDeleteSelectedButton;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 3);
 
   @override
   Widget build(BuildContext context) {
@@ -507,12 +526,22 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
     final selectedButton = customCtrl.selectedButton;
 
     return AppBar(
+      actionsPadding: const EdgeInsets.only(right: 8),
       automaticallyImplyLeading: false,
-      title: _Plc38Title(
-        isEditing: isEditing,
-        labels: labels,
-        showConnectionSubtitle: showConnectionSubtitle,
-      ),
+      backgroundColor: AppColors.appBarBg,
+      flexibleSpace: const ControlAppBarGlow(),
+      titleSpacing: isEditing ? 16 : NavigationToolbar.kMiddleSpacing,
+      title: isEditing
+          ? const Text(
+              'CUSTOMIZE',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+                color: AppColors.appBarGlow,
+              ),
+            )
+          : _DeviceTitle(labels: labels),
       actions: isEditing
           ? [
               IconButton(
@@ -570,62 +599,42 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
               const _DisconnectButton(),
             ],
+      bottom: isEditing
+          ? CustomizationStatusBanner(
+              onDone: () => onFinishCustomization(customCtrl),
+            )
+          : const PreferredSize(
+              preferredSize: Size.fromHeight(3),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.appBarBanner,
+                  border: Border(
+                    bottom: BorderSide(color: AppColors.appBarBannerBorder),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }
 
-/// Isolated because it watches connectedDeviceName, which updates
-/// independently of (and less often than) the AppBar's edit actions.
-class _Plc38Title extends StatelessWidget {
-  const _Plc38Title({
-    required this.isEditing,
-    required this.labels,
-    required this.showConnectionSubtitle,
-  });
+/// Isolated because it watches connection/device-name/RSSI fields that
+/// update independently of (and more often than) the AppBar's edit actions.
+class _DeviceTitle extends StatelessWidget {
+  const _DeviceTitle({required this.labels});
 
-  final bool isEditing;
   final ControlLabelConfig labels;
-  final bool showConnectionSubtitle;
 
   @override
   Widget build(BuildContext context) {
-    final deviceName = context.select<CraneController, String?>(
-      (c) => c.connectedDeviceName,
-    );
+    final controller = context.watch<CraneController>();
     final screenTitle = labels.screenTitle.isNotEmpty
         ? labels.screenTitle
-        : (deviceName ?? 'PLC38');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: AppColors.darkText,
-          ),
-        ),
-        if (!isEditing && showConnectionSubtitle)
-          Row(
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                margin: const EdgeInsets.only(right: 5),
-                decoration: const BoxDecoration(
-                  color: AppColors.upColorLight,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const Text(
-                'Connected · PLC38',
-                style: TextStyle(color: AppColors.upColorLight, fontSize: 10),
-              ),
-            ],
-          ),
-      ],
+        : (controller.connectedDeviceName ?? BLEConstants.deviceName);
+    return DeviceInfoAppBarTitle(
+      deviceName: screenTitle,
+      plcType: controller.connectedPlcType,
+      rssi: controller.connectedDeviceRssi,
     );
   }
 }
@@ -636,14 +645,21 @@ class _DisconnectButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
-    return IconButton(
-      icon: const Icon(
-        Icons.bluetooth_disabled,
-        size: 20,
-        color: AppColors.darkTextSub,
-      ),
-      tooltip: 'Disconnect',
+    return IconButton.filledTonal(
       onPressed: controller.disconnect,
+      tooltip: 'Disconnect',
+      style: IconButton.styleFrom(
+        foregroundColor: AppColors.error,
+        backgroundColor: AppColors.error.withValues(alpha: 0.10),
+        hoverColor: AppColors.error.withValues(alpha: 0.15),
+        highlightColor: AppColors.error.withValues(alpha: 0.20),
+        minimumSize: const Size(42, 42),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppColors.error.withValues(alpha: 0.22)),
+        ),
+      ),
+      icon: const Icon(Icons.power_settings_new_rounded, size: 21),
     );
   }
 }
