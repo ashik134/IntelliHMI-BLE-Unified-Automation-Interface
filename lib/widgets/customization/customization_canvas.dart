@@ -23,12 +23,19 @@ class CustomizationCanvas extends StatelessWidget {
   final void Function(ControlRole role) onEditRole;
   final int? slotCount;
 
+  // Mirrors ControlSlotGrid's own `rows` derivation so grid-mutation
+  // validation here uses the same row count the grid actually renders,
+  // rather than always assuming the full 3-row default.
+  int get _effectiveSlotCount => slotCount ?? ButtonConfig.controlSlotCount;
+  int get _effectiveRows =>
+      (_effectiveSlotCount / ButtonConfig.controlGridColumns).ceil();
+
   @override
   Widget build(BuildContext context) {
     return ControlSlotGrid(
       layoutCfg: layoutCfg,
       roles: roles,
-      slotCount: slotCount ?? ButtonConfig.controlSlotCount,
+      slotCount: _effectiveSlotCount,
       isEditing: true,
       activeStateFor: (_) => ControlState.idle,
       isDisabled: (_) => true,
@@ -53,7 +60,8 @@ class CustomizationCanvas extends StatelessWidget {
               target: target,
               targetSlot: targetSlot,
               targetPageIndex: targetPageIndex,
-              slotCount: slotCount ?? ButtonConfig.controlSlotCount,
+              slotCount: _effectiveSlotCount,
+              rows: _effectiveRows,
             );
             if (!result.isValid) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -67,14 +75,17 @@ class CustomizationCanvas extends StatelessWidget {
               customCtrl.draft.copyWith(buttons: result.buttons),
             );
           },
-      onResizeButton: (config, gridColumns, gridRows) {
+      onResizeButton: (config, gridColumns, gridRows, {anchorX, anchorY}) {
         final customCtrl = context.read<CustomizationModeController>();
         final result = buildButtonResize(
           buttons: customCtrl.draft.resolvedButtons,
           selected: config,
           gridColumns: gridColumns,
           gridRows: gridRows,
-          slotCount: slotCount ?? ButtonConfig.controlSlotCount,
+          anchorX: anchorX,
+          anchorY: anchorY,
+          slotCount: _effectiveSlotCount,
+          rows: _effectiveRows,
         );
         if (!result.isValid) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -50,6 +50,13 @@ class AppColors {
     0x338B5CF6,
   ); // violet-500 @ 20%
 
+  // ── Selection overlay (customization mode, violet-tinted) ────────────
+  static const Color selectionViolet = Color(0xFF8B5CF6); // violet-500
+  static const Color selectionVioletDeep = Color(0xFF7C3AED); // violet-600
+  static const Color selectionGlow = Color(0x668B5CF6); // violet-500 @ 40%
+  static const Color selectionHandleFill = Color(0xFFFFFFFF);
+  static const Color selectionDotGrid = Color(0x14FFFFFF); // white @ 8%
+
   // ── Light theme – Home Screen ────────────────────────────────────────
   static const Color homeBg = Color(0xFFF5F7FA);
   static const Color surface = Color(0xFFFFFFFF);

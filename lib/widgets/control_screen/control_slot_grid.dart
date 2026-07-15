@@ -9,6 +9,10 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_badge.dart';
+import 'package:rev_crane_control_ops/widgets/customization/selection_overlay/dot_grid_background.dart';
+import 'package:rev_crane_control_ops/widgets/customization/selection_overlay/drag_dots_indicator.dart';
+import 'package:rev_crane_control_ops/widgets/customization/selection_overlay/selection_overlay.dart';
+import 'package:rev_crane_control_ops/widgets/customization/selection_overlay/widget_transformer.dart';
 
 typedef ButtonActiveStateResolver = ControlState Function(ButtonConfig config);
 typedef ButtonDisabledResolver = bool Function(ButtonConfig config);
@@ -17,7 +21,13 @@ typedef ButtonCommandDispatcher =
 typedef ButtonEditorLauncher = void Function(ButtonConfig config);
 typedef ButtonSelectionHandler = void Function(ButtonConfig? config);
 typedef ButtonResizeHandler =
-    void Function(ButtonConfig config, int gridColumns, int gridRows);
+    void Function(
+      ButtonConfig config,
+      int gridColumns,
+      int gridRows, {
+      int? anchorX,
+      int? anchorY,
+    });
 typedef ButtonSlotDropHandler =
     void Function(
       ButtonConfig dragged,
@@ -268,8 +278,29 @@ class _SlotGridBody extends StatelessWidget {
             );
           }
 
+          final transformer = WidgetTransformer(
+            cellWidth: cellWidth,
+            cellHeight: cellHeight,
+            spacing: spacing,
+            gridColumns: ControlSlotGrid.columns,
+            gridRows: rows,
+          );
+
+          ControlGridItem? selectedItem;
+          for (final item in page.items) {
+            final matchesRole =
+                item.config.role != null && item.config.role == selectedRole;
+            final matchesId = item.config.id == selectedButtonId;
+            if (matchesRole || matchesId) {
+              selectedItem = item;
+              break;
+            }
+          }
+
           return Stack(
+            clipBehavior: Clip.none,
             children: [
+              if (isEditing) const Positioned.fill(child: DotGridBackground()),
               if (isEditing)
                 for (var slot = 0; slot < slotCount; slot++)
                   if (page.occupants[slot] == null)
@@ -320,9 +351,73 @@ class _SlotGridBody extends StatelessWidget {
                     onResizeButton: onResizeButton,
                   ),
                 ),
+              if (isEditing && selectedItem != null && onResizeButton != null)
+                _SelectedItemOverlay(
+                  key: ValueKey('overlay_${selectedItem.config.id}'),
+                  item: selectedItem,
+                  transformer: transformer,
+                  canvasSize: Size(constraints.maxWidth, constraints.maxHeight),
+                  onResizeButton: onResizeButton!,
+                ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _SelectedItemOverlay
+//
+// Bridges the generic, model-agnostic SelectionOverlay to this grid's
+// ButtonConfig/slot-based mutation pipeline. Resize is *previewed* purely
+// visually (a ghost frame + live "W x H" pill) while dragging, and only
+// mutates the real draft — via the same buildButtonResize/onResizeButton
+// path the old handle used — once the gesture ends. This keeps every
+// intermediate pixel of drag from hitting undo/redo or PLC-adjacent
+// validation, while still giving Figma-style live feedback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SelectedItemOverlay extends StatelessWidget {
+  const _SelectedItemOverlay({
+    super.key,
+    required this.item,
+    required this.transformer,
+    required this.canvasSize,
+    required this.onResizeButton,
+  });
+
+  final ControlGridItem item;
+  final WidgetTransformer transformer;
+  final Size canvasSize;
+  final ButtonResizeHandler onResizeButton;
+
+  @override
+  Widget build(BuildContext context) {
+    final minSize = ButtonConfig.defaultGridSizeFor(
+      item.config.type,
+      customProperties: item.config.customProperties,
+    );
+    return ControlSelectionOverlay(
+      span: GridSpan(
+        x: item.gridX,
+        y: item.gridY,
+        columns: item.colSpan,
+        rows: item.rowSpan,
+      ),
+      transformer: transformer,
+      canvasSize: canvasSize,
+      minColumns: minSize.$1,
+      minRows: minSize.$2,
+      borderRadius: 8,
+      onResizePreview: (_) {},
+      onResizeCommit: (span) => onResizeButton(
+        item.config,
+        span.columns,
+        span.rows,
+        anchorX: span.x,
+        anchorY: span.y,
       ),
     );
   }
@@ -455,12 +550,15 @@ class _SlotFrame extends StatelessWidget {
 
   final bool isEditing;
   final bool isHighlighted;
+  // Selection itself is drawn by _SelectedItemOverlay (a violet frame that
+  // sits outside this clipped box); kept here only so callers don't need
+  // to special-case selected slots when deciding whether to dim/clip.
   final bool isSelected;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final showEditFrame = isEditing && (isHighlighted || isSelected);
+    final showEditFrame = isEditing && isHighlighted;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 120),
@@ -472,14 +570,7 @@ class _SlotFrame extends StatelessWidget {
             : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         border: showEditFrame
-            ? Border.all(
-                color: isSelected
-                    ? AppColors.darkSuccess
-                    : isHighlighted
-                    ? AppColors.accent
-                    : AppColors.darkBorder.withAlpha(170),
-                width: isSelected || isHighlighted ? 2 : 1,
-              )
+            ? Border.all(color: AppColors.accent, width: 2)
             : null,
       ),
       child: ClipRRect(borderRadius: BorderRadius.circular(8), child: child),
@@ -510,6 +601,11 @@ class _DraggableSlotContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Selection itself is drawn by _SelectedItemOverlay, a sibling in the
+    // parent Stack positioned *outside* this tile's clip — that's the only
+    // way the frame can sit 2px proud of the widget edge without being cut
+    // off by the ClipRRect in _SlotFrame. This tile only shows the
+    // unselected drag-affordance and the customize badge.
     final body = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => onSelectButton?.call(item.config),
@@ -525,20 +621,6 @@ class _DraggableSlotContent extends StatelessWidget {
               ),
             ),
           ),
-          if (isSelected)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.darkSuccess.withAlpha(230),
-                      width: 2,
-                    ),
-                  ),
-                ),
-              ),
-            ),
           Positioned(
             top: 8,
             right: 8,
@@ -549,16 +631,8 @@ class _DraggableSlotContent extends StatelessWidget {
               tooltip: 'Customize',
             ),
           ),
-          const Positioned(left: 8, top: 8, child: _DragHandle()),
-          if (isSelected && onResizeButton != null)
-            Positioned(
-              right: 8,
-              bottom: 8,
-              child: _ResizeHandle(
-                config: item.config,
-                onResizeButton: onResizeButton!,
-              ),
-            ),
+          if (!isSelected)
+            const Positioned(left: 8, top: 8, child: DragDotsIndicator()),
         ],
       ),
     );
@@ -629,93 +703,6 @@ class _EmptySlot extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w800,
           letterSpacing: 0,
-        ),
-      ),
-    );
-  }
-}
-
-class _DragHandle extends StatelessWidget {
-  const _DragHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Drag to move',
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.panel.withAlpha(235),
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.darkBorder),
-        ),
-        child: const Padding(
-          padding: EdgeInsets.all(8),
-          child: Icon(
-            Icons.drag_indicator,
-            size: 16,
-            color: AppColors.darkText,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResizeHandle extends StatefulWidget {
-  const _ResizeHandle({required this.config, required this.onResizeButton});
-
-  final ButtonConfig config;
-  final ButtonResizeHandler onResizeButton;
-
-  @override
-  State<_ResizeHandle> createState() => _ResizeHandleState();
-}
-
-class _ResizeHandleState extends State<_ResizeHandle> {
-  Offset _drag = Offset.zero;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Resize',
-      child: GestureDetector(
-        onPanUpdate: (details) => _drag += details.delta,
-        onPanEnd: (_) {
-          final growX = _drag.dx > 24;
-          final shrinkX = _drag.dx < -24;
-          final growY = _drag.dy > 24;
-          final shrinkY = _drag.dy < -24;
-          final nextColumns =
-              widget.config.gridColumnSpan +
-              (growX
-                  ? 1
-                  : shrinkX
-                  ? -1
-                  : 0);
-          final nextRows =
-              widget.config.gridRowSpan +
-              (growY
-                  ? 1
-                  : shrinkY
-                  ? -1
-                  : 0);
-          _drag = Offset.zero;
-          widget.onResizeButton(widget.config, nextColumns, nextRows);
-        },
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.darkSuccess.withAlpha(235),
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.darkText),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.all(8),
-            child: Icon(
-              Icons.open_in_full_rounded,
-              size: 14,
-              color: AppColors.darkBg,
-            ),
-          ),
         ),
       ),
     );

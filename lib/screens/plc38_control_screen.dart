@@ -642,12 +642,14 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                                   }
                                 : null,
                             onResizeButton: isEditing
-                                ? (config, gridColumns, gridRows) {
+                                ? (config, gridColumns, gridRows, {anchorX, anchorY}) {
                                     final result = buildButtonResize(
                                       buttons: customCtrl.draft.resolvedButtons,
                                       selected: config,
                                       gridColumns: gridColumns,
                                       gridRows: gridRows,
+                                      anchorX: anchorX,
+                                      anchorY: anchorY,
                                     );
                                     if (!result.isValid) {
                                       ScaffoldMessenger.of(

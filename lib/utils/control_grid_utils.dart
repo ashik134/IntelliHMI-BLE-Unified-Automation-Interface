@@ -472,6 +472,8 @@ GridMutationResult buildButtonResize({
   required ButtonConfig selected,
   required int gridColumns,
   required int gridRows,
+  int? anchorX,
+  int? anchorY,
   int slotCount = ButtonConfig.controlSlotCount,
   int columns = ButtonConfig.controlGridColumns,
   int rows = ButtonConfig.controlGridRows,
@@ -484,8 +486,8 @@ GridMutationResult buildButtonResize({
   final nextRows = gridRows.clamp(minSize.$2, rows);
   final maxX = (columns - nextColumns).clamp(0, columns - 1);
   final maxY = (rows - nextRows).clamp(0, rows - 1);
-  final nextX = selected.gridX.clamp(0, maxX);
-  final nextY = selected.gridY.clamp(0, maxY);
+  final nextX = (anchorX ?? selected.gridX).clamp(0, maxX);
+  final nextY = (anchorY ?? selected.gridY).clamp(0, maxY);
   final resized = selected.copyWith(
     gridX: nextX,
     gridY: nextY,
