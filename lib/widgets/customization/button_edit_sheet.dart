@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
-import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
@@ -31,14 +31,41 @@ import 'package:rev_crane_control_ops/widgets/customization/confirm_dialog.dart'
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ButtonEditSheet extends StatefulWidget {
-  const ButtonEditSheet.forRole({super.key, required this.role}) : axis = null;
+  const ButtonEditSheet.forRole({super.key, required this.role})
+    : axis = null,
+      buttonId = null,
+      preferredPageIndex = null,
+      preferredSlot = null;
 
-  const ButtonEditSheet.forAxis({super.key, required this.axis}) : role = null;
+  const ButtonEditSheet.forAxis({super.key, required this.axis})
+    : role = null,
+      buttonId = null,
+      preferredPageIndex = null,
+      preferredSlot = null;
+
+  const ButtonEditSheet.forButton({super.key, required this.buttonId})
+    : role = null,
+      axis = null,
+      preferredPageIndex = null,
+      preferredSlot = null;
+
+  const ButtonEditSheet.forNewButton({
+    super.key,
+    required this.preferredPageIndex,
+    this.preferredSlot,
+  }) : role = null,
+       axis = null,
+       buttonId = null;
 
   final ControlRole? role;
   final AxisKind? axis;
+  final String? buttonId;
+  final int? preferredPageIndex;
+  final int? preferredSlot;
 
   AxisKind get resolvedAxis => axis ?? role!.axis!;
+  bool get isCustomButtonFlow => buttonId != null || preferredPageIndex != null;
+  bool get isNewButtonFlow => buttonId == null && preferredPageIndex != null;
 
   static Future<void> showForRole(BuildContext context, ControlRole role) {
     return showModalBottomSheet(
@@ -58,6 +85,32 @@ class ButtonEditSheet extends StatefulWidget {
     );
   }
 
+  static Future<void> showForButton(BuildContext context, String buttonId) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ButtonEditSheet.forButton(buttonId: buttonId),
+    );
+  }
+
+  static Future<void> showForNewButton(
+    BuildContext context, {
+    int? preferredPageIndex,
+    int? preferredSlot,
+  }) {
+    final customCtrl = context.read<CustomizationModeController>();
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ButtonEditSheet.forNewButton(
+        preferredPageIndex: preferredPageIndex ?? customCtrl.activeControlPage,
+        preferredSlot: preferredSlot,
+      ),
+    );
+  }
+
   @override
   State<ButtonEditSheet> createState() => _ButtonEditSheetState();
 }
@@ -65,6 +118,8 @@ class ButtonEditSheet extends StatefulWidget {
 class _ButtonEditSheetState extends State<ButtonEditSheet>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  ButtonConfig? _pendingNewButton;
+  String? _newButtonError;
 
   @override
   void initState() {
@@ -78,9 +133,13 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
     super.dispose();
   }
 
-  String get _title => widget.role != null
-      ? _roleTitle(widget.role!)
-      : '${widget.resolvedAxis.displayName} AXIS';
+  String get _title {
+    if (widget.isNewButtonFlow) return 'ADD CONTROL';
+    if (widget.buttonId != null) return 'CUSTOM CONTROL';
+    return widget.role != null
+        ? _roleTitle(widget.role!)
+        : '${widget.resolvedAxis.displayName} AXIS';
+  }
 
   static String _roleTitle(ControlRole role) => switch (role) {
     ControlRole.hoistUp => 'HOIST · UP',
@@ -109,57 +168,61 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
           child: Column(
             children: [
               _header(context),
-              TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                indicatorColor: AppColors.accent,
-                labelColor: AppColors.accent,
-                unselectedLabelColor: AppColors.darkTextSub,
-                labelStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-                tabs: const [
-                  Tab(text: 'TYPE'),
-                  Tab(text: 'SIZE'),
-                  Tab(text: 'LABEL'),
-                  Tab(text: 'APPEARANCE'),
-                  Tab(text: 'BEHAVIOR'),
-                ],
-              ),
-              const Divider(height: 1, color: AppColors.darkBorder),
-              Expanded(
-                child: TabBarView(
+              if (widget.isCustomButtonFlow)
+                Expanded(child: _customButtonEditor(scrollController))
+              else ...[
+                TabBar(
                   controller: _tabController,
-                  children: [
-                    _TypeTab(
-                      axis: widget.resolvedAxis,
-                      editRole: widget.role,
-                      scrollController: scrollController,
-                    ),
-                    _SizeTab(
-                      axis: widget.resolvedAxis,
-                      editRole: widget.role,
-                      scrollController: scrollController,
-                    ),
-                    _LabelTab(
-                      role: widget.role,
-                      axis: widget.resolvedAxis,
-                      scrollController: scrollController,
-                    ),
-                    _AppearanceTab(
-                      role: widget.role,
-                      axis: widget.resolvedAxis,
-                      scrollController: scrollController,
-                    ),
-                    _BehaviorTab(
-                      axis: widget.resolvedAxis,
-                      editRole: widget.role,
-                      scrollController: scrollController,
-                    ),
+                  isScrollable: true,
+                  indicatorColor: AppColors.accent,
+                  labelColor: AppColors.accent,
+                  unselectedLabelColor: AppColors.darkTextSub,
+                  labelStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  tabs: const [
+                    Tab(text: 'TYPE'),
+                    Tab(text: 'SIZE'),
+                    Tab(text: 'LABEL'),
+                    Tab(text: 'APPEARANCE'),
+                    Tab(text: 'BEHAVIOR'),
                   ],
                 ),
-              ),
+                const Divider(height: 1, color: AppColors.darkBorder),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _TypeTab(
+                        axis: widget.resolvedAxis,
+                        editRole: widget.role,
+                        scrollController: scrollController,
+                      ),
+                      _SizeTab(
+                        axis: widget.resolvedAxis,
+                        editRole: widget.role,
+                        scrollController: scrollController,
+                      ),
+                      _LabelTab(
+                        role: widget.role,
+                        axis: widget.resolvedAxis,
+                        scrollController: scrollController,
+                      ),
+                      _AppearanceTab(
+                        role: widget.role,
+                        axis: widget.resolvedAxis,
+                        scrollController: scrollController,
+                      ),
+                      _BehaviorTab(
+                        axis: widget.resolvedAxis,
+                        editRole: widget.role,
+                        scrollController: scrollController,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -199,6 +262,91 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
         ],
       ),
     );
+  }
+
+  Widget _customButtonEditor(ScrollController scrollController) {
+    final customCtrl = context.watch<CustomizationModeController>();
+    final config = widget.isNewButtonFlow
+        ? _pendingNewButton
+        : customCtrl.draft.resolvedButtons[widget.buttonId];
+
+    if (!widget.isNewButtonFlow && config == null) {
+      return const Center(
+        child: Text(
+          'Button not found',
+          style: TextStyle(color: AppColors.darkText),
+        ),
+      );
+    }
+
+    void update(ButtonConfig? next) {
+      setState(() => _newButtonError = null);
+      if (widget.isNewButtonFlow) {
+        setState(() => _pendingNewButton = next);
+        return;
+      }
+
+      final current = customCtrl.draft.resolvedButtons[widget.buttonId];
+      if (current == null || next == null) return;
+      final layout = customCtrl.draft.withButton(current.id, next);
+      if (!next.visible) {
+        customCtrl.applyDraftChangeAndCompact(layout);
+      } else {
+        customCtrl.applyDraftChange(layout);
+      }
+    }
+
+    return Column(
+      children: [
+        const Divider(height: 1, color: AppColors.darkBorder),
+        Expanded(
+          child: _CustomButtonConfigEditor(
+            config: config,
+            scrollController: scrollController,
+            errorText: _newButtonError,
+            isPendingCreate: widget.isNewButtonFlow,
+            onChanged: update,
+          ),
+        ),
+        if (widget.isNewButtonFlow)
+          _NewButtonFooter(
+            isNoneSelected: config == null,
+            onCancel: () => Navigator.of(context).pop(),
+            onSave: () => _savePendingButton(config),
+          ),
+      ],
+    );
+  }
+
+  void _savePendingButton(ButtonConfig? config) {
+    if (config == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final label = config.label.trim();
+    if (label.isEmpty) {
+      setState(() => _newButtonError = 'Add a label before saving.');
+      return;
+    }
+    if (!config.plcMappingEnabled) {
+      setState(() => _newButtonError = 'Assign a PLC output before saving.');
+      return;
+    }
+
+    final customCtrl = context.read<CustomizationModeController>();
+    final result = customCtrl.addControlButton(
+      config.copyWith(label: label),
+      preferredPageIndex: widget.preferredPageIndex,
+      preferredSlot: widget.preferredSlot,
+    );
+    if (!result.isValid) {
+      setState(
+        () => _newButtonError = result.message ?? kWidgetPlacementMessage,
+      );
+      return;
+    }
+    Navigator.of(context).pop();
   }
 }
 
@@ -272,6 +420,1008 @@ class _InfoNote extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom/new button editor
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CustomButtonConfigEditor extends StatelessWidget {
+  const _CustomButtonConfigEditor({
+    required this.config,
+    required this.scrollController,
+    required this.errorText,
+    required this.isPendingCreate,
+    required this.onChanged,
+  });
+
+  final ButtonConfig? config;
+  final ScrollController scrollController;
+  final String? errorText;
+  final bool isPendingCreate;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final realConfig = config != null && config!.visible ? config : null;
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (errorText != null) ...[
+          _InfoNote(message: errorText!, color: AppColors.eStopColor),
+          const SizedBox(height: 10),
+        ],
+        _TabCard(
+          title: 'CONTROL TYPE',
+          child: _CustomTypePicker(
+            config: config,
+            isPendingCreate: isPendingCreate,
+            onChanged: onChanged,
+          ),
+        ),
+        if (realConfig == null)
+          const _TabCard(
+            title: 'VACANT SLOT',
+            child: _InfoNote(
+              message:
+                  'None leaves this slot empty. No control is created and no PLC output is mapped.',
+            ),
+          )
+        else ...[
+          _TabCard(
+            title: 'LABEL',
+            child: _CustomLabelField(config: realConfig, onChanged: onChanged),
+          ),
+          _TabCard(
+            title: 'PLC OUTPUT',
+            child: _CustomMappingPicker(
+              config: realConfig,
+              onChanged: onChanged,
+            ),
+          ),
+          _TabCard(
+            title: 'BEHAVIOR',
+            child: _CustomBehaviorPicker(
+              config: realConfig,
+              onChanged: onChanged,
+            ),
+          ),
+          _TabCard(
+            title: 'APPEARANCE',
+            child: _CustomAppearancePicker(
+              config: realConfig,
+              onChanged: onChanged,
+            ),
+          ),
+          _TabCard(
+            title: 'SIZE & POSITION',
+            child: _CustomSizePicker(
+              config: realConfig,
+              isPendingCreate: isPendingCreate,
+              onChanged: onChanged,
+            ),
+          ),
+          if (realConfig.type == ButtonType.joystick)
+            _TabCard(
+              title: 'JOYSTICK',
+              child: _CustomJoystickConfigEditor(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
+            ),
+          if (realConfig.type != ButtonType.joystick)
+            const _TabCard(
+              title: 'CUSTOM PARAMETERS',
+              child: _InfoNote(
+                message:
+                    'No advanced custom fields are defined for this control type yet.',
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _NewButtonFooter extends StatelessWidget {
+  const _NewButtonFooter({
+    required this.isNoneSelected,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  final bool isNoneSelected;
+  final VoidCallback onCancel;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.panel,
+        border: Border(top: BorderSide(color: AppColors.darkBorder)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onCancel,
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onSave,
+                  icon: Icon(
+                    isNoneSelected ? Icons.block_rounded : Icons.check_rounded,
+                    size: 18,
+                  ),
+                  label: Text(isNoneSelected ? 'Leave Empty' : 'Save'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomTypeEntry {
+  const _CustomTypeEntry({
+    required this.type,
+    required this.label,
+    required this.icon,
+    required this.available,
+    required this.note,
+    this.isNone = false,
+  });
+
+  final ButtonType? type;
+  final String label;
+  final IconData icon;
+  final bool available;
+  final String note;
+  final bool isNone;
+}
+
+const _customTypeEntries = [
+  _CustomTypeEntry(
+    type: null,
+    label: 'None',
+    icon: Icons.block_rounded,
+    available: true,
+    note: 'Leave this slot empty.',
+    isNone: true,
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.pushButton,
+    label: 'Push Button',
+    icon: Icons.touch_app_rounded,
+    available: true,
+    note: 'Momentary or latched output control.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.toggle,
+    label: 'Toggle Button',
+    icon: Icons.toggle_on_rounded,
+    available: true,
+    note: 'Switch-style maintained or spring-return control.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.sliderButton,
+    label: 'Slider Button',
+    icon: Icons.linear_scale_rounded,
+    available: true,
+    note: 'Drag for slow or fast output states.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.joystick,
+    label: 'Joystick',
+    icon: Icons.gamepad_rounded,
+    available: true,
+    note: 'Digital or analog joystick-style control.',
+  ),
+  _CustomTypeEntry(
+    type: null,
+    label: 'Gauge',
+    icon: Icons.speed_rounded,
+    available: false,
+    note: 'Coming soon.',
+  ),
+  _CustomTypeEntry(
+    type: null,
+    label: 'Indicator',
+    icon: Icons.lightbulb_outline_rounded,
+    available: false,
+    note: 'Coming soon.',
+  ),
+];
+
+class _CustomTypePicker extends StatelessWidget {
+  const _CustomTypePicker({
+    required this.config,
+    required this.isPendingCreate,
+    required this.onChanged,
+  });
+
+  final ButtonConfig? config;
+  final bool isPendingCreate;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNoneSelected = config == null || !config!.visible;
+
+    return Column(
+      children: [
+        for (final entry in _customTypeEntries)
+          _CustomTypeTile(
+            entry: entry,
+            isSelected: entry.isNone
+                ? isNoneSelected
+                : config?.visible == true && config!.type == entry.type,
+            onTap: entry.available ? () => _selectType(context, entry) : null,
+          ),
+      ],
+    );
+  }
+
+  void _selectType(BuildContext context, _CustomTypeEntry entry) {
+    if (entry.isNone) {
+      if (config == null) {
+        onChanged(null);
+      } else {
+        onChanged(
+          config!.copyWith(
+            visible: false,
+            enabled: false,
+            plcMappingEnabled: false,
+          ),
+        );
+      }
+      return;
+    }
+
+    final type = entry.type;
+    if (type == null) return;
+    final current =
+        config ??
+        _newCustomButtonSeed(
+          type: type,
+          pageIndex: context
+              .read<CustomizationModeController>()
+              .activeControlPage,
+        );
+    final (columns, rows) = ButtonConfig.defaultGridSizeFor(
+      type,
+      customProperties: current.customProperties,
+    );
+    final next = current.copyWith(
+      type: type,
+      visible: true,
+      gridColumns: columns,
+      gridRows: rows,
+      columnSpan: columns,
+    );
+
+    if (isPendingCreate) {
+      onChanged(next);
+      return;
+    }
+
+    final customCtrl = context.read<CustomizationModeController>();
+    final result = buildButtonResize(
+      buttons: customCtrl.draft.resolvedButtons,
+      selected: next,
+      gridColumns: columns,
+      gridRows: rows,
+    );
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? kWidgetPlacementMessage)),
+      );
+      return;
+    }
+    onChanged(result.buttons![next.id]);
+  }
+}
+
+class _CustomTypeTile extends StatelessWidget {
+  const _CustomTypeTile({
+    required this.entry,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final _CustomTypeEntry entry;
+  final bool isSelected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isSelected ? AppColors.accent : AppColors.darkTextSub;
+    return Opacity(
+      opacity: entry.available ? 1.0 : 0.5,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Material(
+          color: isSelected ? AppColors.accent.withAlpha(24) : AppColors.darkBg,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isSelected
+                      ? AppColors.accent.withAlpha(100)
+                      : AppColors.darkBorder,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(entry.icon, color: color, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                entry.label,
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? AppColors.accent
+                                      : AppColors.darkText,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (!entry.available) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.fastColor.withAlpha(35),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'Coming Soon',
+                                  style: TextStyle(
+                                    color: AppColors.fastColorLight,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          entry.note,
+                          style: const TextStyle(
+                            color: AppColors.darkTextMuted,
+                            fontSize: 10,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isSelected)
+                    const Icon(
+                      Icons.check_circle_rounded,
+                      color: AppColors.accent,
+                      size: 18,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomLabelField extends StatefulWidget {
+  const _CustomLabelField({required this.config, required this.onChanged});
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  State<_CustomLabelField> createState() => _CustomLabelFieldState();
+}
+
+class _CustomLabelFieldState extends State<_CustomLabelField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.config.label);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomLabelField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config.label != widget.config.label &&
+        _controller.text != widget.config.label) {
+      _controller.text = widget.config.label;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      maxLength: ControlLabelConfig.maxLabelLength,
+      style: const TextStyle(color: AppColors.darkText, fontSize: 14),
+      decoration: const InputDecoration(
+        filled: true,
+        fillColor: AppColors.darkBg,
+        border: OutlineInputBorder(borderSide: BorderSide.none),
+        hintText: 'Control label',
+        hintStyle: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
+        counterStyle: TextStyle(color: AppColors.darkTextMuted, fontSize: 10),
+      ),
+      onChanged: (value) =>
+          widget.onChanged(widget.config.copyWith(label: value.trim())),
+    );
+  }
+}
+
+class _CustomMappingPicker extends StatelessWidget {
+  const _CustomMappingPicker({required this.config, required this.onChanged});
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = config.plcMappingEnabled ? config.plcMapping : null;
+    return DropdownButtonFormField<PlcMapping?>(
+      initialValue: value,
+      dropdownColor: AppColors.panel,
+      decoration: const InputDecoration(
+        filled: true,
+        fillColor: AppColors.darkBg,
+        border: OutlineInputBorder(borderSide: BorderSide.none),
+      ),
+      style: const TextStyle(color: AppColors.darkText),
+      items: [
+        const DropdownMenuItem<PlcMapping?>(
+          value: null,
+          child: Text('Unassigned'),
+        ),
+        for (final mapping in PlcMapping.values)
+          if (mapping != PlcMapping.estop)
+            DropdownMenuItem<PlcMapping?>(
+              value: mapping,
+              child: Text(_customMappingLabel(mapping)),
+            ),
+      ],
+      onChanged: (mapping) {
+        onChanged(
+          config.copyWith(
+            plcMapping: mapping ?? config.plcMapping,
+            plcMappingEnabled: mapping != null,
+            enabled: mapping != null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CustomBehaviorPicker extends StatelessWidget {
+  const _CustomBehaviorPicker({required this.config, required this.onChanged});
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final wiringApplicable =
+        config.type == ButtonType.pushButton ||
+        config.type == ButtonType.toggle;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          value: config.enabled,
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          activeThumbColor: AppColors.accent,
+          title: const Text(
+            'Enabled',
+            style: TextStyle(color: AppColors.darkText, fontSize: 13),
+          ),
+          onChanged: config.plcMappingEnabled
+              ? (value) => onChanged(config.copyWith(enabled: value))
+              : null,
+        ),
+        if (wiringApplicable) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final wiring in PushButtonWiringConfig.values)
+                if (!wiring.isToggleOnly || config.type == ButtonType.toggle)
+                  ChoiceChip(
+                    label: Text(wiring.label),
+                    selected: config.behavior.wiring == wiring,
+                    selectedColor: AppColors.accent.withAlpha(55),
+                    labelStyle: TextStyle(
+                      color: config.behavior.wiring == wiring
+                          ? AppColors.accent
+                          : AppColors.darkTextSub,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    onSelected: (_) => onChanged(
+                      config.copyWith(
+                        behavior: config.behavior.copyWith(wiring: wiring),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ] else
+          const _InfoNote(
+            message:
+                'This control type does not use push-button latching or spring-return wiring.',
+          ),
+      ],
+    );
+  }
+}
+
+class _CustomAppearancePicker extends StatelessWidget {
+  const _CustomAppearancePicker({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'PRIMARY COLOR',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final color in _swatches)
+              _SwatchDot(
+                color: color,
+                isSelected: config.style.primaryColor == color,
+                onTap: () => onChanged(
+                  config.copyWith(
+                    style: config.style.copyWith(primaryColor: color),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'ICON',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final icon in _iconPalette)
+              _IconDot(
+                icon: icon,
+                isSelected: config.icon == icon,
+                onTap: () => onChanged(config.copyWith(icon: icon)),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomSizePicker extends StatelessWidget {
+  const _CustomSizePicker({
+    required this.config,
+    required this.isPendingCreate,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final bool isPendingCreate;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CustomStepperButton(
+            label: 'Columns',
+            value: config.gridColumnSpan,
+            onMinus: () => _resize(context, -1, 0),
+            onPlus: () => _resize(context, 1, 0),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _CustomStepperButton(
+            label: 'Rows',
+            value: config.gridRowSpan,
+            onMinus: () => _resize(context, 0, -1),
+            onPlus: () => _resize(context, 0, 1),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _resize(BuildContext context, int dx, int dy) {
+    final minSize = ButtonConfig.defaultGridSizeFor(
+      config.type,
+      customProperties: config.customProperties,
+    );
+    final nextColumns = (config.gridColumnSpan + dx).clamp(
+      minSize.$1,
+      ButtonConfig.controlGridColumns,
+    );
+    final nextRows = (config.gridRowSpan + dy).clamp(
+      minSize.$2,
+      ButtonConfig.controlGridRows,
+    );
+
+    if (isPendingCreate) {
+      onChanged(
+        config.copyWith(
+          gridColumns: nextColumns,
+          gridRows: nextRows,
+          columnSpan: nextColumns,
+        ),
+      );
+      return;
+    }
+
+    final customCtrl = context.read<CustomizationModeController>();
+    final result = buildButtonResize(
+      buttons: customCtrl.draft.resolvedButtons,
+      selected: config,
+      gridColumns: nextColumns,
+      gridRows: nextRows,
+    );
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? kWidgetPlacementMessage)),
+      );
+      return;
+    }
+    onChanged(result.buttons![config.id]);
+  }
+}
+
+class _CustomStepperButton extends StatelessWidget {
+  const _CustomStepperButton({
+    required this.label,
+    required this.value,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  final String label;
+  final int value;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.remove_rounded),
+          color: AppColors.darkTextSub,
+          onPressed: onMinus,
+        ),
+        Expanded(
+          child: Text(
+            '$label: $value',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_rounded),
+          color: AppColors.darkTextSub,
+          onPressed: onPlus,
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomJoystickConfigEditor extends StatelessWidget {
+  const _CustomJoystickConfigEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final joystick = JoystickConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalizedForMode();
+
+    void save(JoystickConfig next) {
+      final normalized = next.normalizedForMode();
+      final customProperties = normalized.applyToCustomProperties(
+        config.customProperties,
+      );
+      final (columns, rows) = ButtonConfig.defaultGridSizeFor(
+        config.type,
+        customProperties: customProperties,
+      );
+      onChanged(
+        config.copyWith(
+          customProperties: customProperties,
+          gridColumns: columns,
+          gridRows: rows,
+          columnSpan: columns,
+        ),
+      );
+    }
+
+    Widget segmented<T>({
+      required String label,
+      required T value,
+      required List<T> values,
+      required String Function(T) text,
+      required ValueChanged<T> onChanged,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.darkTextMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in values)
+                  ChoiceChip(
+                    label: Text(text(item)),
+                    selected: item == value,
+                    selectedColor: AppColors.accent.withAlpha(50),
+                    labelStyle: TextStyle(
+                      color: item == value
+                          ? AppColors.accent
+                          : AppColors.darkTextSub,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    onSelected: (_) => onChanged(item),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget slider({
+      required String label,
+      required double value,
+      required double min,
+      required double max,
+      required ValueChanged<double> onChanged,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label ${value.toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: AppColors.darkTextMuted,
+              fontSize: 11,
+            ),
+          ),
+          Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: 20,
+            activeColor: AppColors.accent,
+            inactiveColor: AppColors.darkBorder,
+            onChanged: onChanged,
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        segmented<JoystickMode>(
+          label: 'Mode',
+          value: joystick.mode,
+          values: JoystickMode.values,
+          text: (mode) => mode.label,
+          onChanged: (mode) => save(
+            joystick.copyWith(
+              mode: mode,
+              boundary: switch (mode) {
+                JoystickMode.dualAxisAnalog => JoystickBoundary.circular,
+                JoystickMode.singleAxisAnalog ||
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisDigital4 => joystick.boundary,
+              },
+              springReturn: switch (mode) {
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisAnalog => true,
+                JoystickMode.dualAxisDigital4 => false,
+                JoystickMode.singleAxisAnalog => joystick.springReturn,
+              },
+              allowDiagonal: switch (mode) {
+                JoystickMode.dualAxisAnalog => true,
+                JoystickMode.singleAxisAnalog ||
+                JoystickMode.singleAxisDigital5 ||
+                JoystickMode.dualAxisDigital4 => joystick.allowDiagonal,
+              },
+            ),
+          ),
+        ),
+        segmented<JoystickAxis>(
+          label: 'Single-axis orientation',
+          value: joystick.axis,
+          values: JoystickAxis.values,
+          text: (axis) =>
+              axis == JoystickAxis.vertical ? 'Vertical' : 'Horizontal',
+          onChanged: (axis) => save(joystick.copyWith(axis: axis)),
+        ),
+        if (joystick.mode != JoystickMode.dualAxisAnalog)
+          segmented<JoystickBoundary>(
+            label: 'Movement bound',
+            value: joystick.boundary,
+            values: JoystickBoundary.values,
+            text: (bound) =>
+                bound == JoystickBoundary.circular ? 'Circular' : 'Square',
+            onChanged: (bound) => save(joystick.copyWith(boundary: bound)),
+          ),
+        if (joystick.mode != JoystickMode.singleAxisDigital5 &&
+            joystick.mode != JoystickMode.dualAxisAnalog)
+          SwitchListTile(
+            value: joystick.springReturn,
+            activeThumbColor: AppColors.accent,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Spring return',
+              style: TextStyle(color: AppColors.darkText, fontSize: 12),
+            ),
+            onChanged: (value) => save(joystick.copyWith(springReturn: value)),
+          ),
+        if (joystick.isDualAxis && joystick.mode != JoystickMode.dualAxisAnalog)
+          SwitchListTile(
+            value: joystick.allowDiagonal,
+            activeThumbColor: AppColors.accent,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Allow diagonals',
+              style: TextStyle(color: AppColors.darkText, fontSize: 12),
+            ),
+            onChanged: (value) => save(joystick.copyWith(allowDiagonal: value)),
+          ),
+        slider(
+          label: 'Dead zone',
+          value: joystick.deadZone,
+          min: 0.0,
+          max: 0.45,
+          onChanged: (value) => save(joystick.copyWith(deadZone: value)),
+        ),
+        slider(
+          label: 'Slow threshold',
+          value: joystick.slowThreshold,
+          min: 0.05,
+          max: 0.75,
+          onChanged: (value) => save(joystick.copyWith(slowThreshold: value)),
+        ),
+        slider(
+          label: 'Fast threshold',
+          value: joystick.fastThreshold,
+          min: 0.30,
+          max: 1.0,
+          onChanged: (value) => save(joystick.copyWith(fastThreshold: value)),
+        ),
+      ],
+    );
+  }
+}
+
+ButtonConfig _newCustomButtonSeed({
+  required ButtonType type,
+  required int pageIndex,
+}) {
+  final (columns, rows) = ButtonConfig.defaultGridSizeFor(type);
+  return ButtonConfig(
+    id: 'custom_${DateTime.now().microsecondsSinceEpoch}',
+    type: type,
+    plcMapping: PlcMapping.up,
+    label: '',
+    enabled: false,
+    plcMappingEnabled: false,
+    pageIndex: pageIndex,
+    gridColumns: columns,
+    gridRows: rows,
+    columnSpan: columns,
+  );
+}
+
+String _customMappingLabel(PlcMapping mapping) => switch (mapping) {
+  PlcMapping.up => 'Hoist Up',
+  PlcMapping.down => 'Hoist Down',
+  PlcMapping.fastUd => 'Hoist Fast',
+  PlcMapping.left => 'Traverse Left',
+  PlcMapping.right => 'Traverse Right',
+  PlcMapping.fastLr => 'Traverse Fast',
+  PlcMapping.forward => 'Travel Forward',
+  PlcMapping.reverse => 'Travel Reverse',
+  PlcMapping.fastFb => 'Travel Fast',
+  PlcMapping.estop => 'E-Stop',
+};
+
 /// ButtonType -> ControlWidgetType, purely for feeding the existing
 /// AxisTypePreview widget's API (presentation-only — the model itself reads
 /// and writes ButtonType directly, with no ControlWidgetType intermediary).
@@ -291,13 +1441,30 @@ bool _spanAwareTypeChangesEnabled() => true;
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TypeEntry {
-  const _TypeEntry(this.type, this.label, this.icon, this.available, this.note);
-  final ButtonType? type; // null => informational-only "coming soon" tile
+  const _TypeEntry(
+    this.type,
+    this.label,
+    this.icon,
+    this.available,
+    this.note, {
+    this.isNone = false,
+  });
+  final ButtonType? type;
   final String label;
   final IconData icon;
   final bool available;
   final String note;
+  final bool isNone;
 }
+
+const _noneTypeEntry = _TypeEntry(
+  null,
+  'None',
+  Icons.block_rounded,
+  true,
+  'Leave this slot vacant. No PLC output is mapped or sent.',
+  isNone: true,
+);
 
 const _typeEntries = [
   _TypeEntry(
@@ -383,6 +1550,7 @@ class _TypeTab extends StatelessWidget {
         : (primaryType == secondaryType ? primaryType : null);
 
     final entries = [
+      if (editRole != null && !editRole!.isSafetyControl) _noneTypeEntry,
       ..._typeEntries,
       if (axis == AxisKind.traverse) ...[
         _crossTravelEntry,
@@ -417,16 +1585,36 @@ class _TypeTab extends StatelessWidget {
               for (final entry in entries)
                 _TypeTile(
                   entry: entry,
-                  isSelected: previewType != null && previewType == entry.type,
-                  onTap: entry.available && entry.type != null
+                  isSelected: entry.isNone
+                      ? editRole != null &&
+                            draft.buttonFor(editRole!)?.visible == false
+                      : previewType != null && previewType == entry.type,
+                  onTap: entry.available
                       ? () {
                           final ctrl = context
                               .read<CustomizationModeController>();
+                          if (entry.isNone) {
+                            final role = editRole;
+                            if (role == null) return;
+                            final config = ctrl.draft.buttonFor(role);
+                            if (config == null) return;
+                            ctrl.applyDraftChangeAndCompact(
+                              ctrl.draft.withButton(
+                                role.name,
+                                config.copyWith(visible: false, enabled: false),
+                              ),
+                            );
+                            Navigator.of(context).pop();
+                            return;
+                          }
+                          final selectedType = entry.type;
+                          if (selectedType == null) return;
                           if (_spanAwareTypeChangesEnabled()) {
                             var updated = ctrl.draft;
                             final isCombinedCrossTravelToThreeZone =
                                 editRole == null &&
-                                entry.type == ButtonType.crossTravelSlowOnly &&
+                                selectedType ==
+                                    ButtonType.crossTravelSlowOnly &&
                                 primaryType == ButtonType.crossTravel &&
                                 secondaryType == ButtonType.crossTravel;
                             final combinedCrossTravelRole =
@@ -435,7 +1623,7 @@ class _TypeTab extends StatelessWidget {
                                 : secondaryRole;
                             final rolesToUpdate =
                                 editRole != null ||
-                                    entry.type == ButtonType.crossTravel ||
+                                    selectedType == ButtonType.crossTravel ||
                                     isCombinedCrossTravelToThreeZone
                                 ? [
                                     editRole ??
@@ -449,7 +1637,7 @@ class _TypeTab extends StatelessWidget {
                               final result = buildButtonTypeChange(
                                 draft: updated,
                                 role: role,
-                                type: entry.type!,
+                                type: selectedType,
                               );
                               if (!result.isValid) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1336,11 +2524,6 @@ class _BehaviorCard extends StatelessWidget {
     final customCtrl = context.watch<CustomizationModeController>();
     final draft = customCtrl.draft;
     final config = draft.buttonFor(role)!;
-    final wiringApplicable =
-        config.type != ButtonType.sliderButton &&
-        config.type != ButtonType.crossTravel &&
-        config.type != ButtonType.crossTravelSlowOnly &&
-        config.type != ButtonType.joystick;
     final isSafety = role.isSafetyControl;
     final validation = const LayoutValidationService().validateButtonConfig(
       config,
@@ -1425,62 +2608,62 @@ class _BehaviorCard extends StatelessWidget {
         //               'continuous drag speed, not switch wiring.',
         //         ),
         // ),
-        _TabCard(
-          title: '${role.defaultLabel} · REPEAT WHILE HELD',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Repeat while held',
-                    style: TextStyle(color: AppColors.darkText, fontSize: 12),
-                  ),
-                  Switch(
-                    value: config.behavior.repeatWhileHeld,
-                    activeThumbColor: AppColors.accent,
-                    onChanged: (v) => customCtrl.applyDraftChange(
-                      draft.withButton(
-                        role.name,
-                        config.copyWith(
-                          behavior: config.behavior.copyWith(
-                            repeatWhileHeld: v,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (config.behavior.repeatWhileHeld)
-                _LabeledSlider(
-                  label: 'Repeat interval (ms)',
-                  value: config.behavior.repeatIntervalMs.toDouble(),
-                  min: ButtonBehaviorConfig.minRepeatIntervalMs.toDouble(),
-                  max: ButtonBehaviorConfig.maxRepeatIntervalMs.toDouble(),
-                  onChanged: (_) {},
-                  onChangeEnd: (v) => customCtrl.applyDraftChange(
-                    draft.withButton(
-                      role.name,
-                      config.copyWith(
-                        behavior: config.behavior.copyWith(
-                          repeatIntervalMs: v.round(),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                const _InfoNote(
-                  message:
-                      'No current button type fires a repeat timer while '
-                      'held — this setting is stored for future control '
-                      'types (e.g. a jog-increment button).',
-                ),
-            ],
-          ),
-        ),
+        // _TabCard(
+        //   title: '${role.defaultLabel} · REPEAT WHILE HELD',
+        //   child: Column(
+        //     crossAxisAlignment: CrossAxisAlignment.start,
+        //     children: [
+        //       Row(
+        //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        //         children: [
+        //           const Text(
+        //             'Repeat while held',
+        //             style: TextStyle(color: AppColors.darkText, fontSize: 12),
+        //           ),
+        //           Switch(
+        //             value: config.behavior.repeatWhileHeld,
+        //             activeThumbColor: AppColors.accent,
+        //             onChanged: (v) => customCtrl.applyDraftChange(
+        //               draft.withButton(
+        //                 role.name,
+        //                 config.copyWith(
+        //                   behavior: config.behavior.copyWith(
+        //                     repeatWhileHeld: v,
+        //                   ),
+        //                 ),
+        //               ),
+        //             ),
+        //           ),
+        //         ],
+        //       ),
+        //       if (config.behavior.repeatWhileHeld)
+        //         _LabeledSlider(
+        //           label: 'Repeat interval (ms)',
+        //           value: config.behavior.repeatIntervalMs.toDouble(),
+        //           min: ButtonBehaviorConfig.minRepeatIntervalMs.toDouble(),
+        //           max: ButtonBehaviorConfig.maxRepeatIntervalMs.toDouble(),
+        //           onChanged: (_) {},
+        //           onChangeEnd: (v) => customCtrl.applyDraftChange(
+        //             draft.withButton(
+        //               role.name,
+        //               config.copyWith(
+        //                 behavior: config.behavior.copyWith(
+        //                   repeatIntervalMs: v.round(),
+        //                 ),
+        //               ),
+        //             ),
+        //           ),
+        //         )
+        //       else
+        //         const _InfoNote(
+        //           message:
+        //               'No current button type fires a repeat timer while '
+        //               'held — this setting is stored for future control '
+        //               'types (e.g. a jog-increment button).',
+        //         ),
+        //     ],
+        //   ),
+        // ),
         if (!isSafety)
           _TabCard(
             title: '${role.defaultLabel} · MUTUAL EXCLUSION',
@@ -1961,64 +3144,6 @@ class _GroupFieldState extends State<_GroupField> {
         border: OutlineInputBorder(borderSide: BorderSide.none),
         hintText: 'Optional tag, e.g. "hoist controls"',
         hintStyle: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
-      ),
-    );
-  }
-}
-
-class _WiringTile extends StatelessWidget {
-  const _WiringTile({
-    required this.cfg,
-    required this.isSelected,
-    required this.onTap,
-  });
-  final PushButtonWiringConfig cfg;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: isSelected ? AppColors.accent.withAlpha(24) : AppColors.darkBg,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: isSelected
-                    ? AppColors.accent.withAlpha(100)
-                    : AppColors.darkBorder,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  cfg.label,
-                  style: TextStyle(
-                    color: isSelected ? AppColors.accent : AppColors.darkText,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  cfg.description,
-                  style: const TextStyle(
-                    color: AppColors.darkTextMuted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

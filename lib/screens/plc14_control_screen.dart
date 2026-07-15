@@ -4,9 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
@@ -28,7 +28,26 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
-import 'package:rev_crane_control_ops/widgets/customization/free_button_edit_sheet.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rebuild-scope note
+//
+// The screen used to sit behind one Consumer3<CraneController,
+// LayoutSettingsController, CustomizationModeController> wrapping the entire
+// Scaffold body, so *any* notifyListeners() from any of the three controllers
+// — including a BLE analog/status notification arriving many times a second —
+// rebuilt the AppBar, LED row, sensor row, the whole ControlSlotGrid, and the
+// status chip together. That's the biggest single rebuild-scope cost on this
+// screen, and it runs concurrently with the BLE heartbeat timer on the same
+// isolate, so heavy rebuild/paint work can delay heartbeat scheduling.
+//
+// Below, `_layoutShapeSelector` recomputes only {isEditing, layoutCfg,
+// metrics, screenTitle} — this changes rarely (customization enter/exit,
+// draft edits, PLC type change, window resize) — and each live-data section
+// (LEDs, sensor row, safety panel, status chip, the grid's disabled/estop
+// gating) is its own small widget with its own narrow Selector, so a BLE
+// notification only rebuilds the specific section that actually changed.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
@@ -38,7 +57,7 @@ class ControlScreen extends StatefulWidget {
 }
 
 class _ControlScreenState extends State<ControlScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with WidgetsBindingObserver {
   // All 6 motion roles are always passed to ControlSlotGrid so PLC14/PLC21
   // get the same 6-slot grid shape as PLC38. Each PLC type's default layout
   // decides which role buttons are visible and how many grid cells they span.
@@ -50,8 +69,6 @@ class _ControlScreenState extends State<ControlScreen>
     ControlRole.travelForward,
     ControlRole.travelReverse,
   ];
-
-  late final AnimationController _pulseController;
 
   CraneController? _craneController;
 
@@ -74,11 +91,6 @@ class _ControlScreenState extends State<ControlScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -90,7 +102,6 @@ class _ControlScreenState extends State<ControlScreen>
   @override
   void dispose() {
     FocusManager.instance.primaryFocus?.unfocus();
-    _pulseController.dispose();
     _craneController?.removeListener(_onControllerChange);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -281,483 +292,567 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
-  Future<void> _addFreeButton(CustomizationModeController customCtrl) async {
-    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
-    final button = ButtonConfig(
-      id: id,
-      type: ButtonType.pushButton,
-      plcMapping: PlcMapping.up,
-      label: 'New Button',
-      enabled: false,
-      plcMappingEnabled: false,
-      pageIndex: customCtrl.activeControlPage,
+  Future<void> _addButton(CustomizationModeController customCtrl) async {
+    await ButtonEditSheet.showForNewButton(
+      context,
+      preferredPageIndex: customCtrl.activeControlPage,
     );
-    final result = customCtrl.addControlButton(button);
-    if (!mounted) return;
-    if (!result.isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Could not add button.')),
-      );
-      return;
-    }
-    await FreeButtonEditSheet.show(context, id);
   }
 
   // Tapping a vacant grid slot (or its edit icon) in Customization Mode opens
   // the same add-button flow as the AppBar's "+" action, but anchored to the
   // exact slot the operator tapped instead of the first free cell — this is
   // what makes an empty placeholder feel directly editable rather than just
-  // a drop target. Never sends a PLC command: the new button is created
-  // disabled/unmapped, same as _addFreeButton, until configured in the sheet.
+  // a drop target. Never sends a PLC command: the new button only exists as
+  // local sheet state until the operator saves a real control type.
   Future<void> _addButtonAtSlot(
     CustomizationModeController customCtrl,
     int pageIndex,
     int slotIndex,
   ) async {
-    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
-    final button = ButtonConfig(
-      id: id,
-      type: ButtonType.pushButton,
-      plcMapping: PlcMapping.up,
-      label: 'New Button',
-      enabled: false,
-      plcMappingEnabled: false,
-      pageIndex: pageIndex,
-    );
-    final result = customCtrl.addControlButton(
-      button,
+    await ButtonEditSheet.showForNewButton(
+      context,
       preferredPageIndex: pageIndex,
       preferredSlot: slotIndex,
     );
-    if (!mounted) return;
-    if (!result.isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Could not add button.')),
-      );
-      return;
-    }
-    await FreeButtonEditSheet.show(context, id);
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Consumer3<
-      CraneController,
-      LayoutSettingsController,
-      CustomizationModeController
-    >(
-      builder: (ctx, controller, layoutCtrl, customCtrl, _) {
-        final isEditing = customCtrl.isActive;
-        final bucket = LayoutBucket.forPlcType(controller.connectedPlcType);
-        final layoutCfg = isEditing
-            ? customCtrl.draft
-            : layoutCtrl.configFor(bucket);
-        final labels = layoutCfg.labelConfig;
-        final sizing = layoutCfg.sizeConfig;
-        final arrangement = layoutCfg.arrangementConfig;
-        final metrics = ControlLayoutMetrics.compute(
-          MediaQuery.of(ctx).size.height -
-              kToolbarHeight -
-              MediaQuery.of(ctx).padding.top -
-              MediaQuery.of(ctx).padding.bottom,
-          baseEstopHeight: sizing.resolvedEstopHeight,
-          preferShowSensor: arrangement.showSensorRow,
-          preferShowLEDs: arrangement.showLiveLEDs,
+    // Narrow selector #1: the screen "shape" — recomputed only when editing
+    // toggles, the draft/committed layout changes, or the PLC type changes.
+    // Deliberately excludes every live-telemetry field on CraneController
+    // (LEDs, sensors, hoistState, RSSI, ...) so a BLE notification alone
+    // never retriggers this selector or anything below it in the tree.
+    return Selector<CraneController, PlcType>(
+      selector: (_, controller) => controller.connectedPlcType,
+      builder: (context, plcType, _) {
+        return Selector2<
+          CustomizationModeController,
+          LayoutSettingsController,
+          _LayoutShape
+        >(
+          selector: (_, customCtrl, layoutCtrl) {
+            final bucket = LayoutBucket.forPlcType(plcType);
+            final isEditing = customCtrl.isActive;
+            final layoutCfg = isEditing
+                ? customCtrl.draft
+                : layoutCtrl.configFor(bucket);
+            return _LayoutShape(isEditing: isEditing, layoutCfg: layoutCfg);
+          },
+          builder: (context, shape, _) =>
+              _buildScaffold(context, shape.isEditing, shape.layoutCfg),
         );
-        final screenTitle = labels.screenTitle.isNotEmpty
-            ? labels.screenTitle
-            : (controller.connectedDeviceName ?? BLEConstants.deviceName);
-        final selectedButton = customCtrl.selectedButton;
-        final customizationBarMinTop =
-            MediaQuery.of(ctx).padding.top +
-            kToolbarHeight +
-            metrics.bodyPadding.top +
-            metrics.estopHeight +
-            metrics.itemSpacing;
+      },
+    );
+  }
 
-        return Stack(
-          children: [
-            PopScope(
-              canPop: !isEditing,
-              onPopInvokedWithResult: _onBackAttempted,
-              child: Scaffold(
-                backgroundColor: AppColors.darkBg,
-                resizeToAvoidBottomInset: false,
-                appBar: AppBar(
-                  actionsPadding: const EdgeInsets.only(right: 8),
-                  automaticallyImplyLeading: false,
-                  backgroundColor: AppColors.appBarBg,
-                  flexibleSpace: const ControlAppBarGlow(),
-                  titleSpacing: isEditing
-                      ? 16
-                      : NavigationToolbar.kMiddleSpacing,
-                  title: isEditing
-                      ? const Text(
-                          'CUSTOMIZE',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.1,
-                            color: AppColors.appBarGlow,
-                          ),
-                        )
-                      : DeviceInfoAppBarTitle(
-                          deviceName: screenTitle,
-                          plcType: controller.connectedPlcType,
-                          rssi: controller.connectedDeviceRssi,
-                        ),
-                  actions: isEditing
-                      ? [
-                          IconButton(
-                            icon: const Icon(Icons.screen_rotation_rounded),
-                            color: selectedButton == null
-                                ? AppColors.disabled
-                                : AppColors.darkTextSub,
-                            tooltip: selectedButton == null
-                                ? 'Select a button to rotate'
-                                : 'Rotate to ${selectedButton.rotation.next.label}',
-                            onPressed: selectedButton == null
-                                ? null
-                                : customCtrl.rotateSelectedButton,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.auto_fix_high_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Auto arrange controls',
-                            onPressed: customCtrl.autoArrangeControls,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.note_add_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Add control page',
-                            onPressed: customCtrl.createControlPage,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Add button',
-                            onPressed: () => _addFreeButton(customCtrl),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded),
-                            color: selectedButton == null
-                                ? AppColors.disabled
-                                : AppColors.eStopColor,
-                            tooltip: 'Delete selected button',
-                            onPressed:
-                                selectedButton == null ||
-                                    !customCtrl.canDeleteSelectedButton
-                                ? null
-                                : () =>
-                                      _confirmDeleteSelectedButton(customCtrl),
-                          ),
-                        ]
-                      : [
-                          IconButton(
-                            icon: const Icon(
-                              Icons.dashboard_customize_rounded,
-                              size: 20,
-                              color: AppColors.darkTextSub,
-                            ),
-                            tooltip: 'Customize Layout',
-                            onPressed: _enterCustomizationMode,
-                          ),
-                          IconButton.filledTonal(
-                            onPressed: controller.disconnect,
-                            tooltip: 'Disconnect',
-                            style: IconButton.styleFrom(
-                              foregroundColor: AppColors.error,
-                              backgroundColor: AppColors.error.withValues(
-                                alpha: 0.10,
-                              ),
-                              hoverColor: AppColors.error.withValues(
-                                alpha: 0.15,
-                              ),
-                              highlightColor: AppColors.error.withValues(
-                                alpha: 0.20,
-                              ),
-                              minimumSize: const Size(42, 42),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                  color: AppColors.error.withValues(
-                                    alpha: 0.22,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            icon: const Icon(
-                              Icons.power_settings_new_rounded,
-                              size: 21,
-                            ),
-                          ),
-                        ],
-                  bottom: isEditing
-                      ? CustomizationStatusBanner(
-                          onDone: () => _finishCustomization(customCtrl),
-                        )
-                      : const PreferredSize(
-                          preferredSize: Size.fromHeight(3),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: AppColors.appBarBanner,
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: AppColors.appBarBannerBorder,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                ),
-                body: SafeArea(
-                  maintainBottomViewPadding: true,
-                  child: Padding(
-                    padding: metrics.bodyPadding,
-                    child: Column(
-                      children: [
-                        SafetyActionPanel(
-                          estopLatched: controller.estopLatched,
-                          compact: metrics.isCompact,
-                          height: metrics.estopHeight,
-                          width: sizing.resolvedEstopWidthOrFill,
-                          instructionLabel: labels.estopSwipeInstruction,
-                          resetLabel: labels.resetEstopLabel,
-                          onEStopTap: _onEStopTap,
-                          onResetActivated: _onResetEStopTap,
-                        ),
-                        SizedBox(height: metrics.itemSpacing),
-                        if (metrics.showSensorRow) ...[
-                          EditableControlTile(
-                            isEditing: isEditing,
-                            onDelete: () => customCtrl.applyDraftChange(
+  Widget _buildScaffold(
+    BuildContext context,
+    bool isEditing,
+    ControlLayoutConfig layoutCfg,
+  ) {
+    final labels = layoutCfg.labelConfig;
+    final sizing = layoutCfg.sizeConfig;
+    final arrangement = layoutCfg.arrangementConfig;
+    final metrics = ControlLayoutMetrics.compute(
+      MediaQuery.of(context).size.height -
+          kToolbarHeight -
+          MediaQuery.of(context).padding.top -
+          MediaQuery.of(context).padding.bottom,
+      baseEstopHeight: sizing.resolvedEstopHeight,
+      preferShowSensor: arrangement.showSensorRow,
+      preferShowLEDs: arrangement.showLiveLEDs,
+    );
+    final customizationBarMinTop =
+        MediaQuery.of(context).padding.top +
+        kToolbarHeight +
+        metrics.bodyPadding.top +
+        metrics.estopHeight +
+        metrics.itemSpacing;
+
+    return Stack(
+      children: [
+        PopScope(
+          canPop: !isEditing,
+          onPopInvokedWithResult: _onBackAttempted,
+          child: Scaffold(
+            backgroundColor: AppColors.darkBg,
+            resizeToAvoidBottomInset: false,
+            appBar: _ControlAppBar(
+              isEditing: isEditing,
+              labels: labels,
+              onEnterCustomization: _enterCustomizationMode,
+              onFinishCustomization: _finishCustomization,
+              onAddButton: _addButton,
+              onConfirmDeleteSelectedButton: _confirmDeleteSelectedButton,
+            ),
+            body: SafeArea(
+              maintainBottomViewPadding: true,
+              child: Padding(
+                padding: metrics.bodyPadding,
+                child: Column(
+                  children: [
+                    _SafetyPanelSection(
+                      compact: metrics.isCompact,
+                      height: metrics.estopHeight,
+                      width: sizing.resolvedEstopWidthOrFill,
+                      instructionLabel: labels.estopSwipeInstruction,
+                      resetLabel: labels.resetEstopLabel,
+                      onEStopTap: _onEStopTap,
+                      onResetActivated: _onResetEStopTap,
+                    ),
+                    SizedBox(height: metrics.itemSpacing),
+                    if (metrics.showSensorRow) ...[
+                      EditableControlTile(
+                        isEditing: isEditing,
+                        onDelete: () => context
+                            .read<CustomizationModeController>()
+                            .applyDraftChange(
                               layoutCfg.copyWith(
                                 arrangementConfig: arrangement.copyWith(
                                   showSensorRow: false,
                                 ),
                               ),
                             ),
-                            child: SensorRow(
-                              a1: controller.a1,
-                              a2: controller.a2,
-                            ),
-                          ),
-                          SizedBox(height: metrics.itemSpacing),
-                        ],
-                        if (metrics.showLEDs) ...[
-                          EditableControlTile(
-                            isEditing: isEditing,
-                            onDelete: () => customCtrl.applyDraftChange(
+                        child: const _SensorSection(),
+                      ),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
+                    if (metrics.showLEDs) ...[
+                      EditableControlTile(
+                        isEditing: isEditing,
+                        onDelete: () => context
+                            .read<CustomizationModeController>()
+                            .applyDraftChange(
                               layoutCfg.copyWith(
                                 arrangementConfig: arrangement.copyWith(
                                   showLiveLEDs: false,
                                 ),
                               ),
                             ),
-                            child: LiveLedRow(
-                              leds: [
-                                LedSpec(
-                                  label: 'ESTOP',
-                                  active: controller.ledEstop,
-                                  color: AppColors.eStopColor,
-                                  pin: 'R0_0',
-                                ),
-                                LedSpec(
-                                  label: 'UP',
-                                  active: controller.ledUp,
-                                  color: AppColors.upColor,
-                                  pin: 'Q0.1',
-                                ),
-                                LedSpec(
-                                  label: 'DOWN',
-                                  active: controller.ledDown,
-                                  color: AppColors.downColor,
-                                  pin: 'Q0.2',
-                                ),
-                                LedSpec(
-                                  label: 'FAST',
-                                  active: controller.ledFast,
-                                  color: AppColors.fastColor,
-                                  pin: 'Q0.3',
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: metrics.itemSpacing),
-                        ],
-                        Expanded(
-                          child: ControlSlotGrid(
-                            layoutCfg: layoutCfg,
-                            roles: _motionRoles,
-                            isEditing: isEditing,
-                            activeStateFor: (config) =>
-                                _activeStateForButton(controller, config),
-                            isDisabled: (config) =>
-                                controller.estopLatched ||
-                                !controller.isConnected ||
-                                !config.enabled ||
-                                (config.role == null &&
-                                    !config.plcMappingEnabled) ||
-                                _isMutuallyExcluded(config),
-                            onCommand: (id, state) {
-                              final config = layoutCfg.resolvedButtons[id];
-                              ButtonStateLog.log(
-                                state == ControlState.idle
-                                    ? 'SEND_IDLE  [$id] (PLC14)'
-                                    : 'SEND_ACTIVE [$id] -> ${state.name} (PLC14)',
-                              );
-                              setState(() {
-                                _localActive[id] = state;
-                              });
-                              controller.setButtonCommand(
-                                buttonId: id,
-                                state: state,
-                                plcMapping: config?.role == null
-                                    ? config?.plcMapping
-                                    : null,
-                                plcMappingEnabled: config?.role == null
-                                    ? config?.plcMappingEnabled ?? false
-                                    : true,
-                              );
-                            },
-                            onEditButton: (config) {
-                              final role = config.role;
-                              if (role != null) {
-                                ButtonEditSheet.showForRole(context, role);
-                              } else {
-                                FreeButtonEditSheet.show(context, config.id);
-                              }
-                            },
-                            selectedRole: customCtrl.selectedRole,
-                            selectedButtonId: customCtrl.selectedSlotId,
-                            onPageChanged: customCtrl.setActiveControlPage,
-                            activePageIndex: customCtrl.activeControlPage,
-                            onSelectButton: isEditing
-                                ? customCtrl.selectButton
-                                : null,
-                            onSlotDrop: isEditing
-                                ? (
-                                    dragged,
-                                    sourceSlot,
-                                    target,
-                                    targetSlot, {
-                                    required targetPageIndex,
-                                  }) {
-                                    final result = buildGridSlotDrop(
-                                      buttons: customCtrl.draft.resolvedButtons,
-                                      dragged: dragged,
-                                      sourceSlot: sourceSlot,
-                                      target: target,
-                                      targetSlot: targetSlot,
-                                      targetPageIndex: targetPageIndex,
-                                    );
-                                    if (!result.isValid) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            result.message ??
-                                                kCrossTravelSpanMessage,
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    customCtrl.applyDraftChangeAndCompact(
-                                      customCtrl.draft.copyWith(
-                                        buttons: result.buttons,
-                                      ),
-                                    );
-                                  }
-                                : null,
-                            onResizeButton: isEditing
-                                ? (
-                                    config,
-                                    gridColumns,
-                                    gridRows, {
-                                    anchorX,
-                                    anchorY,
-                                  }) {
-                                    final result = buildButtonResize(
-                                      buttons: customCtrl.draft.resolvedButtons,
-                                      selected: config,
-                                      gridColumns: gridColumns,
-                                      gridRows: gridRows,
-                                      anchorX: anchorX,
-                                      anchorY: anchorY,
-                                    );
-                                    if (!result.isValid) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            result.message ??
-                                                kWidgetPlacementMessage,
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    customCtrl.applyDraftChangeAndCompact(
-                                      customCtrl.draft.copyWith(
-                                        buttons: result.buttons,
-                                      ),
-                                    );
-                                  }
-                                : null,
-                            onSelectVacantSlot: isEditing
-                                ? (pageIndex, slotIndex) {
-                                    customCtrl.selectVacantSlot(
-                                      pageIndex,
-                                      slotIndex,
-                                    );
-                                    _addButtonAtSlot(
-                                      customCtrl,
-                                      pageIndex,
-                                      slotIndex,
-                                    );
-                                  }
-                                : null,
-                          ),
+                        child: const _LiveLedSection(),
+                      ),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
+                    Expanded(
+                      child: RepaintBoundary(
+                        child: _ControlGridSection(
+                          layoutCfg: layoutCfg,
+                          isEditing: isEditing,
+                          motionRoles: _motionRoles,
+                          localActive: _localActive,
+                          onLocalActiveChanged: (id, state) =>
+                              setState(() => _localActive[id] = state),
+                          onAddButtonAtSlot: _addButtonAtSlot,
                         ),
-
-                        SizedBox(height: metrics.itemSpacing),
-
-                        StatusBarChip(
-                          color: controller.estopLatched
-                              ? AppColors.eStopColor
-                              : switch (controller.hoistState) {
-                                  HoistState.idle => AppColors.idleColor,
-                                  HoistState.upSlow => AppColors.upColor,
-                                  HoistState.upFast => AppColors.fastColor,
-                                  HoistState.downSlow => AppColors.downColor,
-                                  HoistState.downFast => AppColors.fastColor,
-                                },
-                          label: controller.statusLabel,
-                        ),
-
-                        SizedBox(height: metrics.itemSpacing),
-                      ],
+                      ),
                     ),
+                    SizedBox(height: metrics.itemSpacing),
+                    const _StatusChipSection(),
+                    SizedBox(height: metrics.itemSpacing),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (isEditing)
+          Positioned.fill(
+            child: DraggableCustomizationModeBar(
+              minTop: customizationBarMinTop,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Result of the outer selector: the two pieces of state that decide the
+/// screen's overall shape (which sections render, what the grid contains).
+/// Value-typed (`==` compares `layoutCfg` structurally — see
+/// [ControlLayoutConfig.==]) so Selector skips a rebuild whenever neither
+/// actually changed.
+class _LayoutShape {
+  const _LayoutShape({required this.isEditing, required this.layoutCfg});
+
+  final bool isEditing;
+  final ControlLayoutConfig layoutCfg;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LayoutShape &&
+          other.isEditing == isEditing &&
+          other.layoutCfg == layoutCfg;
+
+  @override
+  int get hashCode => Object.hash(isEditing, layoutCfg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ControlAppBar
+//
+// Isolated because its actions depend on CustomizationModeController's
+// selection state (selectedButton, canDeleteSelectedButton), which changes on
+// every tap/drag select — far more often than the layout shape itself. Only
+// the AppBar repaints for that; the grid/LEDs/sensor row below are untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _ControlAppBar({
+    required this.isEditing,
+    required this.labels,
+    required this.onEnterCustomization,
+    required this.onFinishCustomization,
+    required this.onAddButton,
+    required this.onConfirmDeleteSelectedButton,
+  });
+
+  final bool isEditing;
+  final ControlLabelConfig labels;
+  final VoidCallback onEnterCustomization;
+  final void Function(CustomizationModeController) onFinishCustomization;
+  final void Function(CustomizationModeController) onAddButton;
+  final void Function(CustomizationModeController)
+  onConfirmDeleteSelectedButton;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 3);
+
+  @override
+  Widget build(BuildContext context) {
+    final customCtrl = context.watch<CustomizationModeController>();
+    final selectedButton = customCtrl.selectedButton;
+
+    return AppBar(
+      actionsPadding: const EdgeInsets.only(right: 8),
+      automaticallyImplyLeading: false,
+      backgroundColor: AppColors.appBarBg,
+      flexibleSpace: const ControlAppBarGlow(),
+      titleSpacing: isEditing ? 16 : NavigationToolbar.kMiddleSpacing,
+      title: isEditing
+          ? const Text(
+              'CUSTOMIZE',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+                color: AppColors.appBarGlow,
+              ),
+            )
+          : _DeviceTitle(labels: labels),
+      actions: isEditing
+          ? [
+              IconButton(
+                icon: const Icon(Icons.screen_rotation_rounded),
+                color: selectedButton == null
+                    ? AppColors.disabled
+                    : AppColors.darkTextSub,
+                tooltip: selectedButton == null
+                    ? 'Select a button to rotate'
+                    : 'Rotate to ${selectedButton.rotation.next.label}',
+                onPressed: selectedButton == null
+                    ? null
+                    : customCtrl.rotateSelectedButton,
+              ),
+              IconButton(
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Auto arrange controls',
+                onPressed: customCtrl.autoArrangeControls,
+              ),
+              IconButton(
+                icon: const Icon(Icons.note_add_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Add control page',
+                onPressed: customCtrl.createControlPage,
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Add button',
+                onPressed: () => onAddButton(customCtrl),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded),
+                color: selectedButton == null
+                    ? AppColors.disabled
+                    : AppColors.eStopColor,
+                tooltip: 'Delete selected button',
+                onPressed:
+                    selectedButton == null ||
+                        !customCtrl.canDeleteSelectedButton
+                    ? null
+                    : () => onConfirmDeleteSelectedButton(customCtrl),
+              ),
+            ]
+          : [
+              IconButton(
+                icon: const Icon(
+                  Icons.dashboard_customize_rounded,
+                  size: 20,
+                  color: AppColors.darkTextSub,
+                ),
+                tooltip: 'Customize Layout',
+                onPressed: onEnterCustomization,
+              ),
+              const _DisconnectButton(),
+            ],
+      bottom: isEditing
+          ? CustomizationStatusBanner(
+              onDone: () => onFinishCustomization(customCtrl),
+            )
+          : const PreferredSize(
+              preferredSize: Size.fromHeight(3),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.appBarBanner,
+                  border: Border(
+                    bottom: BorderSide(color: AppColors.appBarBannerBorder),
                   ),
                 ),
               ),
             ),
-            if (isEditing)
-              Positioned.fill(
-                child: DraggableCustomizationModeBar(
-                  minTop: customizationBarMinTop,
-                ),
-              ),
-          ],
-        );
-      },
     );
   }
+}
+
+/// Isolated because it watches connection/device-name/RSSI fields that
+/// update independently of (and more often than) the AppBar's edit actions.
+class _DeviceTitle extends StatelessWidget {
+  const _DeviceTitle({required this.labels});
+
+  final ControlLabelConfig labels;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<CraneController>();
+    final screenTitle = labels.screenTitle.isNotEmpty
+        ? labels.screenTitle
+        : (controller.connectedDeviceName ?? BLEConstants.deviceName);
+    return DeviceInfoAppBarTitle(
+      deviceName: screenTitle,
+      plcType: controller.connectedPlcType,
+      rssi: controller.connectedDeviceRssi,
+    );
+  }
+}
+
+class _DisconnectButton extends StatelessWidget {
+  const _DisconnectButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<CraneController>();
+    return IconButton.filledTonal(
+      onPressed: controller.disconnect,
+      tooltip: 'Disconnect',
+      style: IconButton.styleFrom(
+        foregroundColor: AppColors.error,
+        backgroundColor: AppColors.error.withValues(alpha: 0.10),
+        hoverColor: AppColors.error.withValues(alpha: 0.15),
+        highlightColor: AppColors.error.withValues(alpha: 0.20),
+        minimumSize: const Size(42, 42),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppColors.error.withValues(alpha: 0.22)),
+        ),
+      ),
+      icon: const Icon(Icons.power_settings_new_rounded, size: 21),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live-data leaf sections — each owns a narrow Selector so a CraneController
+// notification (BLE status/analog stream, potentially many times a second)
+// only rebuilds the one section whose underlying values actually changed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SafetyPanelSection extends StatelessWidget {
+  const _SafetyPanelSection({
+    required this.compact,
+    required this.height,
+    required this.width,
+    required this.instructionLabel,
+    required this.resetLabel,
+    required this.onEStopTap,
+    required this.onResetActivated,
+  });
+
+  final bool compact;
+  final double height;
+  final double? width;
+  final String instructionLabel;
+  final String resetLabel;
+  final Future<void> Function() onEStopTap;
+  final Future<void> Function() onResetActivated;
+
+  @override
+  Widget build(BuildContext context) {
+    final estopLatched = context.select<CraneController, bool>(
+      (c) => c.estopLatched,
+    );
+    return RepaintBoundary(
+      child: SafetyActionPanel(
+        estopLatched: estopLatched,
+        compact: compact,
+        height: height,
+        width: width,
+        instructionLabel: instructionLabel,
+        resetLabel: resetLabel,
+        onEStopTap: onEStopTap,
+        onResetActivated: onResetActivated,
+      ),
+    );
+  }
+}
+
+class _SensorSection extends StatelessWidget {
+  const _SensorSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final a1 = context.select<CraneController, int>((c) => c.a1);
+    final a2 = context.select<CraneController, int>((c) => c.a2);
+    return RepaintBoundary(
+      child: SensorRow(a1: a1, a2: a2),
+    );
+  }
+}
+
+class _LiveLedRowValues {
+  const _LiveLedRowValues(this.estop, this.up, this.down, this.fast);
+
+  final bool estop;
+  final bool up;
+  final bool down;
+  final bool fast;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LiveLedRowValues &&
+          other.estop == estop &&
+          other.up == up &&
+          other.down == down &&
+          other.fast == fast;
+
+  @override
+  int get hashCode => Object.hash(estop, up, down, fast);
+}
+
+class _LiveLedSection extends StatelessWidget {
+  const _LiveLedSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final values = context.select<CraneController, _LiveLedRowValues>(
+      (c) => _LiveLedRowValues(c.ledEstop, c.ledUp, c.ledDown, c.ledFast),
+    );
+    return RepaintBoundary(
+      child: LiveLedRow(
+        leds: [
+          LedSpec(
+            label: 'ESTOP',
+            active: values.estop,
+            color: AppColors.eStopColor,
+            pin: 'R0_0',
+          ),
+          LedSpec(
+            label: 'UP',
+            active: values.up,
+            color: AppColors.upColor,
+            pin: 'Q0.1',
+          ),
+          LedSpec(
+            label: 'DOWN',
+            active: values.down,
+            color: AppColors.downColor,
+            pin: 'Q0.2',
+          ),
+          LedSpec(
+            label: 'FAST',
+            active: values.fast,
+            color: AppColors.fastColor,
+            pin: 'Q0.3',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChipSection extends StatelessWidget {
+  const _StatusChipSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<CraneController>();
+    return RepaintBoundary(
+      child: StatusBarChip(
+        color: controller.estopLatched
+            ? AppColors.eStopColor
+            : switch (controller.hoistState) {
+                HoistState.idle => AppColors.idleColor,
+                HoistState.upSlow => AppColors.upColor,
+                HoistState.upFast => AppColors.fastColor,
+                HoistState.downSlow => AppColors.downColor,
+                HoistState.downFast => AppColors.fastColor,
+              },
+        label: controller.statusLabel,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ControlGridSection
+//
+// Wraps ControlSlotGrid with its own narrow watch of exactly the
+// CraneController fields the grid's isDisabled/activeStateFor closures need
+// (estopLatched, isConnected) plus CustomizationModeController's selection/
+// paging state. A BLE status notification that doesn't flip estopLatched or
+// isConnected never rebuilds the grid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _GridGateValues {
+  const _GridGateValues(this.estopLatched, this.isConnected);
+
+  final bool estopLatched;
+  final bool isConnected;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _GridGateValues &&
+          other.estopLatched == estopLatched &&
+          other.isConnected == isConnected;
+
+  @override
+  int get hashCode => Object.hash(estopLatched, isConnected);
+}
+
+class _ControlGridSection extends StatelessWidget {
+  const _ControlGridSection({
+    required this.layoutCfg,
+    required this.isEditing,
+    required this.motionRoles,
+    required this.localActive,
+    required this.onLocalActiveChanged,
+    required this.onAddButtonAtSlot,
+  });
+
+  final ControlLayoutConfig layoutCfg;
+  final bool isEditing;
+  final List<ControlRole> motionRoles;
+  final Map<String, ControlState> localActive;
+  final void Function(String id, ControlState state) onLocalActiveChanged;
+  final Future<void> Function(CustomizationModeController, int, int)
+  onAddButtonAtSlot;
 
   bool _isMutuallyExcluded(ButtonConfig config) {
     // Cross-travel widgets manage both directions as a single unit; mutual
@@ -768,8 +863,7 @@ class _ControlScreenState extends State<ControlScreen>
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if ((_localActive[excludedId] ?? ControlState.idle) !=
-          ControlState.idle) {
+      if ((localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
         return true;
       }
     }
@@ -777,15 +871,129 @@ class _ControlScreenState extends State<ControlScreen>
   }
 
   /// Resolves the VISUAL active state for [config]. Local-touch state only
-  /// (see [_localActive]) — PLC feedback (`controller.hoistState`) intentionally
+  /// (see [localActive]) — PLC feedback (`controller.hoistState`) intentionally
   /// never feeds into a button's own visual state; it stays visible only
   /// through status/output indicators (LEDs, status chip) elsewhere on
   /// screen. estop latch forces idle regardless of local state.
-  ControlState _activeStateForButton(
-    CraneController controller,
-    ButtonConfig config,
-  ) {
-    if (controller.estopLatched) return ControlState.idle;
-    return _localActive[config.id] ?? ControlState.idle;
+  ControlState _activeStateForButton(bool estopLatched, ButtonConfig config) {
+    if (estopLatched) return ControlState.idle;
+    return localActive[config.id] ?? ControlState.idle;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gate = context.select<CraneController, _GridGateValues>(
+      (c) => _GridGateValues(c.estopLatched, c.isConnected),
+    );
+    final customCtrl = context.watch<CustomizationModeController>();
+
+    return ControlSlotGrid(
+      layoutCfg: layoutCfg,
+      roles: motionRoles,
+      isEditing: isEditing,
+      activeStateFor: (config) =>
+          _activeStateForButton(gate.estopLatched, config),
+      isDisabled: (config) =>
+          // isEditing is defense-in-depth: ControlSlotGrid already forces
+          // every occupied slot's ConfigurableButton disabled+AbsorbPointer
+          // in Customization Mode and never wires onCommand for vacant
+          // slots, but gating here too means this closure alone documents
+          // and enforces "Customization Mode never sends PLC output" even
+          // if that internal behavior ever changes.
+          isEditing ||
+          gate.estopLatched ||
+          !gate.isConnected ||
+          !config.enabled ||
+          (config.role == null && !config.plcMappingEnabled) ||
+          _isMutuallyExcluded(config),
+      onCommand: (id, state) {
+        final config = layoutCfg.resolvedButtons[id];
+        ButtonStateLog.log(
+          state == ControlState.idle
+              ? 'SEND_IDLE  [$id] (PLC14)'
+              : 'SEND_ACTIVE [$id] -> ${state.name} (PLC14)',
+        );
+        onLocalActiveChanged(id, state);
+        context.read<CraneController>().setButtonCommand(
+          buttonId: id,
+          state: state,
+          plcMapping: config?.role == null ? config?.plcMapping : null,
+          plcMappingEnabled: config?.role == null
+              ? config?.plcMappingEnabled ?? false
+              : true,
+        );
+      },
+      onEditButton: (config) {
+        final role = config.role;
+        if (role != null) {
+          ButtonEditSheet.showForRole(context, role);
+        } else {
+          ButtonEditSheet.showForButton(context, config.id);
+        }
+      },
+      selectedRole: customCtrl.selectedRole,
+      selectedButtonId: customCtrl.selectedSlotId,
+      onPageChanged: customCtrl.setActiveControlPage,
+      activePageIndex: customCtrl.activeControlPage,
+      onSelectButton: isEditing ? customCtrl.selectButton : null,
+      onSlotDrop: isEditing
+          ? (
+              dragged,
+              sourceSlot,
+              target,
+              targetSlot, {
+              required targetPageIndex,
+            }) {
+              final result = buildGridSlotDrop(
+                buttons: customCtrl.draft.resolvedButtons,
+                dragged: dragged,
+                sourceSlot: sourceSlot,
+                target: target,
+                targetSlot: targetSlot,
+                targetPageIndex: targetPageIndex,
+              );
+              if (!result.isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result.message ?? kCrossTravelSpanMessage),
+                  ),
+                );
+                return;
+              }
+              customCtrl.applyDraftChangeAndCompact(
+                customCtrl.draft.copyWith(buttons: result.buttons),
+              );
+            }
+          : null,
+      onResizeButton: isEditing
+          ? (config, gridColumns, gridRows, {anchorX, anchorY}) {
+              final result = buildButtonResize(
+                buttons: customCtrl.draft.resolvedButtons,
+                selected: config,
+                gridColumns: gridColumns,
+                gridRows: gridRows,
+                anchorX: anchorX,
+                anchorY: anchorY,
+              );
+              if (!result.isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result.message ?? kWidgetPlacementMessage),
+                  ),
+                );
+                return;
+              }
+              customCtrl.applyDraftChangeAndCompact(
+                customCtrl.draft.copyWith(buttons: result.buttons),
+              );
+            }
+          : null,
+      onSelectVacantSlot: isEditing
+          ? (pageIndex, slotIndex) {
+              customCtrl.selectVacantSlot(pageIndex, slotIndex);
+              onAddButtonAtSlot(customCtrl, pageIndex, slotIndex);
+            }
+          : null,
+    );
   }
 }

@@ -586,9 +586,9 @@ class _OverflowMenu extends StatelessWidget {
                   ),
                   onTap: () {
                     Navigator.of(ctx).pop();
-                    context
-                        .read<CustomizationModeController>()
-                        .applyTemplate(template);
+                    context.read<CustomizationModeController>().applyTemplate(
+                      template,
+                    );
                   },
                 ),
             ],

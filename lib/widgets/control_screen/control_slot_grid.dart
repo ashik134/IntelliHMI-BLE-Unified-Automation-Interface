@@ -493,11 +493,13 @@ class _SlotTargetState extends State<_SlotTarget> {
         isSelected: false,
         child: widget.item == null
             ? const SizedBox.shrink()
-            : _ButtonBody(
-                config: widget.item!.config,
-                activeState: widget.activeStateFor(widget.item!.config),
-                isDisabled: widget.isDisabled(widget.item!.config),
-                onCommand: widget.onCommand,
+            : RepaintBoundary(
+                child: _ButtonBody(
+                  config: widget.item!.config,
+                  activeState: widget.activeStateFor(widget.item!.config),
+                  isDisabled: widget.isDisabled(widget.item!.config),
+                  onCommand: widget.onCommand,
+                ),
               ),
       );
     }
@@ -637,11 +639,13 @@ class _DraggableSlotContent extends StatelessWidget {
         children: [
           Positioned.fill(
             child: AbsorbPointer(
-              child: _ButtonBody(
-                config: item.config,
-                activeState: activeState,
-                isDisabled: true,
-                onCommand: onCommand,
+              child: RepaintBoundary(
+                child: _ButtonBody(
+                  config: item.config,
+                  activeState: activeState,
+                  isDisabled: true,
+                  onCommand: onCommand,
+                ),
               ),
             ),
           ),

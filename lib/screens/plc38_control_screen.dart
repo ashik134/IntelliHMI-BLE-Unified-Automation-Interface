@@ -5,7 +5,6 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -28,10 +27,20 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 import 'package:rev_crane_control_ops/widgets/customization/editable_control_tile.dart';
-import 'package:rev_crane_control_ops/widgets/customization/free_button_edit_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Plc38ControlScreen
+//
+// Rebuild-scope note: this used to sit behind one Consumer3<CraneController,
+// LayoutSettingsController, CustomizationModeController> wrapping the whole
+// Scaffold body, so any notifyListeners() from any of the three — including
+// a BLE analog/status notification arriving many times a second — rebuilt
+// the AppBar, 10-LED row, sensor row, the whole ControlSlotGrid, and the
+// status chip together. `_LayoutShape` below is recomputed only when editing
+// toggles, the draft/committed layout changes, or the PLC type changes; each
+// live-data section (LEDs, sensor row, safety panel, status chip, the grid's
+// disabled/estop gating) is its own small widget with its own narrow
+// Selector, so a BLE notification only rebuilds the section that changed.
 // ═══════════════════════════════════════════════════════════════
 
 class Plc38ControlScreen extends StatefulWidget {
@@ -41,8 +50,7 @@ class Plc38ControlScreen extends StatefulWidget {
   State<Plc38ControlScreen> createState() => _Plc38ControlScreenState();
 }
 
-class _Plc38ControlScreenState extends State<Plc38ControlScreen>
-    with SingleTickerProviderStateMixin {
+class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
   static const List<ControlRole> _motionRoles = [
     ControlRole.hoistUp,
     ControlRole.hoistDown,
@@ -52,7 +60,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     ControlRole.travelReverse,
   ];
 
-  late final AnimationController _pulseController;
   CraneController? _craneController;
 
   // ── Local touch-driven active state, keyed by button id ─────────────────────
@@ -75,11 +82,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..repeat(reverse: true);
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -91,7 +93,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   @override
   void dispose() {
     FocusManager.instance.primaryFocus?.unfocus();
-    _pulseController.dispose();
     _craneController?.removeListener(_onControllerChange);
     super.dispose();
   }
@@ -216,25 +217,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     setState(_localActive.clear);
   }
 
-  bool _isMutuallyExcluded(ButtonConfig config) {
-    // Cross-travel widgets manage both directions as a single unit — the
-    // slider physically prevents left+right from activating simultaneously.
-    // Applying mutual exclusion here would cause isDisabled to flip true
-    // mid-drag (when the paired role's _localActive entry is set), which
-    // in turn causes the slider to get stuck in a permanently disabled state.
-    if (config.type == ButtonType.crossTravel ||
-        config.type == ButtonType.crossTravelSlowOnly) {
-      return false;
-    }
-    for (final excludedId in config.mutualExclusion.excludedButtonIds) {
-      if ((_localActive[excludedId] ?? ControlState.idle) !=
-          ControlState.idle) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   // ── Customization Mode ──────────────────────────────────────────────────────
 
   Future<void> _enterCustomizationMode() async {
@@ -282,517 +264,798 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     }
   }
 
-  Future<void> _addFreeButton(CustomizationModeController customCtrl) async {
-    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
-    final button = ButtonConfig(
-      id: id,
-      type: ButtonType.pushButton,
-      plcMapping: PlcMapping.up,
-      label: 'New Button',
-      enabled: false,
-      plcMappingEnabled: false,
-      pageIndex: customCtrl.activeControlPage,
+  Future<void> _addButton(CustomizationModeController customCtrl) async {
+    await ButtonEditSheet.showForNewButton(
+      context,
+      preferredPageIndex: customCtrl.activeControlPage,
     );
-    final result = customCtrl.addControlButton(button);
-    if (!mounted) return;
-    if (!result.isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Could not add button.')),
-      );
-      return;
-    }
-    await FreeButtonEditSheet.show(context, id);
   }
 
   // Tapping a vacant grid slot (or its edit icon) in Customization Mode opens
   // the same add-button flow as the AppBar's "+" action, but anchored to the
   // exact slot the operator tapped instead of the first free cell — this is
   // what makes an empty placeholder feel directly editable rather than just
-  // a drop target. Never sends a PLC command: the new button is created
-  // disabled/unmapped, same as _addFreeButton, until configured in the sheet.
+  // a drop target. Never sends a PLC command: the new button only exists as
+  // local sheet state until the operator saves a real control type.
   Future<void> _addButtonAtSlot(
     CustomizationModeController customCtrl,
     int pageIndex,
     int slotIndex,
   ) async {
-    final id = 'custom_${DateTime.now().microsecondsSinceEpoch}';
-    final button = ButtonConfig(
-      id: id,
-      type: ButtonType.pushButton,
-      plcMapping: PlcMapping.up,
-      label: 'New Button',
-      enabled: false,
-      plcMappingEnabled: false,
-      pageIndex: pageIndex,
-    );
-    final result = customCtrl.addControlButton(
-      button,
+    await ButtonEditSheet.showForNewButton(
+      context,
       preferredPageIndex: pageIndex,
       preferredSlot: slotIndex,
     );
-    if (!mounted) return;
-    if (!result.isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Could not add button.')),
-      );
-      return;
-    }
-    await FreeButtonEditSheet.show(context, id);
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Consumer3<
-      CraneController,
-      LayoutSettingsController,
-      CustomizationModeController
-    >(
-      builder: (ctx, controller, layoutCtrl, customCtrl, _) {
-        final isEditing = customCtrl.isActive;
-        final bucket = LayoutBucket.forPlcType(controller.connectedPlcType);
-        final layoutCfg = isEditing
-            ? customCtrl.draft
-            : layoutCtrl.configFor(bucket);
-        final labels = layoutCfg.labelConfig;
-        final sizing = layoutCfg.sizeConfig;
-        final arrangement = layoutCfg.arrangementConfig;
-        final controlsDisabled =
-            controller.estopLatched || !controller.isConnected;
-        final metrics = ControlLayoutMetrics.compute(
-          MediaQuery.of(ctx).size.height -
-              kToolbarHeight -
-              MediaQuery.of(ctx).padding.top -
-              MediaQuery.of(ctx).padding.bottom,
-          baseEstopHeight: sizing.resolvedEstopHeight,
-          preferShowSensor: arrangement.showSensorRow,
-          preferShowLEDs: arrangement.showLiveLEDs,
+    return Selector<CraneController, PlcType>(
+      selector: (_, controller) => controller.connectedPlcType,
+      builder: (context, plcType, _) {
+        return Selector2<
+          CustomizationModeController,
+          LayoutSettingsController,
+          _LayoutShape
+        >(
+          selector: (_, customCtrl, layoutCtrl) {
+            final bucket = LayoutBucket.forPlcType(plcType);
+            final isEditing = customCtrl.isActive;
+            final layoutCfg = isEditing
+                ? customCtrl.draft
+                : layoutCtrl.configFor(bucket);
+            return _LayoutShape(isEditing: isEditing, layoutCfg: layoutCfg);
+          },
+          builder: (context, shape, _) =>
+              _buildScaffold(context, shape.isEditing, shape.layoutCfg),
         );
-        final screenTitle = labels.screenTitle.isNotEmpty
-            ? labels.screenTitle
-            : (controller.connectedDeviceName ?? 'PLC38');
-        final selectedButton = customCtrl.selectedButton;
-        final customizationBarMinTop =
-            MediaQuery.of(ctx).padding.top +
-            kToolbarHeight +
-            metrics.bodyPadding.top +
-            metrics.estopHeight +
-            metrics.itemSpacing;
+      },
+    );
+  }
 
-        return Stack(
-          children: [
-            PopScope(
-              canPop: !isEditing,
-              onPopInvokedWithResult: _onBackAttempted,
-              child: Scaffold(
-                backgroundColor: AppColors.darkBg,
-                resizeToAvoidBottomInset: false,
-                appBar: AppBar(
-                  automaticallyImplyLeading: false,
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.darkText,
-                        ),
-                      ),
-                      if (!isEditing && arrangement.showConnectionSubtitle)
-                        Row(
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              margin: const EdgeInsets.only(right: 5),
-                              decoration: const BoxDecoration(
-                                color: AppColors.upColorLight,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const Text(
-                              'Connected · PLC38',
-                              style: TextStyle(
-                                color: AppColors.upColorLight,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  actions: isEditing
-                      ? [
-                          IconButton(
-                            icon: const Icon(Icons.screen_rotation_rounded),
-                            color: selectedButton == null
-                                ? AppColors.disabled
-                                : AppColors.darkTextSub,
-                            tooltip: selectedButton == null
-                                ? 'Select a button to rotate'
-                                : 'Rotate to ${selectedButton.rotation.next.label}',
-                            onPressed: selectedButton == null
-                                ? null
-                                : customCtrl.rotateSelectedButton,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.auto_fix_high_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Auto arrange controls',
-                            onPressed: customCtrl.autoArrangeControls,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.note_add_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Add control page',
-                            onPressed: customCtrl.createControlPage,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline_rounded),
-                            color: AppColors.darkTextSub,
-                            tooltip: 'Add button',
-                            onPressed: () => _addFreeButton(customCtrl),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded),
-                            color: selectedButton == null
-                                ? AppColors.disabled
-                                : AppColors.eStopColor,
-                            tooltip: 'Delete selected button',
-                            onPressed:
-                                selectedButton == null ||
-                                    !customCtrl.canDeleteSelectedButton
-                                ? null
-                                : () =>
-                                      _confirmDeleteSelectedButton(customCtrl),
-                          ),
-                        ]
-                      : [
-                          IconButton(
-                            icon: const Icon(
-                              Icons.dashboard_customize_rounded,
-                              size: 20,
-                              color: AppColors.darkTextSub,
-                            ),
-                            tooltip: 'Customize Layout',
-                            onPressed: _enterCustomizationMode,
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.bluetooth_disabled,
-                              size: 20,
-                              color: AppColors.darkTextSub,
-                            ),
-                            tooltip: 'Disconnect',
-                            onPressed: controller.disconnect,
-                          ),
-                        ],
-                ),
-                body: SafeArea(
-                  maintainBottomViewPadding: true,
-                  child: Padding(
-                    padding: metrics.bodyPadding,
-                    child: Column(
-                      children: [
-                        // ── E-Stop / Reset ──────────────────────────────────────
-                        SafetyActionPanel(
-                          estopLatched: controller.estopLatched,
-                          compact: metrics.isCompact,
-                          height: metrics.estopHeight,
-                          width: sizing.resolvedEstopWidthOrFill,
-                          instructionLabel: labels.estopSwipeInstruction,
-                          resetLabel: labels.resetEstopLabel,
-                          onEStopTap: _onEStopTap,
-                          onResetActivated: _onResetEStopTap,
-                        ),
-                        SizedBox(height: metrics.itemSpacing),
+  Widget _buildScaffold(
+    BuildContext context,
+    bool isEditing,
+    ControlLayoutConfig layoutCfg,
+  ) {
+    final labels = layoutCfg.labelConfig;
+    final sizing = layoutCfg.sizeConfig;
+    final arrangement = layoutCfg.arrangementConfig;
+    final metrics = ControlLayoutMetrics.compute(
+      MediaQuery.of(context).size.height -
+          kToolbarHeight -
+          MediaQuery.of(context).padding.top -
+          MediaQuery.of(context).padding.bottom,
+      baseEstopHeight: sizing.resolvedEstopHeight,
+      preferShowSensor: arrangement.showSensorRow,
+      preferShowLEDs: arrangement.showLiveLEDs,
+    );
+    final customizationBarMinTop =
+        MediaQuery.of(context).padding.top +
+        kToolbarHeight +
+        metrics.bodyPadding.top +
+        metrics.estopHeight +
+        metrics.itemSpacing;
 
-                        // ── Sensor row ────────────────────────────────────────
-                        if (metrics.showSensorRow) ...[
-                          EditableControlTile(
-                            isEditing: isEditing,
-                            onDelete: () => customCtrl.applyDraftChange(
+    return Stack(
+      children: [
+        PopScope(
+          canPop: !isEditing,
+          onPopInvokedWithResult: _onBackAttempted,
+          child: Scaffold(
+            backgroundColor: AppColors.darkBg,
+            resizeToAvoidBottomInset: false,
+            appBar: _Plc38AppBar(
+              isEditing: isEditing,
+              labels: labels,
+              showConnectionSubtitle: arrangement.showConnectionSubtitle,
+              onEnterCustomization: _enterCustomizationMode,
+              onAddButton: _addButton,
+              onConfirmDeleteSelectedButton: _confirmDeleteSelectedButton,
+            ),
+            body: SafeArea(
+              maintainBottomViewPadding: true,
+              child: Padding(
+                padding: metrics.bodyPadding,
+                child: Column(
+                  children: [
+                    // ── E-Stop / Reset ──────────────────────────────────────
+                    _SafetyPanelSection(
+                      compact: metrics.isCompact,
+                      height: metrics.estopHeight,
+                      width: sizing.resolvedEstopWidthOrFill,
+                      instructionLabel: labels.estopSwipeInstruction,
+                      resetLabel: labels.resetEstopLabel,
+                      onEStopTap: _onEStopTap,
+                      onResetActivated: _onResetEStopTap,
+                    ),
+                    SizedBox(height: metrics.itemSpacing),
+
+                    // ── Sensor row ────────────────────────────────────────
+                    if (metrics.showSensorRow) ...[
+                      EditableControlTile(
+                        isEditing: isEditing,
+                        onDelete: () => context
+                            .read<CustomizationModeController>()
+                            .applyDraftChange(
                               layoutCfg.copyWith(
                                 arrangementConfig: arrangement.copyWith(
                                   showSensorRow: false,
                                 ),
                               ),
                             ),
-                            child: SensorRow(
-                              a1: controller.a1,
-                              a2: controller.a2,
-                            ),
-                          ),
-                          SizedBox(height: metrics.itemSpacing),
-                        ],
+                        child: const _SensorSection(),
+                      ),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
 
-                        // ── PLC38 10-output LED indicators ──────────────────────
-                        if (metrics.showLEDs) ...[
-                          EditableControlTile(
-                            isEditing: isEditing,
-                            onDelete: () => customCtrl.applyDraftChange(
+                    // ── PLC38 10-output LED indicators ──────────────────────
+                    if (metrics.showLEDs) ...[
+                      EditableControlTile(
+                        isEditing: isEditing,
+                        onDelete: () => context
+                            .read<CustomizationModeController>()
+                            .applyDraftChange(
                               layoutCfg.copyWith(
                                 arrangementConfig: arrangement.copyWith(
                                   showLiveLEDs: false,
                                 ),
                               ),
                             ),
-                            child: LiveLedRow(
-                              leds: [
-                                LedSpec(
-                                  label: 'ESTOP',
-                                  active: controller.ledEstop,
-                                  color: AppColors.eStopColor,
-                                  pin: 'Q_ES',
-                                ),
-                                LedSpec(
-                                  label: 'UP',
-                                  active: controller.ledUp,
-                                  color: AppColors.upColor,
-                                  pin: 'Q0.1',
-                                ),
-                                LedSpec(
-                                  label: 'DN',
-                                  active: controller.ledDown,
-                                  color: AppColors.downColor,
-                                  pin: 'Q0.2',
-                                ),
-                                LedSpec(
-                                  label: 'FU',
-                                  active: controller.ledFast,
-                                  color: AppColors.fastColor,
-                                  pin: 'Q0.3',
-                                ),
-                                LedSpec(
-                                  label: 'LT',
-                                  active: controller.ledLeft,
-                                  color: AppColors.traverseColor,
-                                  pin: 'Q0.4',
-                                ),
-                                LedSpec(
-                                  label: 'RT',
-                                  active: controller.ledRight,
-                                  color: AppColors.traverseColor,
-                                  pin: 'Q0.5',
-                                ),
-                                LedSpec(
-                                  label: 'FL',
-                                  active: controller.ledFastLr,
-                                  color: AppColors.fastColor,
-                                  pin: 'Q0.6',
-                                ),
-                                LedSpec(
-                                  label: 'FW',
-                                  active: controller.ledForward,
-                                  color: AppColors.travelColor,
-                                  pin: 'Q0.7',
-                                ),
-                                LedSpec(
-                                  label: 'RV',
-                                  active: controller.ledReverse,
-                                  color: AppColors.travelColor,
-                                  pin: 'Q0.8',
-                                ),
-                                LedSpec(
-                                  label: 'FB',
-                                  active: controller.ledFastFb,
-                                  color: AppColors.fastColor,
-                                  pin: 'Q0.9',
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: metrics.itemSpacing),
-                        ],
+                        child: const _LiveLedSection(),
+                      ),
+                      SizedBox(height: metrics.itemSpacing),
+                    ],
 
-                        // ── Axis controls (reorderable while editing) ───────────
-                        // Fixed 2 x 3 motion-control grid. Edit mode uses
-                        // the same renderer and swaps slot indices.
-                        Expanded(
-                          child: ControlSlotGrid(
-                            layoutCfg: layoutCfg,
-                            roles: _motionRoles,
-                            isEditing: isEditing,
-                            activeStateFor: (config) =>
-                                _activeStateForButton(controller, config),
-                            isDisabled: (config) =>
-                                controlsDisabled ||
-                                !config.enabled ||
-                                (config.role == null &&
-                                    !config.plcMappingEnabled) ||
-                                _isMutuallyExcluded(config),
-                            onCommand: (id, state) =>
-                                _onCommand(controller, layoutCfg, id, state),
-                            onEditButton: (config) {
-                              final role = config.role;
-                              if (role != null) {
-                                ButtonEditSheet.showForRole(context, role);
-                              } else {
-                                FreeButtonEditSheet.show(context, config.id);
-                              }
-                            },
-                            selectedRole: customCtrl.selectedRole,
-                            selectedButtonId: customCtrl.selectedSlotId,
-                            onPageChanged: customCtrl.setActiveControlPage,
-                            activePageIndex: customCtrl.activeControlPage,
-                            onSelectButton: isEditing
-                                ? customCtrl.selectButton
-                                : null,
-                            onSlotDrop: isEditing
-                                ? (
-                                    dragged,
-                                    sourceSlot,
-                                    target,
-                                    targetSlot, {
-                                    required targetPageIndex,
-                                  }) {
-                                    final result = buildGridSlotDrop(
-                                      buttons: customCtrl.draft.resolvedButtons,
-                                      dragged: dragged,
-                                      sourceSlot: sourceSlot,
-                                      target: target,
-                                      targetSlot: targetSlot,
-                                      targetPageIndex: targetPageIndex,
-                                    );
-                                    if (!result.isValid) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            result.message ??
-                                                kCrossTravelSpanMessage,
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    customCtrl.applyDraftChangeAndCompact(
-                                      customCtrl.draft.copyWith(
-                                        buttons: result.buttons,
-                                      ),
-                                    );
-                                  }
-                                : null,
-                            onResizeButton: isEditing
-                                ? (
-                                    config,
-                                    gridColumns,
-                                    gridRows, {
-                                    anchorX,
-                                    anchorY,
-                                  }) {
-                                    final result = buildButtonResize(
-                                      buttons: customCtrl.draft.resolvedButtons,
-                                      selected: config,
-                                      gridColumns: gridColumns,
-                                      gridRows: gridRows,
-                                      anchorX: anchorX,
-                                      anchorY: anchorY,
-                                    );
-                                    if (!result.isValid) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            result.message ??
-                                                kWidgetPlacementMessage,
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    customCtrl.applyDraftChangeAndCompact(
-                                      customCtrl.draft.copyWith(
-                                        buttons: result.buttons,
-                                      ),
-                                    );
-                                  }
-                                : null,
-                            onSelectVacantSlot: isEditing
-                                ? (pageIndex, slotIndex) {
-                                    customCtrl.selectVacantSlot(
-                                      pageIndex,
-                                      slotIndex,
-                                    );
-                                    _addButtonAtSlot(
-                                      customCtrl,
-                                      pageIndex,
-                                      slotIndex,
-                                    );
-                                  }
-                                : null,
-                          ),
+                    // ── Axis controls (reorderable while editing) ───────────
+                    // Fixed 2 x 3 motion-control grid. Edit mode uses
+                    // the same renderer and swaps slot indices.
+                    Expanded(
+                      child: RepaintBoundary(
+                        child: _ControlGridSection(
+                          layoutCfg: layoutCfg,
+                          isEditing: isEditing,
+                          motionRoles: _motionRoles,
+                          localActive: _localActive,
+                          onLocalActiveChanged: (id, state) =>
+                              setState(() => _localActive[id] = state),
+                          onAddButtonAtSlot: _addButtonAtSlot,
                         ),
-
-                        SizedBox(height: metrics.itemSpacing),
-
-                        // ── Status bar ────────────────────────────────────────
-                        StatusBarChip(
-                          color: controller.estopLatched
-                              ? AppColors.eStopColor
-                              : controller.activeCommand.isIdle
-                              ? AppColors.idleColor
-                              : AppColors.upColorLight,
-                          label: controller.activeCommand.statusLabel,
-                        ),
-                        SizedBox(height: metrics.itemSpacing),
-                      ],
+                      ),
                     ),
-                  ),
+
+                    SizedBox(height: metrics.itemSpacing),
+
+                    // ── Status bar ────────────────────────────────────────
+                    const _StatusChipSection(),
+                    SizedBox(height: metrics.itemSpacing),
+                  ],
                 ),
               ),
             ),
-            if (isEditing)
-              Positioned.fill(
-                child: DraggableCustomizationModeBar(
-                  minTop: customizationBarMinTop,
-                ),
-              ),
-          ],
-        );
-      },
+          ),
+        ),
+        if (isEditing)
+          Positioned.fill(
+            child: DraggableCustomizationModeBar(
+              minTop: customizationBarMinTop,
+            ),
+          ),
+      ],
     );
   }
+}
 
-  void _onCommand(
-    CraneController controller,
-    ControlLayoutConfig layoutCfg,
-    String id,
-    ControlState state,
-  ) {
-    final config = layoutCfg.resolvedButtons[id];
-    ButtonStateLog.log(
-      state == ControlState.idle
-          ? 'SEND_IDLE  [$id] (PLC38)'
-          : 'SEND_ACTIVE [$id] -> ${state.name} (PLC38)',
+/// Result of the outer selector: the two pieces of state that decide the
+/// screen's overall shape (which sections render, what the grid contains).
+/// Value-typed (`==` compares `layoutCfg` structurally — see
+/// [ControlLayoutConfig.==]) so Selector skips a rebuild whenever neither
+/// actually changed.
+class _LayoutShape {
+  const _LayoutShape({required this.isEditing, required this.layoutCfg});
+
+  final bool isEditing;
+  final ControlLayoutConfig layoutCfg;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LayoutShape &&
+          other.isEditing == isEditing &&
+          other.layoutCfg == layoutCfg;
+
+  @override
+  int get hashCode => Object.hash(isEditing, layoutCfg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _Plc38AppBar
+//
+// Isolated because its actions depend on CustomizationModeController's
+// selection state (selectedButton, canDeleteSelectedButton), which changes on
+// every tap/drag select — far more often than the layout shape itself. Only
+// the AppBar repaints for that; the grid/LEDs/sensor row below are untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _Plc38AppBar({
+    required this.isEditing,
+    required this.labels,
+    required this.showConnectionSubtitle,
+    required this.onEnterCustomization,
+    required this.onAddButton,
+    required this.onConfirmDeleteSelectedButton,
+  });
+
+  final bool isEditing;
+  final ControlLabelConfig labels;
+  final bool showConnectionSubtitle;
+  final VoidCallback onEnterCustomization;
+  final void Function(CustomizationModeController) onAddButton;
+  final void Function(CustomizationModeController)
+  onConfirmDeleteSelectedButton;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) {
+    final customCtrl = context.watch<CustomizationModeController>();
+    final selectedButton = customCtrl.selectedButton;
+
+    return AppBar(
+      automaticallyImplyLeading: false,
+      title: _Plc38Title(
+        isEditing: isEditing,
+        labels: labels,
+        showConnectionSubtitle: showConnectionSubtitle,
+      ),
+      actions: isEditing
+          ? [
+              IconButton(
+                icon: const Icon(Icons.screen_rotation_rounded),
+                color: selectedButton == null
+                    ? AppColors.disabled
+                    : AppColors.darkTextSub,
+                tooltip: selectedButton == null
+                    ? 'Select a button to rotate'
+                    : 'Rotate to ${selectedButton.rotation.next.label}',
+                onPressed: selectedButton == null
+                    ? null
+                    : customCtrl.rotateSelectedButton,
+              ),
+              IconButton(
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Auto arrange controls',
+                onPressed: customCtrl.autoArrangeControls,
+              ),
+              IconButton(
+                icon: const Icon(Icons.note_add_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Add control page',
+                onPressed: customCtrl.createControlPage,
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                color: AppColors.darkTextSub,
+                tooltip: 'Add button',
+                onPressed: () => onAddButton(customCtrl),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded),
+                color: selectedButton == null
+                    ? AppColors.disabled
+                    : AppColors.eStopColor,
+                tooltip: 'Delete selected button',
+                onPressed:
+                    selectedButton == null ||
+                        !customCtrl.canDeleteSelectedButton
+                    ? null
+                    : () => onConfirmDeleteSelectedButton(customCtrl),
+              ),
+            ]
+          : [
+              IconButton(
+                icon: const Icon(
+                  Icons.dashboard_customize_rounded,
+                  size: 20,
+                  color: AppColors.darkTextSub,
+                ),
+                tooltip: 'Customize Layout',
+                onPressed: onEnterCustomization,
+              ),
+              const _DisconnectButton(),
+            ],
     );
-    setState(() => _localActive[id] = state);
-    controller.setButtonCommand(
-      buttonId: id,
-      state: state,
-      plcMapping: config?.role == null ? config?.plcMapping : null,
-      plcMappingEnabled: config?.role == null
-          ? config?.plcMappingEnabled ?? false
-          : true,
+  }
+}
+
+/// Isolated because it watches connectedDeviceName, which updates
+/// independently of (and less often than) the AppBar's edit actions.
+class _Plc38Title extends StatelessWidget {
+  const _Plc38Title({
+    required this.isEditing,
+    required this.labels,
+    required this.showConnectionSubtitle,
+  });
+
+  final bool isEditing;
+  final ControlLabelConfig labels;
+  final bool showConnectionSubtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final deviceName = context.select<CraneController, String?>(
+      (c) => c.connectedDeviceName,
     );
+    final screenTitle = labels.screenTitle.isNotEmpty
+        ? labels.screenTitle
+        : (deviceName ?? 'PLC38');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isEditing ? 'CUSTOMIZE LAYOUT' : screenTitle,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: AppColors.darkText,
+          ),
+        ),
+        if (!isEditing && showConnectionSubtitle)
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.only(right: 5),
+                decoration: const BoxDecoration(
+                  color: AppColors.upColorLight,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const Text(
+                'Connected · PLC38',
+                style: TextStyle(color: AppColors.upColorLight, fontSize: 10),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _DisconnectButton extends StatelessWidget {
+  const _DisconnectButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<CraneController>();
+    return IconButton(
+      icon: const Icon(
+        Icons.bluetooth_disabled,
+        size: 20,
+        color: AppColors.darkTextSub,
+      ),
+      tooltip: 'Disconnect',
+      onPressed: controller.disconnect,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live-data leaf sections — each owns a narrow Selector so a CraneController
+// notification (BLE status/analog stream, potentially many times a second)
+// only rebuilds the one section whose underlying values actually changed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SafetyPanelSection extends StatelessWidget {
+  const _SafetyPanelSection({
+    required this.compact,
+    required this.height,
+    required this.width,
+    required this.instructionLabel,
+    required this.resetLabel,
+    required this.onEStopTap,
+    required this.onResetActivated,
+  });
+
+  final bool compact;
+  final double height;
+  final double? width;
+  final String instructionLabel;
+  final String resetLabel;
+  final Future<void> Function() onEStopTap;
+  final Future<void> Function() onResetActivated;
+
+  @override
+  Widget build(BuildContext context) {
+    final estopLatched = context.select<CraneController, bool>(
+      (c) => c.estopLatched,
+    );
+    return RepaintBoundary(
+      child: SafetyActionPanel(
+        estopLatched: estopLatched,
+        compact: compact,
+        height: height,
+        width: width,
+        instructionLabel: instructionLabel,
+        resetLabel: resetLabel,
+        onEStopTap: onEStopTap,
+        onResetActivated: onResetActivated,
+      ),
+    );
+  }
+}
+
+class _SensorSection extends StatelessWidget {
+  const _SensorSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final a1 = context.select<CraneController, int>((c) => c.a1);
+    final a2 = context.select<CraneController, int>((c) => c.a2);
+    return RepaintBoundary(
+      child: SensorRow(a1: a1, a2: a2),
+    );
+  }
+}
+
+class _LiveLedRowValues {
+  const _LiveLedRowValues({
+    required this.estop,
+    required this.up,
+    required this.down,
+    required this.fast,
+    required this.left,
+    required this.right,
+    required this.fastLr,
+    required this.forward,
+    required this.reverse,
+    required this.fastFb,
+  });
+
+  final bool estop;
+  final bool up;
+  final bool down;
+  final bool fast;
+  final bool left;
+  final bool right;
+  final bool fastLr;
+  final bool forward;
+  final bool reverse;
+  final bool fastFb;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LiveLedRowValues &&
+          other.estop == estop &&
+          other.up == up &&
+          other.down == down &&
+          other.fast == fast &&
+          other.left == left &&
+          other.right == right &&
+          other.fastLr == fastLr &&
+          other.forward == forward &&
+          other.reverse == reverse &&
+          other.fastFb == fastFb;
+
+  @override
+  int get hashCode => Object.hash(
+    estop,
+    up,
+    down,
+    fast,
+    left,
+    right,
+    fastLr,
+    forward,
+    reverse,
+    fastFb,
+  );
+}
+
+class _LiveLedSection extends StatelessWidget {
+  const _LiveLedSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final v = context.select<CraneController, _LiveLedRowValues>(
+      (c) => _LiveLedRowValues(
+        estop: c.ledEstop,
+        up: c.ledUp,
+        down: c.ledDown,
+        fast: c.ledFast,
+        left: c.ledLeft,
+        right: c.ledRight,
+        fastLr: c.ledFastLr,
+        forward: c.ledForward,
+        reverse: c.ledReverse,
+        fastFb: c.ledFastFb,
+      ),
+    );
+    return RepaintBoundary(
+      child: LiveLedRow(
+        leds: [
+          LedSpec(
+            label: 'ESTOP',
+            active: v.estop,
+            color: AppColors.eStopColor,
+            pin: 'Q_ES',
+          ),
+          LedSpec(
+            label: 'UP',
+            active: v.up,
+            color: AppColors.upColor,
+            pin: 'Q0.1',
+          ),
+          LedSpec(
+            label: 'DN',
+            active: v.down,
+            color: AppColors.downColor,
+            pin: 'Q0.2',
+          ),
+          LedSpec(
+            label: 'FU',
+            active: v.fast,
+            color: AppColors.fastColor,
+            pin: 'Q0.3',
+          ),
+          LedSpec(
+            label: 'LT',
+            active: v.left,
+            color: AppColors.traverseColor,
+            pin: 'Q0.4',
+          ),
+          LedSpec(
+            label: 'RT',
+            active: v.right,
+            color: AppColors.traverseColor,
+            pin: 'Q0.5',
+          ),
+          LedSpec(
+            label: 'FL',
+            active: v.fastLr,
+            color: AppColors.fastColor,
+            pin: 'Q0.6',
+          ),
+          LedSpec(
+            label: 'FW',
+            active: v.forward,
+            color: AppColors.travelColor,
+            pin: 'Q0.7',
+          ),
+          LedSpec(
+            label: 'RV',
+            active: v.reverse,
+            color: AppColors.travelColor,
+            pin: 'Q0.8',
+          ),
+          LedSpec(
+            label: 'FB',
+            active: v.fastFb,
+            color: AppColors.fastColor,
+            pin: 'Q0.9',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChipSection extends StatelessWidget {
+  const _StatusChipSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<CraneController>();
+    return RepaintBoundary(
+      child: StatusBarChip(
+        color: controller.estopLatched
+            ? AppColors.eStopColor
+            : controller.activeCommand.isIdle
+            ? AppColors.idleColor
+            : AppColors.upColorLight,
+        label: controller.activeCommand.statusLabel,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ControlGridSection
+//
+// Wraps ControlSlotGrid with its own narrow watch of exactly the
+// CraneController fields the grid's isDisabled/activeStateFor closures need
+// (estopLatched, isConnected) plus CustomizationModeController's selection/
+// paging state. A BLE status notification that doesn't flip estopLatched or
+// isConnected never rebuilds the grid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _GridGateValues {
+  const _GridGateValues(this.estopLatched, this.isConnected);
+
+  final bool estopLatched;
+  final bool isConnected;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _GridGateValues &&
+          other.estopLatched == estopLatched &&
+          other.isConnected == isConnected;
+
+  @override
+  int get hashCode => Object.hash(estopLatched, isConnected);
+}
+
+class _ControlGridSection extends StatelessWidget {
+  const _ControlGridSection({
+    required this.layoutCfg,
+    required this.isEditing,
+    required this.motionRoles,
+    required this.localActive,
+    required this.onLocalActiveChanged,
+    required this.onAddButtonAtSlot,
+  });
+
+  final ControlLayoutConfig layoutCfg;
+  final bool isEditing;
+  final List<ControlRole> motionRoles;
+  final Map<String, ControlState> localActive;
+  final void Function(String id, ControlState state) onLocalActiveChanged;
+  final Future<void> Function(CustomizationModeController, int, int)
+  onAddButtonAtSlot;
+
+  bool _isMutuallyExcluded(ButtonConfig config) {
+    // Cross-travel widgets manage both directions as a single unit — the
+    // slider physically prevents left+right from activating simultaneously.
+    // Applying mutual exclusion here would cause isDisabled to flip true
+    // mid-drag (when the paired role's localActive entry is set), which
+    // in turn causes the slider to get stuck in a permanently disabled state.
+    if (config.type == ButtonType.crossTravel ||
+        config.type == ButtonType.crossTravelSlowOnly) {
+      return false;
+    }
+    for (final excludedId in config.mutualExclusion.excludedButtonIds) {
+      if ((localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Resolves the VISUAL active state for [config]. This is local-touch
-  /// state only (see [_localActive]) — PLC feedback (`controller.activeCommand`)
+  /// state only (see [localActive]) — PLC feedback (`controller.activeCommand`)
   /// intentionally never feeds into a button's own visual state; it stays
   /// visible only through status/output indicators (LEDs, status chip)
   /// elsewhere on screen. estop latch forces idle regardless of local state
   /// since the crane physically cannot be moving in that condition.
-  ControlState _activeStateForButton(
-    CraneController controller,
-    ButtonConfig config,
-  ) {
-    if (controller.estopLatched) return ControlState.idle;
-    return _localActive[config.id] ?? ControlState.idle;
+  ControlState _activeStateForButton(bool estopLatched, ButtonConfig config) {
+    if (estopLatched) return ControlState.idle;
+    return localActive[config.id] ?? ControlState.idle;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gate = context.select<CraneController, _GridGateValues>(
+      (c) => _GridGateValues(c.estopLatched, c.isConnected),
+    );
+    final customCtrl = context.watch<CustomizationModeController>();
+    final controlsDisabled = gate.estopLatched || !gate.isConnected;
+
+    return ControlSlotGrid(
+      layoutCfg: layoutCfg,
+      roles: motionRoles,
+      isEditing: isEditing,
+      activeStateFor: (config) =>
+          _activeStateForButton(gate.estopLatched, config),
+      isDisabled: (config) =>
+          // isEditing is defense-in-depth: ControlSlotGrid already forces
+          // every occupied slot's ConfigurableButton disabled+AbsorbPointer
+          // in Customization Mode and never wires onCommand for vacant
+          // slots, but gating here too means this closure alone documents
+          // and enforces "Customization Mode never sends PLC output" even
+          // if that internal behavior ever changes.
+          isEditing ||
+          controlsDisabled ||
+          !config.enabled ||
+          (config.role == null && !config.plcMappingEnabled) ||
+          _isMutuallyExcluded(config),
+      onCommand: (id, state) {
+        final config = layoutCfg.resolvedButtons[id];
+        ButtonStateLog.log(
+          state == ControlState.idle
+              ? 'SEND_IDLE  [$id] (PLC38)'
+              : 'SEND_ACTIVE [$id] -> ${state.name} (PLC38)',
+        );
+        onLocalActiveChanged(id, state);
+        context.read<CraneController>().setButtonCommand(
+          buttonId: id,
+          state: state,
+          plcMapping: config?.role == null ? config?.plcMapping : null,
+          plcMappingEnabled: config?.role == null
+              ? config?.plcMappingEnabled ?? false
+              : true,
+        );
+      },
+      onEditButton: (config) {
+        final role = config.role;
+        if (role != null) {
+          ButtonEditSheet.showForRole(context, role);
+        } else {
+          ButtonEditSheet.showForButton(context, config.id);
+        }
+      },
+      selectedRole: customCtrl.selectedRole,
+      selectedButtonId: customCtrl.selectedSlotId,
+      onPageChanged: customCtrl.setActiveControlPage,
+      activePageIndex: customCtrl.activeControlPage,
+      onSelectButton: isEditing ? customCtrl.selectButton : null,
+      onSlotDrop: isEditing
+          ? (
+              dragged,
+              sourceSlot,
+              target,
+              targetSlot, {
+              required targetPageIndex,
+            }) {
+              final result = buildGridSlotDrop(
+                buttons: customCtrl.draft.resolvedButtons,
+                dragged: dragged,
+                sourceSlot: sourceSlot,
+                target: target,
+                targetSlot: targetSlot,
+                targetPageIndex: targetPageIndex,
+              );
+              if (!result.isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result.message ?? kCrossTravelSpanMessage),
+                  ),
+                );
+                return;
+              }
+              customCtrl.applyDraftChangeAndCompact(
+                customCtrl.draft.copyWith(buttons: result.buttons),
+              );
+            }
+          : null,
+      onResizeButton: isEditing
+          ? (config, gridColumns, gridRows, {anchorX, anchorY}) {
+              final result = buildButtonResize(
+                buttons: customCtrl.draft.resolvedButtons,
+                selected: config,
+                gridColumns: gridColumns,
+                gridRows: gridRows,
+                anchorX: anchorX,
+                anchorY: anchorY,
+              );
+              if (!result.isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result.message ?? kWidgetPlacementMessage),
+                  ),
+                );
+                return;
+              }
+              customCtrl.applyDraftChangeAndCompact(
+                customCtrl.draft.copyWith(buttons: result.buttons),
+              );
+            }
+          : null,
+      onSelectVacantSlot: isEditing
+          ? (pageIndex, slotIndex) {
+              customCtrl.selectVacantSlot(pageIndex, slotIndex);
+              onAddButtonAtSlot(customCtrl, pageIndex, slotIndex);
+            }
+          : null,
+    );
   }
 }
