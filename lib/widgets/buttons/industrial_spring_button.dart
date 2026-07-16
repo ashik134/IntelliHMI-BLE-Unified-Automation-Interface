@@ -1,8 +1,9 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 /// A reusable, production-grade industrial pushbutton with realistic
 /// mechanical feedback through visual compression and haptic response.
@@ -372,8 +373,6 @@ class _IndustrialButtonContent extends StatelessWidget {
             : const EdgeInsets.fromLTRB(16, 12, 16, 12);
         final double statusFontSize = compact ? 8 : 10;
         final double modeFontSize = compact ? 8 : 10;
-        final double labelFontSize = compact ? 14 : 17;
-
         final double headerSpacing = compact ? 6 : 8;
         final double bottomSpacing = compact ? 5 : 7;
 
@@ -481,7 +480,10 @@ class _IndustrialButtonContent extends StatelessWidget {
                                   scale: visualScale,
                                   child: Icon(
                                     icon,
-                                    size: diameter * 0.32,
+                                    size:
+                                        ControlButtonVisualMetrics.iconSizeFor(
+                                          Size.square(diameter),
+                                        ),
                                     color: !isEnabled
                                         ? AppColors.darkTextSub.withAlpha(
                                             _alpha(0.45),
@@ -536,31 +538,12 @@ class _IndustrialButtonContent extends StatelessWidget {
               SizedBox(height: bottomSpacing),
 
               // ── Label ──────────────────────────────────────────────────
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: labelColor,
-                    fontSize: labelFontSize,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.2,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withAlpha(_alpha(0.55)),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                      if (isActive)
-                        Shadow(
-                          color: activeColor.withAlpha(_alpha(0.3)),
-                          blurRadius: 12,
-                          offset: Offset.zero,
-                        ),
-                    ],
-                  ),
+              SizedBox(
+                height: ControlButtonVisualMetrics.rowHeight,
+                child: ControlButtonLabelIcon(
+                  label: label,
+                  color: labelColor,
+                  showIcon: false,
                 ),
               ),
               SizedBox(height: bottomSpacing * 0.8),

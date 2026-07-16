@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleSwitchMode
@@ -539,9 +540,6 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   @override
   Widget build(BuildContext context) {
     final style = widget.style;
-    final iconSz = style.iconSize ?? 14.0;
-    final labelFsz = style.labelFontSize ?? 10.0;
-    final labelFw = style.labelFontWeight ?? FontWeight.w700;
     final isOn = _pos != ToggleSwitchPosition.center;
 
     return Semantics(
@@ -613,33 +611,24 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                 padding: const EdgeInsets.only(top: 5, bottom: 3),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   children: [
-                    Icon(
-                      widget.icon,
-                      size: iconSz,
-                      color: isOn
-                          ? widget.activeColorLight
-                          : AppColors.darkTextMuted,
-                    ),
-                    if (style.showLabel) ...[
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          widget.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: isOn
-                                ? widget.activeColorLight
-                                : AppColors.darkText,
-                            fontSize: labelFsz,
-                            fontWeight: labelFw,
-                            letterSpacing: 0.4,
-                          ),
+                    Expanded(
+                      child: SizedBox(
+                        height: ControlButtonVisualMetrics.rowHeight,
+                        child: ControlButtonLabelIcon(
+                          label: widget.label,
+                          icon: widget.icon,
+                          style: style,
+                          color: isOn
+                              ? widget.activeColorLight
+                              : AppColors.darkText,
+                          iconColor: isOn
+                              ? widget.activeColorLight
+                              : AppColors.darkTextMuted,
                         ),
                       ),
-                    ],
+                    ),
                     const SizedBox(width: 6),
                     _HintLabel(mode: widget.resolvedMode, pos: _pos),
                   ],

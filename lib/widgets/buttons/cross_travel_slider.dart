@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 // ── Internal zone ─────────────────────────────────────────────────────────────
 
@@ -406,11 +407,19 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Row(
                     children: [
-                      _dirLabel(widget.leftLabel, isLeft),
-                      const Spacer(),
+                      _dirLabel(
+                        widget.leftLabel,
+                        Icons.arrow_back_rounded,
+                        isLeft,
+                      ),
+                      const SizedBox(width: 8),
                       _statusDot(zone, trackColor),
-                      const Spacer(),
-                      _dirLabel(widget.rightLabel, isRight),
+                      const SizedBox(width: 8),
+                      _dirLabel(
+                        widget.rightLabel,
+                        Icons.arrow_forward_rounded,
+                        isRight,
+                      ),
                     ],
                   ),
                 ),
@@ -425,25 +434,34 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   // ── Label helpers ─────────────────────────────────────────────────────────
 
   Widget _zoneLabel(String text, bool active, Color color) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 7.5,
-        fontWeight: active ? FontWeight.bold : FontWeight.normal,
-        color: active ? color : AppColors.darkTextMuted.withAlpha(90),
-        letterSpacing: 0.3,
+    return Flexible(
+      fit: FlexFit.loose,
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
+        textAlign: TextAlign.center,
+        style: ControlButtonVisualMetrics.labelTextStyle(
+          color: active ? color : AppColors.darkTextMuted.withAlpha(90),
+          bounds: const Size(96, ControlButtonVisualMetrics.rowHeight),
+        ),
       ),
     );
   }
 
-  Widget _dirLabel(String text, bool active) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 9,
-        fontWeight: FontWeight.bold,
-        color: active ? AppColors.traverseColorLight : AppColors.darkTextMuted,
-        letterSpacing: 1.0,
+  Widget _dirLabel(String text, IconData icon, bool active) {
+    return Expanded(
+      child: SizedBox(
+        height: ControlButtonVisualMetrics.rowHeight,
+        child: ControlButtonLabelIcon(
+          label: text,
+          icon: icon,
+          color: active ? AppColors.traverseColorLight : AppColors.darkText,
+          iconColor: active
+              ? AppColors.traverseColorLight
+              : AppColors.darkTextMuted,
+        ),
       ),
     );
   }

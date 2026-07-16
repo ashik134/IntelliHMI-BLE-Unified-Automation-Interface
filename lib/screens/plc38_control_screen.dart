@@ -518,102 +518,109 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
   onConfirmDeleteSelectedButton;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 3);
+  Size get preferredSize =>
+      Size.fromHeight(isEditing ? kToolbarHeight + 36 : kToolbarHeight + 3);
 
   @override
   Widget build(BuildContext context) {
     final customCtrl = context.watch<CustomizationModeController>();
     final selectedButton = customCtrl.selectedButton;
 
-    return AppBar(
-      actionsPadding: const EdgeInsets.only(right: 8),
-      automaticallyImplyLeading: false,
-      backgroundColor: AppColors.appBarBg,
-      flexibleSpace: const ControlAppBarGlow(),
-      titleSpacing: isEditing ? 16 : NavigationToolbar.kMiddleSpacing,
-      title: isEditing
-          ? const Text(
-              'CUSTOMIZE',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.1,
-                color: AppColors.appBarGlow,
-              ),
-            )
-          : _DeviceTitle(labels: labels),
-      actions: isEditing
-          ? [
-              IconButton(
-                icon: const Icon(Icons.screen_rotation_rounded),
-                color: selectedButton == null
-                    ? AppColors.disabled
-                    : AppColors.darkTextSub,
-                tooltip: selectedButton == null
-                    ? 'Select a button to rotate'
-                    : 'Rotate to ${selectedButton.rotation.next.label}',
-                onPressed: selectedButton == null
-                    ? null
-                    : customCtrl.rotateSelectedButton,
-              ),
-              IconButton(
-                icon: const Icon(Icons.auto_fix_high_rounded),
-                color: AppColors.darkTextSub,
-                tooltip: 'Auto arrange controls',
-                onPressed: customCtrl.autoArrangeControls,
-              ),
-              IconButton(
-                icon: const Icon(Icons.note_add_rounded),
-                color: AppColors.darkTextSub,
-                tooltip: 'Add control page',
-                onPressed: customCtrl.createControlPage,
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded),
-                color: AppColors.darkTextSub,
-                tooltip: 'Add button',
-                onPressed: () => onAddButton(customCtrl),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded),
-                color: selectedButton == null
-                    ? AppColors.disabled
-                    : AppColors.eStopColor,
-                tooltip: 'Delete selected button',
-                onPressed:
-                    selectedButton == null ||
-                        !customCtrl.canDeleteSelectedButton
-                    ? null
-                    : () => onConfirmDeleteSelectedButton(customCtrl),
-              ),
-            ]
-          : [
-              IconButton(
-                icon: const Icon(
-                  Icons.dashboard_customize_rounded,
-                  size: 20,
-                  color: AppColors.darkTextSub,
-                ),
-                tooltip: 'Customize Layout',
-                onPressed: onEnterCustomization,
-              ),
-              const _DisconnectButton(),
-            ],
-      bottom: isEditing
-          ? CustomizationStatusBanner(
-              onDone: () => onFinishCustomization(customCtrl),
-            )
-          : const PreferredSize(
-              preferredSize: Size.fromHeight(3),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.appBarBanner,
-                  border: Border(
-                    bottom: BorderSide(color: AppColors.appBarBannerBorder),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppBar(
+          actionsPadding: const EdgeInsets.only(right: 8),
+          automaticallyImplyLeading: false,
+          backgroundColor: AppColors.appBarBg,
+          flexibleSpace: const ControlAppBarGlow(),
+          titleSpacing: isEditing ? 16 : NavigationToolbar.kMiddleSpacing,
+          title: isEditing
+              ? const Text(
+                  'CUSTOMIZE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: AppColors.appBarGlow,
                   ),
-                ),
+                )
+              : _DeviceTitle(labels: labels),
+          actions: isEditing
+              ? [
+                  IconButton(
+                    icon: const Icon(Icons.screen_rotation_rounded),
+                    color: selectedButton == null
+                        ? AppColors.disabled
+                        : AppColors.darkTextSub,
+                    tooltip: selectedButton == null
+                        ? 'Select a button to rotate'
+                        : 'Rotate to ${selectedButton.rotation.next.label}',
+                    onPressed: selectedButton == null
+                        ? null
+                        : customCtrl.rotateSelectedButton,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.auto_fix_high_rounded),
+                    color: AppColors.darkTextSub,
+                    tooltip: 'Auto arrange controls',
+                    onPressed: customCtrl.autoArrangeControls,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.note_add_rounded),
+                    color: AppColors.darkTextSub,
+                    tooltip: 'Add control page',
+                    onPressed: customCtrl.createControlPage,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    color: AppColors.darkTextSub,
+                    tooltip: 'Add button',
+                    onPressed: () => onAddButton(customCtrl),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    color: selectedButton == null
+                        ? AppColors.disabled
+                        : AppColors.eStopColor,
+                    tooltip: 'Delete selected button',
+                    onPressed:
+                        selectedButton == null ||
+                            !customCtrl.canDeleteSelectedButton
+                        ? null
+                        : () => onConfirmDeleteSelectedButton(customCtrl),
+                  ),
+                ]
+              : [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.dashboard_customize_rounded,
+                      size: 20,
+                      color: AppColors.darkTextSub,
+                    ),
+                    tooltip: 'Customize Layout',
+                    onPressed: onEnterCustomization,
+                  ),
+                  const _DisconnectButton(),
+                ],
+          // REMOVED: bottom property entirely
+        ),
+        // Banner is now outside the AppBar
+        if (isEditing)
+          CustomizationStatusBanner(
+            onDone: () => onFinishCustomization(customCtrl),
+          )
+        else
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.appBarBanner,
+              border: Border(
+                bottom: BorderSide(color: AppColors.appBarBannerBorder),
               ),
             ),
+            child: SizedBox(height: 3),
+          ),
+      ],
     );
   }
 }

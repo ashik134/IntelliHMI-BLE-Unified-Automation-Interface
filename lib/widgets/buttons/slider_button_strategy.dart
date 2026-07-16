@@ -49,6 +49,7 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
       isDisabled: isDisabled,
       externalState: activeState,
       axisColor: config.style.primaryColor,
+      style: config.style,
       onCommandChanged: (state) => onCommand(config.id, state),
     );
   }

@@ -86,13 +86,13 @@ class CustomizationModeController extends ChangeNotifier {
 
   /// Enters Customization Mode: pins the layout bucket for this session from
   /// the currently-connected PLC type, seeds the draft from that bucket's
-  /// committed config, clears undo/redo history, and stops any in-flight
-  /// motion as defense-in-depth (the real gating mechanism is per-control
+  /// committed config, clears undo/redo history, and forces E-Stop before
+  /// draft editing begins (the real gating mechanism is per-control
   /// AbsorbPointer, wired in EditableControlTile — this is a belt-and-
   /// suspenders guarantee that nothing is moving when editing begins).
   Future<void> enter() async {
     if (_isActive) return;
-    await _craneController.stopAllMotion();
+    await _craneController.triggerEStop();
     _bucket = LayoutBucket.forPlcType(_craneController.connectedPlcType);
     _draft = _layoutSettings.configFor(_bucket);
     _undoStack.clear();

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 const double _kJoystickSlotPadding = 10.0;
 const double _kSingleAxisVisualScale = 0.94;
@@ -763,15 +764,16 @@ class _AnalogRailPainter extends CustomPainter {
 
     // Label at the opposite end.
     final labelPainter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: isActive && enabled
-              ? activeColorLight
-              : AppColors.darkText.withAlpha(enabled ? 230 : 120),
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-        ),
+      text: ControlButtonVisualMetrics.labelIconTextSpan(
+        label: label,
+        icon: icon,
+        color: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkText.withAlpha(enabled ? 230 : 120),
+        iconColor: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
+        bounds: Size(w - 12, ControlButtonVisualMetrics.rowHeight),
       ),
       maxLines: 1,
       ellipsis: '…',
@@ -808,7 +810,8 @@ class _AnalogRailPainter extends CustomPainter {
         oldDelegate.enabled != enabled ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.label != label;
+        oldDelegate.label != label ||
+        oldDelegate.icon != icon;
   }
 }
 
@@ -889,6 +892,7 @@ class _DigitalLadder extends StatelessWidget {
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
                 label: label,
+                icon: icon,
               ),
               child: const SizedBox.expand(),
             );
@@ -910,6 +914,7 @@ class _DigitalLadderPainter extends CustomPainter {
     required this.activeColor,
     required this.activeColorLight,
     required this.label,
+    required this.icon,
   });
 
   final bool horizontal;
@@ -921,6 +926,7 @@ class _DigitalLadderPainter extends CustomPainter {
   final Color activeColor;
   final Color activeColorLight;
   final String label;
+  final IconData? icon;
 
   static const _slotCount = 5; // -2, -1, 0, 1, 2
 
@@ -1173,15 +1179,16 @@ class _DigitalLadderPainter extends CustomPainter {
     tp.paint(canvas, Offset(w / 2 - tp.width / 2, 5));
 
     final labelPainter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: isActive && enabled
-              ? activeColorLight
-              : AppColors.darkText.withAlpha(enabled ? 230 : 120),
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-        ),
+      text: ControlButtonVisualMetrics.labelIconTextSpan(
+        label: label,
+        icon: icon,
+        color: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkText.withAlpha(enabled ? 230 : 120),
+        iconColor: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
+        bounds: Size(w - 12, ControlButtonVisualMetrics.rowHeight),
       ),
       maxLines: 1,
       ellipsis: '…',
@@ -1220,7 +1227,8 @@ class _DigitalLadderPainter extends CustomPainter {
         oldDelegate.enabled != enabled ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.label != label;
+        oldDelegate.label != label ||
+        oldDelegate.icon != icon;
   }
 }
 
@@ -1277,6 +1285,7 @@ class _AnalogGimbal extends StatelessWidget {
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
                 label: label,
+                icon: icon,
               ),
               child: SizedBox(width: side, height: side),
             ),
@@ -1464,6 +1473,7 @@ class _GimbalPainter extends CustomPainter {
     required this.activeColor,
     required this.activeColorLight,
     required this.label,
+    required this.icon,
   });
 
   final JoystickConfig config;
@@ -1473,6 +1483,7 @@ class _GimbalPainter extends CustomPainter {
   final Color activeColor;
   final Color activeColorLight;
   final String label;
+  final IconData? icon;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1609,15 +1620,16 @@ class _GimbalPainter extends CustomPainter {
     );
 
     final labelPainter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: isActive && enabled
-              ? activeColorLight
-              : AppColors.darkText.withAlpha(enabled ? 230 : 120),
-          fontSize: (side * 0.055).clamp(9.0, 15.0),
-          fontWeight: FontWeight.w800,
-        ),
+      text: ControlButtonVisualMetrics.labelIconTextSpan(
+        label: label,
+        icon: icon,
+        color: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkText.withAlpha(enabled ? 230 : 120),
+        iconColor: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
+        bounds: Size(side * 0.66, ControlButtonVisualMetrics.rowHeight),
       ),
       maxLines: 1,
       ellipsis: '…',
@@ -1638,7 +1650,8 @@ class _GimbalPainter extends CustomPainter {
         oldDelegate.enabled != enabled ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.label != label;
+        oldDelegate.label != label ||
+        oldDelegate.icon != icon;
   }
 }
 
@@ -1704,6 +1717,7 @@ class _DigitalCrossGate extends StatelessWidget {
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
                 label: label,
+                icon: icon,
               ),
               child: SizedBox(width: side, height: side),
             );
@@ -1725,6 +1739,7 @@ class _CrossGatePainter extends CustomPainter {
     required this.activeColor,
     required this.activeColorLight,
     required this.label,
+    required this.icon,
   });
 
   final JoystickConfig config;
@@ -1736,6 +1751,7 @@ class _CrossGatePainter extends CustomPainter {
   final Color activeColor;
   final Color activeColorLight;
   final String label;
+  final IconData? icon;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1929,15 +1945,16 @@ class _CrossGatePainter extends CustomPainter {
     );
 
     final labelPainter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: isActive && enabled
-              ? activeColorLight
-              : AppColors.darkText.withAlpha(enabled ? 230 : 120),
-          fontSize: (side * 0.052).clamp(9.0, 14.0),
-          fontWeight: FontWeight.w800,
-        ),
+      text: ControlButtonVisualMetrics.labelIconTextSpan(
+        label: label,
+        icon: icon,
+        color: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkText.withAlpha(enabled ? 230 : 120),
+        iconColor: isActive && enabled
+            ? activeColorLight
+            : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
+        bounds: Size(side * 0.66, ControlButtonVisualMetrics.rowHeight),
       ),
       maxLines: 1,
       ellipsis: '…',
@@ -1987,6 +2004,7 @@ class _CrossGatePainter extends CustomPainter {
         oldDelegate.enabled != enabled ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.label != label;
+        oldDelegate.label != label ||
+        oldDelegate.icon != icon;
   }
 }

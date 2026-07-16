@@ -39,6 +39,31 @@ void main() {
     expect(customCtrl.isActive, isTrue);
   });
 
+  test('enter() latches E-Stop and exit actions do not reset it', () async {
+    final craneController = CraneController();
+    final customCtrl = CustomizationModeController(
+      layoutSettings: LayoutSettingsController(),
+      craneController: craneController,
+    );
+
+    await customCtrl.enter();
+    expect(customCtrl.isActive, isTrue);
+    expect(craneController.estopLatched, isTrue);
+    expect(craneController.activeCommand.estop, isTrue);
+
+    customCtrl.discard();
+    expect(customCtrl.isActive, isFalse);
+    expect(craneController.estopLatched, isTrue);
+    expect(craneController.activeCommand.estop, isTrue);
+
+    await customCtrl.enter();
+    final result = await customCtrl.commit();
+    expect(result.isValid, isTrue);
+    expect(customCtrl.isActive, isFalse);
+    expect(craneController.estopLatched, isTrue);
+    expect(craneController.activeCommand.estop, isTrue);
+  });
+
   test('discard() exits without resuming or persisting anything', () async {
     final customCtrl = _controller();
     await customCtrl.enter();

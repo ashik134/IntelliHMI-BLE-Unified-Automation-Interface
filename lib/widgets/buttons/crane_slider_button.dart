@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 class CraneSliderButton extends StatefulWidget {
   final String label;
@@ -11,6 +13,7 @@ class CraneSliderButton extends StatefulWidget {
   final bool isDisabled;
   final ControlState externalState;
   final Color? axisColor;
+  final ButtonStyleConfig? style;
   final ValueChanged<ControlState> onCommandChanged;
 
   const CraneSliderButton({
@@ -21,6 +24,7 @@ class CraneSliderButton extends StatefulWidget {
     this.isDisabled = false,
     this.externalState = ControlState.idle,
     this.axisColor,
+    this.style,
     required this.onCommandChanged,
   });
 
@@ -216,7 +220,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
         }
 
         final showFooter = widget.label.trim().isNotEmpty && height >= 96;
-        final footerHeight = showFooter ? 24.0 : 0.0;
+        final footerHeight = showFooter ? 28.0 : 0.0;
         final bodyHeight = (height - footerHeight).clamp(0.0, height);
 
         // const showScale = false;
@@ -287,6 +291,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
                     activeColor: _activeSliderColor,
                     isDisabled: widget.isDisabled,
                     maxWidth: width,
+                    style: widget.style,
                   ),
                 ),
             ],
@@ -367,6 +372,7 @@ class _SliderFooter extends StatelessWidget {
   final Color activeColor;
   final bool isDisabled;
   final double maxWidth;
+  final ButtonStyleConfig? style;
 
   const _SliderFooter({
     required this.icon,
@@ -375,6 +381,7 @@ class _SliderFooter extends StatelessWidget {
     required this.activeColor,
     required this.isDisabled,
     required this.maxWidth,
+    required this.style,
   });
 
   @override
@@ -387,32 +394,17 @@ class _SliderFooter extends StatelessWidget {
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth.clamp(0.0, 180.0)),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: isActive && !isDisabled
-                ? activeColor
-                : AppColors.darkTextMuted,
-          ),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-              ),
-            ),
-          ),
-        ],
+      child: SizedBox(
+        height: ControlButtonVisualMetrics.rowHeight,
+        child: ControlButtonLabelIcon(
+          label: label,
+          icon: icon,
+          color: textColor,
+          iconColor: isActive && !isDisabled
+              ? activeColor
+              : AppColors.darkTextMuted,
+          style: style,
+        ),
       ),
     );
   }
