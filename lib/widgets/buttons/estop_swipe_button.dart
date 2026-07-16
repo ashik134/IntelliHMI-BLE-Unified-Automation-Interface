@@ -233,9 +233,9 @@ class _EStopSwipeButtonState extends State<EStopSwipeButton>
                                       letterSpacing: 1.2,
                                     ),
                                   ),
-                                  const Text(
-                                    'Slide right to stop all crane operations',
-                                    style: TextStyle(
+                                  Text(
+                                    widget.instructionSubtitle,
+                                    style: const TextStyle(
                                       color: Colors.white38,
                                       fontSize: 9.5,
                                     ),

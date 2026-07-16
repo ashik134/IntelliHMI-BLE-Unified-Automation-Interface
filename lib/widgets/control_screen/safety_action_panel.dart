@@ -13,8 +13,9 @@ import 'package:rev_crane_control_ops/widgets/buttons/estop_swipe_button.dart';
 // presentational de-dup, no behavior change.
 //
 // Deliberately never wrapped in EditableControlTile by callers: E-Stop must
-// remain live and tappable at all times, including while Customization Mode
-// is active.
+// remain structurally separate from layout editing chrome. Customization Mode
+// may still disable reset interaction so the PLC stays latched until the
+// operator returns to normal control mode.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SafetyActionPanel extends StatelessWidget {
@@ -26,6 +27,7 @@ class SafetyActionPanel extends StatelessWidget {
     this.width,
     required this.instructionLabel,
     required this.resetLabel,
+    this.resetEnabled = true,
     required this.onEStopTap,
     required this.onResetActivated,
   });
@@ -41,6 +43,7 @@ class SafetyActionPanel extends StatelessWidget {
   final double? width;
   final String instructionLabel;
   final String resetLabel;
+  final bool resetEnabled;
   final VoidCallback onEStopTap;
   final VoidCallback onResetActivated;
 
@@ -54,6 +57,7 @@ class SafetyActionPanel extends StatelessWidget {
           ? _ResetSection(
               resetLabel: resetLabel,
               compact: compact,
+              enabled: resetEnabled,
               onResetActivated: onResetActivated,
             )
           : LayoutBuilder(
@@ -238,10 +242,12 @@ class _ResetSection extends StatelessWidget {
     required this.resetLabel,
     required this.onResetActivated,
     this.compact = false,
+    this.enabled = true,
   });
 
   final String resetLabel;
   final bool compact;
+  final bool enabled;
   final VoidCallback onResetActivated;
 
   @override
@@ -286,10 +292,20 @@ class _ResetSection extends StatelessWidget {
           ],
         ),
         SizedBox(height: compact ? 6 : 8),
-        EStopSwipeButton(
-          onActivated: onResetActivated,
-          instructionLabel: 'SWIPE TO RESET E-STOP',
-          instructionSubtitle: 'Slide right to clear emergency lockout',
+        AbsorbPointer(
+          absorbing: !enabled,
+          child: Opacity(
+            opacity: enabled ? 1.0 : 0.45,
+            child: EStopSwipeButton(
+              onActivated: onResetActivated,
+              instructionLabel: enabled
+                  ? 'SWIPE TO RESET E-STOP'
+                  : 'EXIT EDIT MODE TO RESET',
+              instructionSubtitle: enabled
+                  ? 'Slide right to clear emergency lockout'
+                  : 'Return to normal mode before clearing E-Stop',
+            ),
+          ),
         ),
       ],
     );

@@ -165,6 +165,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
   }
 
   Future<void> _onResetEStopTap() async {
+    if (context.read<CustomizationModeController>().isActive) return;
     final controller = context.read<CraneController>();
     if (controller.currentScreen != AppScreen.plc38Control ||
         !controller.isConnected) {
@@ -383,6 +384,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
                   children: [
                     // ── E-Stop / Reset ──────────────────────────────────────
                     _SafetyPanelSection(
+                      isEditing: isEditing,
                       compact: metrics.isCompact,
                       height: metrics.estopHeight,
                       width: sizing.resolvedEstopWidthOrFill,
@@ -679,6 +681,7 @@ class _DisconnectButton extends StatelessWidget {
 
 class _SafetyPanelSection extends StatelessWidget {
   const _SafetyPanelSection({
+    required this.isEditing,
     required this.compact,
     required this.height,
     required this.width,
@@ -688,6 +691,7 @@ class _SafetyPanelSection extends StatelessWidget {
     required this.onResetActivated,
   });
 
+  final bool isEditing;
   final bool compact;
   final double height;
   final double? width;
@@ -709,6 +713,7 @@ class _SafetyPanelSection extends StatelessWidget {
         width: width,
         instructionLabel: instructionLabel,
         resetLabel: resetLabel,
+        resetEnabled: !isEditing,
         onEStopTap: onEStopTap,
         onResetActivated: onResetActivated,
       ),
