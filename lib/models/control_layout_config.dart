@@ -706,7 +706,15 @@ class ControlLayoutConfig {
   /// which stays unchanged so existing saved layouts keep loading). Future
   /// schema changes should prefer bumping this in-JSON field over renaming
   /// the prefs key, which would silently discard existing user layouts.
-  static const int schemaVersion = 5;
+  ///
+  /// Bumped 5 → 6 by the generic PLC-output-variant refactor: each
+  /// ButtonConfig gains a `stateMappings` field (button-state -> PLC output
+  /// variant list), replacing the old single `plcMapping`-plus-ControlRole/
+  /// AxisKind-derivation composition path. Old JSON without `stateMappings`
+  /// is migrated on load via ButtonConfig.fromJson, which falls back to
+  /// ButtonConfig.migratedStateMappingsFor — reproducing the OLD derivation
+  /// exactly as static data — whenever the `stateMappings` key is absent.
+  static const int schemaVersion = 6;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;

@@ -304,7 +304,7 @@ void main() {
       final decoded =
           jsonDecode(const ControlLayoutConfig().toJsonString())
               as Map<String, dynamic>;
-      expect(decoded['schemaVersion'], 5);
+      expect(decoded['schemaVersion'], 6);
     });
 
     test('manual control page count round-trips through JSON', () {

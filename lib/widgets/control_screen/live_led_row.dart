@@ -17,13 +17,13 @@ class LedSpec {
     required this.label,
     required this.active,
     required this.color,
-    required this.pin,
+    this.pin,
   });
 
   final String label;
   final bool active;
   final Color color;
-  final String pin;
+  final String? pin;
 }
 
 class LiveLedRow extends StatelessWidget {
@@ -82,7 +82,7 @@ class _LedIndicator extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          spec.pin,
+          spec.pin ?? '',
           style: const TextStyle(
             fontSize: 6,
             fontWeight: FontWeight.bold,

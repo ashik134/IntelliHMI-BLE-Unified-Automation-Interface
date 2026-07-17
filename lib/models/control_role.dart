@@ -1,3 +1,4 @@
+import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +122,30 @@ const String kTraverseRightFastKey = 'traverseRightFast';
 const Map<String, PlcMapping> kVirtualFastKeyFields = {
   kTraverseLeftFastKey: PlcMapping.fastLr,
   kTraverseRightFastKey: PlcMapping.fastLr,
+};
+
+/// The only non-idle logical state a virtual fast-key ever reaches — these
+/// keys are simple two-state (idle/active) pseudo-buttons.
+const String kVirtualFastKeyActiveState = 'active';
+
+/// Migrated stateMappings-shaped table for the virtual fast-assist keys,
+/// baked in as static data (NOT derived live) reproducing exactly what
+/// these keys have always asserted: idle -> {}, active -> {their one PLC
+/// field}. This is not an "automatic derivation" — a virtual fast-key has
+/// only ever had one possible meaning (asserting its own fixed field), so
+/// there is no other field it could silently add. CraneController._fieldsFor
+/// consults this table for virtual fast-key ids exactly like it consults a
+/// real ButtonConfig.stateMappings for a real button id.
+final Map<String, Map<String, ButtonStateOutputMapping>>
+kVirtualFastKeyStateMappings = {
+  for (final entry in kVirtualFastKeyFields.entries)
+    entry.key: {
+      'idle': const ButtonStateOutputMapping(stateId: 'idle'),
+      kVirtualFastKeyActiveState: ButtonStateOutputMapping(
+        stateId: kVirtualFastKeyActiveState,
+        activeVariants: {entry.value},
+      ),
+    },
 };
 
 /// Virtual button-state keys used by a joystick to own several PLC fields

@@ -72,13 +72,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   ControlState _p38TripState = ControlState.idle;
 
   // ── Button-centric PLC38 state ────────────────────────────────────────────
-  // buttonId -> ControlState. Independent of the legacy _p38* fields above —
-  // populated only when the button-centric screens call setButtonCommand.
-  // The two paths are mutually exclusive in practice (a screen either fully
-  // uses the legacy per-axis setters or fully uses setButtonCommand), but
-  // both compose into the same PlcOutputCommand shape so either can be live
-  // during the incremental migration (see CraneController.setButtonCommand).
-  final Map<String, ControlState> _p38ButtonStates = {};
+  // buttonId -> the set of PLC output variants that button is currently
+  // asserting (already resolved by the caller from ButtonConfig.stateMappings
+  // — see setButtonCommand's doc comment). Independent of the legacy _p38*
+  // fields above — populated only when the button-centric screens call
+  // setButtonCommand. The two paths are mutually exclusive in practice (a
+  // screen either fully uses the legacy per-axis setters or fully uses
+  // setButtonCommand), but both compose into the same PlcOutputCommand shape
+  // so either can be live during the incremental migration.
+  final Map<String, Set<PlcMapping>> _p38ButtonFields = {};
 
   // ── Shared-field ownership ────────────────────────────────────────────────
   // PlcMapping field → the buttonId that currently owns (actively asserts)
@@ -645,7 +647,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     // Clear button-centric state and field ownership so buttons are not stuck
     // in a blocked state after estop is cleared (since setButtonCommand is
     // guarded by _estopLatched, the normal idle-on-release path never runs).
-    _p38ButtonStates.clear();
+    _p38ButtonFields.clear();
     _fieldOwners.clear();
     final cmd = PlcOutputCommand.emergencyStop();
     _activeCommand = cmd;
@@ -686,7 +688,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _p38VertState = ControlState.idle;
     _p38TravState = ControlState.idle;
     _p38TripState = ControlState.idle;
-    _p38ButtonStates.clear();
+    _p38ButtonFields.clear();
     _fieldOwners.clear();
     await _sendCommand(PlcOutputCommand.idle());
   }
@@ -793,10 +795,20 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Button-centric analogue of setHoistCommand/setTraverseCommand/
   /// setTravelCommand — the generalized composition entry point for the
-  /// button-centric screens. [buttonId] is a ButtonConfig.id (== a
-  /// ControlRole.name value; the closed set is enforced by callers, which
-  /// only ever pass ids sourced from ControlLayoutConfig.buttons, itself
-  /// derived from the closed ControlRole enum).
+  /// button-centric screens. [buttonId] is a ButtonConfig.id, OR a virtual
+  /// sub-button id (see control_role.dart's kVirtualFastKeyFields /
+  /// joystickVirtualButtonId).
+  ///
+  /// [stateId] is the LOGICAL state id (e.g. 'idle', 'active', 'step2',
+  /// 'zone1') already resolved by the caller from the button's own type —
+  /// see the `logicalStateIdFor`/`crossTravelZoneId`-style helpers in the
+  /// button-type strategies (button_type_strategy.dart doc comments).
+  /// [activeVariants] is the EXACT set of PLC output variants [buttonId]
+  /// asserts while in [stateId] — the caller must resolve this directly from
+  /// ButtonConfig.stateMappings[stateId] (or the equivalent virtual-id
+  /// table), never re-derived here. This is the master invariant of the
+  /// generic PLC-output-variant model: CraneController never adds a field
+  /// beyond what [activeVariants] explicitly says, for any reason.
   ///
   /// PLC14 (single hoist axis, no independent per-axis state needed today)
   /// delegates to the existing setHoistCommand for hoistUp/hoistDown ids,
@@ -804,17 +816,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setButtonCommand({
     required String buttonId,
     required ControlState state,
-    PlcMapping? plcMapping,
-    bool plcMappingEnabled = true,
+    required String stateId,
+    required Set<PlcMapping> activeVariants,
   }) async {
     if (_estopLatched || !isConnected) return;
-    final explicitMapping = plcMappingEnabled ? plcMapping : null;
 
     if (connectedPlcType != PlcType.plc38) {
-      if (explicitMapping == PlcMapping.up ||
+      if (activeVariants.contains(PlcMapping.up) ||
           buttonId == ControlRole.hoistUp.name) {
         await setHoistCommand(isUp: true, state: state);
-      } else if (explicitMapping == PlcMapping.down ||
+      } else if (activeVariants.contains(PlcMapping.down) ||
           buttonId == ControlRole.hoistDown.name) {
         await setHoistCommand(isUp: false, state: state);
       } else {
@@ -828,22 +839,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    final newFields = state == ControlState.idle
+        ? const <PlcMapping>{}
+        : activeVariants;
+
     if (state == ControlState.idle) {
       // Release all fields this button currently owns, then mark it idle.
       _fieldOwners.removeWhere((_, owner) => owner == buttonId);
-      _p38ButtonStates[buttonId] = state;
+      _p38ButtonFields.remove(buttonId);
     } else {
-      final previousState = _p38ButtonStates[buttonId] ?? ControlState.idle;
-      final previousFields = _fieldsFor(
-        buttonId,
-        previousState,
-        explicitMapping: explicitMapping,
-      );
-      final newFields = _fieldsFor(
-        buttonId,
-        state,
-        explicitMapping: explicitMapping,
-      );
+      final previousFields = _p38ButtonFields[buttonId] ?? const <PlcMapping>{};
 
       // Only check fields being NEWLY claimed (not already owned by this button).
       final addedFields = newFields.difference(previousFields);
@@ -860,7 +865,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         for (final f in addedFields) {
           _fieldOwners[f] = buttonId;
         }
-        _p38ButtonStates[buttonId] = state;
+        _p38ButtonFields[buttonId] = newFields;
       }
       // Blocked commands are silently discarded; the slider's physical clamp
       // (isFieldBlockedForButton) prevents the gesture from reaching here in
@@ -871,85 +876,30 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   // ── Shared-field ownership helpers ────────────────────────────────────────
 
-  /// Returns the set of PLC fields that [buttonId] would assert when its
-  /// state is [state]. Used to check ownership before accepting a command and
-  /// to release ownership when a button goes idle.
-  Set<PlcMapping> _fieldsFor(
+  /// Returns true if any field in [candidateFields] is currently owned by a
+  /// DIFFERENT button than [buttonId]. The UI layer calls this to apply a
+  /// per-zone drag clamp on the slider (physical "stuck" sensation) before
+  /// the drag enters the blocked zone. [candidateFields] must be resolved by
+  /// the caller from the button's own stateMappings — see setButtonCommand's
+  /// doc comment; CraneController never derives this itself.
+  bool isFieldBlockedForButton(
     String buttonId,
-    ControlState state, {
-    PlcMapping? explicitMapping,
-  }) {
-    if (state == ControlState.idle) return const {};
-
-    if (explicitMapping != null) {
-      final fields = <PlcMapping>{explicitMapping};
-      if (state == ControlState.fast) {
-        final fastField = explicitMapping.correspondingRole?.axis?.fastMapping;
-        if (fastField != null) fields.add(fastField);
-      }
-      return fields;
-    }
-
-    // Virtual fast-modifier keys (traverse-only for now; extend via
-    // kVirtualFastKeyFields for future axes).
-    final virtualField = kVirtualFastKeyFields[buttonId];
-    if (virtualField != null) return {virtualField};
-
-    final joystickField = joystickVirtualFieldFor(buttonId);
-    if (joystickField != null) {
-      final fields = <PlcMapping>{joystickField};
-      if (state == ControlState.fast) {
-        final fastField = joystickField.correspondingRole?.axis?.fastMapping;
-        if (fastField != null) fields.add(fastField);
-      }
-      return fields;
-    }
-
-    // Standard ControlRole buttons matched by role name.
-    ControlRole? role;
-    for (final r in ControlRole.values) {
-      if (r.name == buttonId) {
-        role = r;
-        break;
-      }
-    }
-    final mapping = role?.plcMapping;
-    if (mapping == null) return const {};
-
-    final fields = <PlcMapping>{mapping};
-    // Fast state also claims the axis speed-modifier field.
-    if (state == ControlState.fast) {
-      final fastField = role!.axis?.fastMapping;
-      if (fastField != null) fields.add(fastField);
-    }
-    return fields;
-  }
-
-  /// Returns true if any PLC field that [buttonId] would activate is
-  /// currently owned by a DIFFERENT button. The UI layer calls this to
-  /// apply a per-zone drag clamp on the slider (physical "stuck" sensation)
-  /// before the drag enters the blocked zone.
-  bool isFieldBlockedForButton(String buttonId) {
-    final fields = _fieldsFor(
-      buttonId,
-      ControlState.slow,
-    ); // representative non-idle state
-    return fields.any(
+    Set<PlcMapping> candidateFields,
+  ) {
+    return candidateFields.any(
       (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
     );
   }
 
-  /// Generalizes _composePlc38Command(): derives each PlcOutputCommand field
-  /// from whichever button state maps to it via ControlRole.plcMapping,
-  /// instead of the three hardcoded IsX/State field pairs. Produces
-  /// byte-identical output to _composePlc38Command() for every reachable
-  /// state because the derivation rule is unchanged: a field is true iff its
-  /// role's ControlState != idle; a fast flag is true iff its role's
-  /// ControlState == fast.
+  /// Derives each PlcOutputCommand field from whichever buttons' currently
+  /// active field-sets (as explicitly claimed via setButtonCommand's
+  /// [activeVariants] parameter) contain that field. No ControlRole/AxisKind
+  /// derivation is consulted here — a field is true iff some button
+  /// explicitly claims it in its current state, full stop.
   PlcOutputCommand _composeFromButtonStates() {
     bool fieldActive(PlcMapping field) {
-      for (final entry in _p38ButtonStates.entries) {
-        if (_fieldsFor(entry.key, entry.value).contains(field)) return true;
+      for (final fields in _p38ButtonFields.values) {
+        if (fields.contains(field)) return true;
       }
       return false;
     }

@@ -1,6 +1,10 @@
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
 
 const String kCrossTravelSpanMessage =
     '5-Zone Cross Travel requires two adjacent cells. Clear or replace the neighboring control first.';
@@ -15,6 +19,129 @@ const String kWidgetPlacementMessage =
 /// slot.
 String vacantSlotSelectionId(int pageIndex, int slotIndex) =>
     '__vacant_${pageIndex}_$slotIndex';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResolvedButtonCommand
+//
+// The single place a control screen's onCommand(buttonId, state) handler
+// resolves the LOGICAL state id and its EXACT set of user-configured PLC
+// output variants, for any id CraneController.setButtonCommand can be
+// called with — a real ButtonConfig id, a traverse fast-assist virtual key,
+// or a joystick virtual per-direction sub-button id. This is a pure lookup:
+// it never adds a variant beyond what was explicitly configured for that
+// exact (buttonId, stateId) pair. See CraneController.setButtonCommand's
+// doc comment for the master invariant this preserves.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ResolvedButtonCommand {
+  const ResolvedButtonCommand({
+    required this.stateId,
+    required this.activeVariants,
+  });
+
+  final String stateId;
+  final Set<PlcMapping> activeVariants;
+}
+
+/// Resolves [buttonId]'s logical stateId + exact active PLC output variants
+/// for the given physical gesture [state], consulting [layoutCfg] for real
+/// buttons and the fixed virtual-id tables for traverse fast-assist keys /
+/// joystick sub-buttons. Returns idle/`{}` for any id this function cannot
+/// resolve (e.g. a stale id from a just-deleted button) — never guesses.
+ResolvedButtonCommand resolveButtonCommand({
+  required String buttonId,
+  required ControlState state,
+  required ControlLayoutConfig layoutCfg,
+}) {
+  // Traverse fast-assist virtual keys: fixed 2-state (idle/active) table,
+  // migrated once, never re-derived.
+  final virtualStates = kVirtualFastKeyStateMappings[buttonId];
+  if (virtualStates != null) {
+    final stateId = state == ControlState.idle
+        ? 'idle'
+        : kVirtualFastKeyActiveState;
+    return ResolvedButtonCommand(
+      stateId: stateId,
+      activeVariants: virtualStates[stateId]?.activeVariants ?? const {},
+    );
+  }
+
+  // Joystick virtual per-direction sub-buttons: table lives on the PARENT
+  // ButtonConfig (joystickSubButtonMappings), keyed by this sub-button id.
+  if (joystickVirtualFieldFor(buttonId) != null) {
+    final parts = buttonId.split(':');
+    final sourceButtonId = parts.length == 3 ? parts[1] : null;
+    final parent = sourceButtonId == null
+        ? null
+        : layoutCfg.resolvedButtons[sourceButtonId];
+    final subStates = parent?.joystickSubButtonMappings[buttonId];
+    final stateId = logicalStateIdFor(
+      type: ButtonType.joystick,
+      physicalState: state,
+    );
+    // Compatibility for layouts edited while the UI incorrectly wrote
+    // joystick output rows to the parent ButtonConfig.stateMappings. As soon
+    // as any per-direction joystickSubButtonMappings exist, the exact virtual
+    // direction table wins and this fallback is ignored.
+    final hasOnlyParentMappings =
+        parent?.joystickSubButtonMappings.isEmpty ?? false;
+    final fallbackStates = hasOnlyParentMappings ? parent?.stateMappings : null;
+    final states = subStates ?? fallbackStates;
+    return ResolvedButtonCommand(
+      stateId: stateId,
+      activeVariants: states?[stateId]?.activeVariants ?? const {},
+    );
+  }
+
+  // Real ButtonConfig.
+  final config = layoutCfg.resolvedButtons[buttonId];
+  if (config == null) {
+    return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
+  }
+
+  final String stateId;
+  if (config.type == ButtonType.crossTravel ||
+      config.type == ButtonType.crossTravelSlowOnly) {
+    final endpoints = config.type == ButtonType.crossTravel
+        ? const CrossTravelStrategy().traverseEndpointsFor(config)
+        : const CrossTravelSlowOnlyStrategy().traverseEndpointsFor(config);
+    final isLeftButton = buttonId == endpoints.leftId;
+    stateId = crossTravelZoneId(
+      isLeftButton: isLeftButton,
+      state: state,
+      fiveZone: config.type == ButtonType.crossTravel,
+    );
+  } else {
+    stateId = logicalStateIdFor(type: config.type, physicalState: state);
+  }
+
+  return ResolvedButtonCommand(
+    stateId: stateId,
+    activeVariants: config.stateMappings[stateId]?.activeVariants ?? const {},
+  );
+}
+
+/// The PLC output variants a user may select in the OUTPUT MAPPING editor
+/// for a layout belonging to [bucket]. PLC38 exposes the full a2..a10 range
+/// (a1/E-STOP is excluded at the call site, never included here). PLC14/
+/// PLC21 only ever emit a 4-field wire packet [estop, up, down, fastUd] —
+/// restricting selection here means a user can never configure a variant
+/// that would be silently dropped at wire-serialization time, on top of the
+/// wire-level truncation that already makes such a config harmless even if
+/// one existed (e.g. from a hand-edited/imported layout — see
+/// plc14_variant_clamping_test.dart).
+List<PlcMapping> selectableVariantsFor(LayoutBucket bucket) {
+  final all = PlcMapping.values.where((m) => m.isUserConfigurable);
+  if (bucket == LayoutBucket.plc38) return all.toList();
+  return all
+      .where(
+        (m) =>
+            m == PlcMapping.up ||
+            m == PlcMapping.down ||
+            m == PlcMapping.fastUd,
+      )
+      .toList();
+}
 
 class GridMutationResult {
   const GridMutationResult.valid(this.buttons) : isValid = true, message = null;

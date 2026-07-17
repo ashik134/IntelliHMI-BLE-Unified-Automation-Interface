@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_logical_state.dart';
+import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
@@ -302,6 +305,7 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
         Expanded(
           child: _CustomButtonConfigEditor(
             config: config,
+            bucket: customCtrl.activeBucket,
             scrollController: scrollController,
             errorText: _newButtonError,
             isPendingCreate: widget.isNewButtonFlow,
@@ -421,12 +425,315 @@ class _InfoNote extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _OutputMappingEditor
+//
+// Shared per-state PLC output variant editor, reused by both the legacy
+// per-role BEHAVIOR tab (_BehaviorCard, below _MutualExclusionEditor) and the
+// custom/new-button flow's OUTPUT MAPPING card. Renders one row per
+// config.type.logicalStates:
+//   - isIdle states (idle/center) are locked to [] and non-editable — an
+//     idle/center state that could assert arbitrary outputs would be a
+//     safety footgun ("never truly off").
+//   - non-idle states are an editable multi-select chip group over
+//     a2..a10 (a1/E-STOP structurally excluded from the list itself, not
+//     just by convention), further restricted to a2..a4 for a PLC14/PLC21
+//     layout, since those PLC types only ever emit a 4-field wire packet.
+//
+// Master invariant: this editor only ever writes exactly what the user
+// selects into config.stateMappings[state.id] — never a derived/implied
+// extra variant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _OutputMappingEditor extends StatelessWidget {
+  const _OutputMappingEditor({
+    required this.config,
+    required this.bucket,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final LayoutBucket bucket;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (config.type == ButtonType.joystick) {
+      return _JoystickOutputMappingEditor(
+        config: config,
+        bucket: bucket,
+        onChanged: onChanged,
+      );
+    }
+
+    final states = config.type.logicalStates;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final state in states) ...[
+          Text(
+            state.label,
+            style: const TextStyle(
+              color: AppColors.darkTextSub,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (state.isIdle)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: _InfoNote(
+                message: 'Idle / center is always off — no output variant '
+                    'can be assigned to this state.',
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _VariantChipGroup(
+                selectable: selectableVariantsFor(bucket),
+                selected:
+                    config.stateMappings[state.id]?.activeVariants ??
+                    const {},
+                onChanged: (next) {
+                  final updated = Map<String, ButtonStateOutputMapping>.from(
+                    config.stateMappings,
+                  );
+                  updated[state.id] = ButtonStateOutputMapping(
+                    stateId: state.id,
+                    activeVariants: next,
+                  );
+                  onChanged(config.copyWith(stateMappings: updated));
+                },
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _JoystickOutputMappingEditor extends StatelessWidget {
+  const _JoystickOutputMappingEditor({
+    required this.config,
+    required this.bucket,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final LayoutBucket bucket;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final endpoints = _joystickOutputEndpointsFor(config);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final endpoint in endpoints) ...[
+          Text(
+            endpoint.label,
+            style: const TextStyle(
+              color: AppColors.darkTextSub,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final state in kThreeStepLogicalStates)
+            if (!state.isIdle) ...[
+              Text(
+                state.label,
+                style: const TextStyle(
+                  color: AppColors.darkTextMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _VariantChipGroup(
+                  selectable: selectableVariantsFor(bucket),
+                  selected: _selectedVariants(endpoint.id, state.id),
+                  onChanged: (next) =>
+                      _updateEndpoint(endpoint, state.id, next),
+                ),
+              ),
+            ],
+          const SizedBox(height: 4),
+        ],
+      ],
+    );
+  }
+
+  void _updateEndpoint(
+    _JoystickOutputEndpoint endpoint,
+    String stateId,
+    Set<PlcMapping> activeVariants,
+  ) {
+    final shouldSeedFromParent =
+        config.joystickSubButtonMappings.isEmpty &&
+        config.stateMappings.isNotEmpty;
+    final Map<String, Map<String, ButtonStateOutputMapping>> updated;
+    if (shouldSeedFromParent) {
+      updated = _joystickMappingsSeededFromParent(config);
+    } else {
+      updated = {
+        for (final entry in config.joystickSubButtonMappings.entries)
+          entry.key: Map<String, ButtonStateOutputMapping>.from(entry.value),
+      };
+    }
+    final states = Map<String, ButtonStateOutputMapping>.from(
+      updated[endpoint.id] ?? _emptyJoystickStateMappings(),
+    );
+    states['idle'] = const ButtonStateOutputMapping(stateId: 'idle');
+    states[stateId] = ButtonStateOutputMapping(
+      stateId: stateId,
+      activeVariants: activeVariants,
+    );
+    updated[endpoint.id] = states;
+    onChanged(config.copyWith(joystickSubButtonMappings: updated));
+  }
+
+  Set<PlcMapping> _selectedVariants(String endpointId, String stateId) {
+    final states = config.joystickSubButtonMappings[endpointId];
+    if (states != null) {
+      return states[stateId]?.activeVariants ?? const {};
+    }
+    if (config.joystickSubButtonMappings.isEmpty) {
+      return config.stateMappings[stateId]?.activeVariants ?? const {};
+    }
+    return const {};
+  }
+}
+
+class _VariantChipGroup extends StatelessWidget {
+  const _VariantChipGroup({
+    required this.selectable,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final List<PlcMapping> selectable;
+  final Set<PlcMapping> selected;
+  final ValueChanged<Set<PlcMapping>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final variant in selectable)
+          ChoiceChip(
+            label: Text(variant.genericLabel),
+            selected: selected.contains(variant),
+            selectedColor: AppColors.accent.withAlpha(55),
+            labelStyle: TextStyle(
+              color: selected.contains(variant)
+                  ? AppColors.accent
+                  : AppColors.darkTextSub,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+            onSelected: (isSelected) {
+              final next = {...selected};
+              if (isSelected) {
+                next.add(variant);
+              } else {
+                next.remove(variant);
+              }
+              onChanged(next);
+            },
+          ),
+      ],
+    );
+  }
+}
+
+class _JoystickOutputEndpoint {
+  const _JoystickOutputEndpoint({
+    required this.id,
+    required this.label,
+  });
+
+  final String id;
+  final String label;
+}
+
+List<_JoystickOutputEndpoint> _joystickOutputEndpointsFor(ButtonConfig config) {
+  final joystick = JoystickConfig.fromCustomProperties(
+    config.customProperties,
+  ).normalizedForMode();
+
+  final roles = joystick.isDualAxis
+      ? const [
+          ControlRole.traverseRight,
+          ControlRole.traverseLeft,
+          ControlRole.travelForward,
+          ControlRole.travelReverse,
+        ]
+      : switch (config.role?.axis ?? AxisKind.hoist) {
+          AxisKind.hoist => const [ControlRole.hoistUp, ControlRole.hoistDown],
+          AxisKind.traverse => const [
+            ControlRole.traverseRight,
+            ControlRole.traverseLeft,
+          ],
+          AxisKind.travel => const [
+            ControlRole.travelForward,
+            ControlRole.travelReverse,
+          ],
+        };
+
+  return [
+    for (final role in roles)
+      _JoystickOutputEndpoint(
+        id: joystickVirtualButtonId(config.id, role.plcMapping!),
+        label: role.defaultLabel,
+      ),
+  ];
+}
+
+Map<String, ButtonStateOutputMapping> _emptyJoystickStateMappings() => const {
+  'idle': ButtonStateOutputMapping(stateId: 'idle'),
+  'step1': ButtonStateOutputMapping(stateId: 'step1'),
+  'step2': ButtonStateOutputMapping(stateId: 'step2'),
+};
+
+Map<String, Map<String, ButtonStateOutputMapping>>
+_joystickMappingsSeededFromParent(ButtonConfig config) => {
+  for (final endpoint in _joystickOutputEndpointsFor(config))
+    endpoint.id: _joystickStateMappingsFromParent(config),
+};
+
+Map<String, ButtonStateOutputMapping> _joystickStateMappingsFromParent(
+  ButtonConfig config,
+) {
+  final states = <String, ButtonStateOutputMapping>{
+    'idle': const ButtonStateOutputMapping(stateId: 'idle'),
+  };
+  for (final state in kThreeStepLogicalStates) {
+    if (state.isIdle) continue;
+    states[state.id] = ButtonStateOutputMapping(
+      stateId: state.id,
+      activeVariants:
+          config.stateMappings[state.id]?.activeVariants ?? const {},
+    );
+  }
+  return states;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Custom/new button editor
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _CustomButtonConfigEditor extends StatelessWidget {
   const _CustomButtonConfigEditor({
     required this.config,
+    required this.bucket,
     required this.scrollController,
     required this.errorText,
     required this.isPendingCreate,
@@ -434,6 +741,7 @@ class _CustomButtonConfigEditor extends StatelessWidget {
   });
 
   final ButtonConfig? config;
+  final LayoutBucket bucket;
   final ScrollController scrollController;
   final String? errorText;
   final bool isPendingCreate;
@@ -473,9 +781,10 @@ class _CustomButtonConfigEditor extends StatelessWidget {
             child: _CustomLabelField(config: realConfig, onChanged: onChanged),
           ),
           _TabCard(
-            title: 'PLC OUTPUT',
-            child: _CustomMappingPicker(
+            title: 'OUTPUT MAPPING',
+            child: _OutputMappingEditor(
               config: realConfig,
+              bucket: bucket,
               onChanged: onChanged,
             ),
           ),
@@ -705,6 +1014,13 @@ class _CustomTypePicker extends StatelessWidget {
     final next = current.copyWith(
       type: type,
       visible: true,
+      // Selecting a real control type is what activates this slot now that
+      // PLC OUTPUT is no longer a single-value picker — plcMapping/
+      // plcMappingEnabled are demoted to a cosmetic hint (see ButtonConfig
+      // doc comment), but 'enabled' still gates whether the control renders
+      // interactive vs. grayed-out, so it must flip true here.
+      enabled: true,
+      plcMappingEnabled: true,
       gridColumns: columns,
       gridRows: rows,
       columnSpan: columns,
@@ -888,49 +1204,6 @@ class _CustomLabelFieldState extends State<_CustomLabelField> {
       ),
       onChanged: (value) =>
           widget.onChanged(widget.config.copyWith(label: value.trim())),
-    );
-  }
-}
-
-class _CustomMappingPicker extends StatelessWidget {
-  const _CustomMappingPicker({required this.config, required this.onChanged});
-
-  final ButtonConfig config;
-  final ValueChanged<ButtonConfig?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = config.plcMappingEnabled ? config.plcMapping : null;
-    return DropdownButtonFormField<PlcMapping?>(
-      initialValue: value,
-      dropdownColor: AppColors.panel,
-      decoration: const InputDecoration(
-        filled: true,
-        fillColor: AppColors.darkBg,
-        border: OutlineInputBorder(borderSide: BorderSide.none),
-      ),
-      style: const TextStyle(color: AppColors.darkText),
-      items: [
-        const DropdownMenuItem<PlcMapping?>(
-          value: null,
-          child: Text('Unassigned'),
-        ),
-        for (final mapping in PlcMapping.values)
-          if (mapping != PlcMapping.estop)
-            DropdownMenuItem<PlcMapping?>(
-              value: mapping,
-              child: Text(_customMappingLabel(mapping)),
-            ),
-      ],
-      onChanged: (mapping) {
-        onChanged(
-          config.copyWith(
-            plcMapping: mapping ?? config.plcMapping,
-            plcMappingEnabled: mapping != null,
-            enabled: mapping != null,
-          ),
-        );
-      },
     );
   }
 }
@@ -1408,19 +1681,6 @@ ButtonConfig _newCustomButtonSeed({
     columnSpan: columns,
   );
 }
-
-String _customMappingLabel(PlcMapping mapping) => switch (mapping) {
-  PlcMapping.up => 'Hoist Up',
-  PlcMapping.down => 'Hoist Down',
-  PlcMapping.fastUd => 'Hoist Fast',
-  PlcMapping.left => 'Traverse Left',
-  PlcMapping.right => 'Traverse Right',
-  PlcMapping.fastLr => 'Traverse Fast',
-  PlcMapping.forward => 'Travel Forward',
-  PlcMapping.reverse => 'Travel Reverse',
-  PlcMapping.fastFb => 'Travel Fast',
-  PlcMapping.estop => 'E-Stop',
-};
 
 /// ButtonType -> ControlWidgetType, purely for feeding the existing
 /// AxisTypePreview widget's API (presentation-only — the model itself reads
@@ -2670,18 +2930,24 @@ class _BehaviorCard extends StatelessWidget {
             child: _MutualExclusionEditor(role: role),
           ),
         _TabCard(
-          title: '${role.defaultLabel} · PLC MAPPING',
+          title: '${role.defaultLabel} · OUTPUT MAPPING',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Drives PlcOutputCommand.${config.plcMapping.name}'
-                '${config.role != null ? ' — ${config.role!.name}' : ''}',
-                style: const TextStyle(
-                  color: AppColors.darkTextSub,
-                  fontSize: 12,
+              if (isSafety)
+                const _InfoNote(
+                  message:
+                      'E-Stop / Reset E-Stop are fixed safety controls — '
+                      'their output is never user-configurable.',
+                )
+              else
+                _OutputMappingEditor(
+                  config: config,
+                  bucket: customCtrl.activeBucket,
+                  onChanged: (next) => customCtrl.applyDraftChange(
+                    draft.withButton(role.name, next),
+                  ),
                 ),
-              ),
               if (!validation.isValid) ...[
                 const SizedBox(height: 8),
                 for (final error in validation.errors)

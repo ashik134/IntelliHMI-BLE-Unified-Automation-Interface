@@ -912,20 +912,22 @@ class _ControlGridSection extends StatelessWidget {
           (config.role == null && !config.plcMappingEnabled) ||
           _isMutuallyExcluded(config),
       onCommand: (id, state) {
-        final config = layoutCfg.resolvedButtons[id];
         ButtonStateLog.log(
           state == ControlState.idle
               ? 'SEND_IDLE  [$id] (PLC14)'
               : 'SEND_ACTIVE [$id] -> ${state.name} (PLC14)',
         );
         onLocalActiveChanged(id, state);
+        final resolved = resolveButtonCommand(
+          buttonId: id,
+          state: state,
+          layoutCfg: layoutCfg,
+        );
         context.read<CraneController>().setButtonCommand(
           buttonId: id,
           state: state,
-          plcMapping: config?.role == null ? config?.plcMapping : null,
-          plcMappingEnabled: config?.role == null
-              ? config?.plcMappingEnabled ?? false
-              : true,
+          stateId: resolved.stateId,
+          activeVariants: resolved.activeVariants,
         );
       },
       onEditButton: (config) {

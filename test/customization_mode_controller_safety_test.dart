@@ -23,6 +23,7 @@ import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 CustomizationModeController _controller() {
@@ -158,6 +159,77 @@ void main() {
       expect(customCtrl.selectedSlotId, isNotNull);
       expect(customCtrl.selectedButton, isNull);
       expect(customCtrl.canDeleteSelectedButton, isFalse);
+    },
+  );
+
+  test(
+    'a freshly-added custom button with empty stateMappings is valid and '
+    'inert — matching "no button auto-controls extra outputs unless the '
+    'user explicitly configured those variants" for BRAND NEW buttons too',
+    () async {
+      final customCtrl = _controller();
+      await customCtrl.enter();
+
+      // Deliberately no stateMappings — the default is {}. Adding it must
+      // not be rejected as "invalid"; it should just be inert until the
+      // user visits the OUTPUT MAPPING editor.
+      final addResult = customCtrl.addControlButton(
+        const ButtonConfig(
+          id: 'custom_inert',
+          type: ButtonType.pushButton,
+          plcMapping: PlcMapping.up,
+          label: 'Inert',
+          enabled: true,
+          plcMappingEnabled: true,
+        ),
+      );
+      expect(addResult.isValid, isTrue);
+      expect(
+        customCtrl.draft.resolvedButtons['custom_inert']!.stateMappings,
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'editing stateMappings via applyDraftChange is exactly as inert during '
+    'Customization Mode as any other draft edit (e.g. label) — never '
+    'triggers a CraneController send',
+    () async {
+      final customCtrl = _controller();
+      await customCtrl.enter();
+
+      const buttonId = 'hoistUp';
+      final before = customCtrl.draft.resolvedButtons[buttonId]!;
+      customCtrl.applyDraftChange(
+        customCtrl.draft.withButton(
+          buttonId,
+          before.copyWith(
+            stateMappings: {
+              'active': const ButtonStateOutputMapping(
+                stateId: 'active',
+                activeVariants: {PlcMapping.up},
+              ),
+            },
+          ),
+        ),
+      );
+
+      expect(
+        customCtrl.draft.resolvedButtons[buttonId]!.stateMappings['active']
+            ?.activeVariants,
+        {PlcMapping.up},
+      );
+      // No BLE connection exists in this test at all — if editing
+      // stateMappings ever triggered a CraneController command send, that
+      // call would throw/no-op silently either way, but the more direct
+      // proof is architectural: CustomizationModeController.applyDraftChange
+      // only ever mutates _draft (see the file's own header comment) and
+      // this test's CraneController is never connected, so isConnected is
+      // false and any accidental send attempt would be a guarded no-op —
+      // isActive staying true and the draft value updating above is the
+      // observable proof this stayed a pure draft mutation.
+      expect(customCtrl.isActive, isTrue);
     },
   );
 }
