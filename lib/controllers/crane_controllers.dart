@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
+import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';
 import 'package:rev_crane_control_ops/services/permission_service.dart';
 import 'package:rev_crane_control_ops/services/secure_credential_store.dart';
@@ -872,6 +873,22 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       // normal operation.
     }
     await _sendCommand(_composeFromButtonStates());
+  }
+
+  /// Placeholder for future analog output transport. Potentiometer widgets
+  /// can report a scaled value through the normal-mode command path, but the
+  /// current BLE packet only carries boolean PLC fields. Until firmware
+  /// exposes an analog packet, this method intentionally sends nothing.
+  Future<void> setAnalogButtonValue({
+    required String buttonId,
+    required double value,
+    required PotentiometerConfig config,
+  }) async {
+    if (_estopLatched || !isConnected) return;
+    _logger.d(
+      'Analog output pending for $buttonId: ${config.formatValue(value)} '
+      '(${config.outputVariantId ?? 'unmapped'})',
+    );
   }
 
   // ── Shared-field ownership helpers ────────────────────────────────────────

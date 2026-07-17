@@ -72,7 +72,7 @@ class AxisTypePreview extends StatelessWidget {
             ],
           ),
           ControlWidgetType.joystick => const _JoystickPreviewMock(),
-          ControlWidgetType.rotary => const _ComingSoonMock(),
+          ControlWidgetType.rotary => const _RotaryPreviewMock(),
           ControlWidgetType.sliderButton => Row(
             children: [
               Expanded(
@@ -312,8 +312,8 @@ class _JoystickPreviewMock extends StatelessWidget {
   }
 }
 
-class _ComingSoonMock extends StatelessWidget {
-  const _ComingSoonMock();
+class _RotaryPreviewMock extends StatelessWidget {
+  const _RotaryPreviewMock();
 
   @override
   Widget build(BuildContext context) {
@@ -323,13 +323,70 @@ class _ComingSoonMock extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.darkBorder),
       ),
-      child: const Center(
-        child: Text(
-          'Coming soon',
-          style: TextStyle(
-            color: AppColors.darkTextMuted,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+      child: Center(
+        child: SizedBox(
+          width: 108,
+          height: 108,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    center: Alignment(-0.32, -0.42),
+                    radius: 1.2,
+                    colors: [
+                      Color(0xFF394A59),
+                      Color(0xFF17232D),
+                      Color(0xFF071018),
+                    ],
+                    stops: [0.0, 0.58, 1.0],
+                  ),
+                  border: Border.all(color: Colors.white.withAlpha(32)),
+                ),
+              ),
+              const SizedBox(
+                width: 82,
+                height: 82,
+                child: CircularProgressIndicator(
+                  value: 0.62,
+                  strokeWidth: 7,
+                  color: AppColors.accent,
+                  backgroundColor: AppColors.darkBg,
+                ),
+              ),
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    center: Alignment(-0.36, -0.45),
+                    colors: [
+                      Color(0xFFE5EBF0),
+                      Color(0xFF7E8B96),
+                      Color(0xFF2A333B),
+                    ],
+                    stops: [0.0, 0.48, 1.0],
+                  ),
+                  border: Border.all(color: Colors.black.withAlpha(120)),
+                ),
+              ),
+              Transform.rotate(
+                angle: 0.75,
+                child: Container(
+                  width: 7,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

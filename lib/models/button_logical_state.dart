@@ -75,6 +75,7 @@ extension ButtonTypeLogicalStates on ButtonType {
       ButtonLogicalState(id: 'step1', label: 'Step 1', isIdle: false),
       ButtonLogicalState(id: 'step2', label: 'Step 2', isIdle: false),
     ],
+    ButtonType.potentiometer => const [],
   };
 }
 

@@ -38,6 +38,7 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final role = config.role;
     final (defaultColor, defaultColorLight) = role != null

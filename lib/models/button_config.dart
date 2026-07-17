@@ -27,6 +27,7 @@ enum ButtonType {
   crossTravel,
   crossTravelSlowOnly,
   joystick,
+  potentiometer,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,7 +69,8 @@ class ButtonConfig {
     this.gridRows = 1,
     this.plcMappingEnabled = true,
     this.stateMappings = const <String, ButtonStateOutputMapping>{},
-    this.joystickSubButtonMappings = const <String, Map<String, ButtonStateOutputMapping>>{},
+    this.joystickSubButtonMappings =
+        const <String, Map<String, ButtonStateOutputMapping>>{},
   });
 
   static const double minHeightScale = AxisControlConfig.minHeightScale;
@@ -292,7 +294,7 @@ class ButtonConfig {
         ButtonType.crossTravel,
       ControlWidgetType.sliderButton => ButtonType.sliderButton,
       ControlWidgetType.joystick => ButtonType.joystick,
-      ControlWidgetType.rotary => ButtonType.sliderButton,
+      ControlWidgetType.rotary => ButtonType.potentiometer,
     };
     return ButtonConfig(
       id: role.name,
@@ -368,6 +370,8 @@ class ButtonConfig {
           ...entry('step1', slowVariants),
           ...entry('step2', fastVariants),
         };
+      case ButtonType.potentiometer:
+        return const <String, ButtonStateOutputMapping>{};
       case ButtonType.toggle:
         return {
           ...entry('left', slowVariants),
@@ -463,15 +467,19 @@ class ButtonConfig {
           ControlRole.travelForward,
           ControlRole.travelReverse,
         ])
-          joystickVirtualButtonId(sourceButtonId, r.plcMapping!):
-              subMappingFor(r.plcMapping!),
+          joystickVirtualButtonId(sourceButtonId, r.plcMapping!): subMappingFor(
+            r.plcMapping!,
+          ),
       };
     }
 
     final axis = role?.axis ?? AxisKind.hoist;
     final (positive, negative) = switch (axis) {
       AxisKind.hoist => (ControlRole.hoistUp, ControlRole.hoistDown),
-      AxisKind.traverse => (ControlRole.traverseRight, ControlRole.traverseLeft),
+      AxisKind.traverse => (
+        ControlRole.traverseRight,
+        ControlRole.traverseLeft,
+      ),
       AxisKind.travel => (ControlRole.travelForward, ControlRole.travelReverse),
     };
     return {

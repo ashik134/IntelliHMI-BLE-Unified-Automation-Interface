@@ -19,6 +19,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 /// combined/multi-field callback.
 typedef ButtonCommandCallback =
     void Function(String buttonId, ControlState state);
+typedef AnalogButtonCommandCallback =
+    void Function(ButtonConfig config, double value);
 
 abstract class ButtonTypeStrategy {
   const ButtonTypeStrategy();
@@ -36,6 +38,7 @@ abstract class ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    AnalogButtonCommandCallback? onAnalogCommand,
   });
 }
 
@@ -87,6 +90,10 @@ String logicalStateIdFor({
         ControlState.slow => 'step1',
         ControlState.fast => 'step2',
       };
+    case ButtonType.potentiometer:
+      throw UnsupportedError(
+        'logicalStateIdFor does not handle analog potentiometer values.',
+      );
     case ButtonType.crossTravel:
     case ButtonType.crossTravelSlowOnly:
       // Cross-travel needs an explicit side — callers must use

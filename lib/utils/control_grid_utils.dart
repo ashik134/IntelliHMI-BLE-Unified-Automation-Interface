@@ -98,6 +98,9 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config == null) {
     return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
+  if (config.type == ButtonType.potentiometer) {
+    return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
+  }
 
   final String stateId;
   if (config.type == ButtonType.crossTravel ||

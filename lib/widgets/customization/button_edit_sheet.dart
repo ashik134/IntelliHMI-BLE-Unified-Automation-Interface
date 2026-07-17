@@ -10,6 +10,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
@@ -457,6 +458,14 @@ class _OutputMappingEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (config.type == ButtonType.potentiometer) {
+      return _PotentiometerOutputEditor(
+        config: config,
+        bucket: bucket,
+        onChanged: onChanged,
+      );
+    }
+
     if (config.type == ButtonType.joystick) {
       return _JoystickOutputMappingEditor(
         config: config,
@@ -484,7 +493,8 @@ class _OutputMappingEditor extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.only(bottom: 12),
               child: _InfoNote(
-                message: 'Idle / center is always off — no output variant '
+                message:
+                    'Idle / center is always off — no output variant '
                     'can be assigned to this state.',
               ),
             )
@@ -494,8 +504,7 @@ class _OutputMappingEditor extends StatelessWidget {
               child: _VariantChipGroup(
                 selectable: selectableVariantsFor(bucket),
                 selected:
-                    config.stateMappings[state.id]?.activeVariants ??
-                    const {},
+                    config.stateMappings[state.id]?.activeVariants ?? const {},
                 onChanged: (next) {
                   final updated = Map<String, ButtonStateOutputMapping>.from(
                     config.stateMappings,
@@ -610,6 +619,103 @@ class _JoystickOutputMappingEditor extends StatelessWidget {
   }
 }
 
+class _PotentiometerOutputEditor extends StatelessWidget {
+  const _PotentiometerOutputEditor({
+    required this.config,
+    required this.bucket,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final LayoutBucket bucket;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final potentiometer = PotentiometerConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+    final selectable = selectableVariantsFor(bucket);
+
+    void save(PotentiometerConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _InfoNote(
+          message:
+              'Analog output transport is pending. These values are saved '
+              'with the layout, but no PLC analog packet is sent yet.',
+          color: AppColors.fastColor,
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'OUTPUT VARIANT',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('None'),
+              selected: potentiometer.outputVariantId == null,
+              selectedColor: AppColors.accent.withAlpha(55),
+              labelStyle: TextStyle(
+                color: potentiometer.outputVariantId == null
+                    ? AppColors.accent
+                    : AppColors.darkTextSub,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+              onSelected: (_) =>
+                  save(potentiometer.copyWith(clearOutputVariantId: true)),
+            ),
+            for (final variant in selectable)
+              ChoiceChip(
+                label: Text(variant.genericLabel),
+                selected: potentiometer.outputVariantId == variant.variantId,
+                selectedColor: AppColors.accent.withAlpha(55),
+                labelStyle: TextStyle(
+                  color: potentiometer.outputVariantId == variant.variantId
+                      ? AppColors.accent
+                      : AppColors.darkTextSub,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+                onSelected: (_) => save(
+                  potentiometer.copyWith(outputVariantId: variant.variantId),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _ConfigTextField(
+          label: 'Analog channel',
+          value: potentiometer.outputChannel,
+          hint: 'AO1, CH0, DAC_A...',
+          onChanged: (value) =>
+              save(potentiometer.copyWith(outputChannel: value)),
+        ),
+      ],
+    );
+  }
+}
+
 class _VariantChipGroup extends StatelessWidget {
   const _VariantChipGroup({
     required this.selectable,
@@ -655,10 +761,7 @@ class _VariantChipGroup extends StatelessWidget {
 }
 
 class _JoystickOutputEndpoint {
-  const _JoystickOutputEndpoint({
-    required this.id,
-    required this.label,
-  });
+  const _JoystickOutputEndpoint({required this.id, required this.label});
 
   final String id;
   final String label;
@@ -818,7 +921,16 @@ class _CustomButtonConfigEditor extends StatelessWidget {
                 onChanged: onChanged,
               ),
             ),
-          if (realConfig.type != ButtonType.joystick)
+          if (realConfig.type == ButtonType.potentiometer)
+            _TabCard(
+              title: 'POTENTIOMETER',
+              child: _PotentiometerConfigEditor(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
+            ),
+          if (realConfig.type != ButtonType.joystick &&
+              realConfig.type != ButtonType.potentiometer)
             const _TabCard(
               title: 'CUSTOM PARAMETERS',
               child: _InfoNote(
@@ -928,6 +1040,13 @@ const _customTypeEntries = [
     icon: Icons.linear_scale_rounded,
     available: true,
     note: 'Drag for slow or fast output states.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.potentiometer,
+    label: 'Potentiometer',
+    icon: Icons.tune_rounded,
+    available: true,
+    note: 'Rotary analog value control. Output transport is pending.',
   ),
   _CustomTypeEntry(
     type: ButtonType.joystick,
@@ -1663,6 +1782,300 @@ class _CustomJoystickConfigEditor extends StatelessWidget {
   }
 }
 
+class _PotentiometerConfigEditor extends StatelessWidget {
+  const _PotentiometerConfigEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final potentiometer = PotentiometerConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+
+    void save(PotentiometerConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    void saveNumber(
+      String raw,
+      PotentiometerConfig Function(double value) update,
+    ) {
+      final parsed = double.tryParse(raw.trim());
+      if (parsed == null) return;
+      save(update(parsed));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _PotentiometerPresetChip(
+              label: '0-100%',
+              onTap: () => save(
+                const PotentiometerConfig(
+                  minValue: 0,
+                  maxValue: 100,
+                  stepSize: 1,
+                  defaultValue: 0,
+                  unit: '%',
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: '0-255',
+              onTap: () => save(
+                const PotentiometerConfig(
+                  minValue: 0,
+                  maxValue: 255,
+                  stepSize: 1,
+                  defaultValue: 0,
+                  unit: '',
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: '0-1023',
+              onTap: () => save(
+                const PotentiometerConfig(
+                  minValue: 0,
+                  maxValue: 1023,
+                  stepSize: 1,
+                  defaultValue: 0,
+                  unit: '',
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: '-100% to +100%',
+              onTap: () => save(
+                const PotentiometerConfig(
+                  minValue: -100,
+                  maxValue: 100,
+                  stepSize: 1,
+                  defaultValue: 0,
+                  unit: '%',
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Minimum',
+                value: _numberText(potentiometer.minValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => potentiometer.copyWith(minValue: value),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Maximum',
+                value: _numberText(potentiometer.maxValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => potentiometer.copyWith(maxValue: value),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Step size',
+                value: _numberText(potentiometer.stepSize),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: false,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => potentiometer.copyWith(stepSize: value),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Default',
+                value: _numberText(potentiometer.defaultValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => potentiometer.copyWith(defaultValue: value),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _ConfigTextField(
+          label: 'Unit / suffix',
+          value: potentiometer.unit,
+          hint: '%, V, rpm...',
+          onChanged: (value) => save(potentiometer.copyWith(unit: value)),
+        ),
+        SwitchListTile(
+          value: potentiometer.showValue,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Show value',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(potentiometer.copyWith(showValue: value)),
+        ),
+      ],
+    );
+  }
+}
+
+class _PotentiometerPresetChip extends StatelessWidget {
+  const _PotentiometerPresetChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      label: Text(label),
+      avatar: const Icon(Icons.tune_rounded, size: 14),
+      backgroundColor: AppColors.darkBg,
+      side: const BorderSide(color: AppColors.darkBorder),
+      labelStyle: const TextStyle(
+        color: AppColors.darkTextSub,
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+      ),
+      onPressed: onTap,
+    );
+  }
+}
+
+class _ConfigTextField extends StatefulWidget {
+  const _ConfigTextField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.hint,
+    this.keyboardType,
+  });
+
+  final String label;
+  final String value;
+  final String? hint;
+  final TextInputType? keyboardType;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_ConfigTextField> createState() => _ConfigTextFieldState();
+}
+
+class _ConfigTextFieldState extends State<_ConfigTextField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+    _focusNode = FocusNode()..addListener(_syncWhenIdle);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConfigTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_focusNode.hasFocus &&
+        oldWidget.value != widget.value &&
+        _controller.text != widget.value) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_syncWhenIdle)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncWhenIdle() {
+    if (_focusNode.hasFocus || _controller.text == widget.value) return;
+    _controller.text = widget.value;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      keyboardType: widget.keyboardType,
+      style: const TextStyle(color: AppColors.darkText, fontSize: 13),
+      decoration: InputDecoration(
+        labelText: widget.label,
+        hintText: widget.hint,
+        labelStyle: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 11,
+        ),
+        hintStyle: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 11,
+        ),
+        filled: true,
+        fillColor: AppColors.darkBg,
+        border: const OutlineInputBorder(borderSide: BorderSide.none),
+        isDense: true,
+      ),
+      onChanged: widget.onChanged,
+    );
+  }
+}
+
+String _numberText(double value) {
+  if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+  return value
+      .toStringAsFixed(3)
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
+}
+
 ButtonConfig _newCustomButtonSeed({
   required ButtonType type,
   required int pageIndex,
@@ -1692,6 +2105,7 @@ ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
   ButtonType.crossTravel ||
   ButtonType.crossTravelSlowOnly => ControlWidgetType.sliderButton,
   ButtonType.joystick => ControlWidgetType.joystick,
+  ButtonType.potentiometer => ControlWidgetType.rotary,
 };
 
 bool _spanAwareTypeChangesEnabled() => true;
@@ -1756,11 +2170,11 @@ const _typeEntries = [
     'Analog or digital joystick. Configure behavior in the Behavior tab.',
   ),
   _TypeEntry(
-    null,
-    'Rotary Encoder',
-    Icons.rotate_right_rounded,
-    false,
-    'Blocked — the PLC output protocol is boolean-only; no analog wire format exists yet.',
+    ButtonType.potentiometer,
+    'Potentiometer',
+    Icons.tune_rounded,
+    true,
+    'Rotary analog value control. Output transport is pending.',
   ),
 ];
 
@@ -2403,6 +2817,8 @@ const _iconPalette = [
   Icons.restart_alt_rounded,
   Icons.compare_arrows_rounded,
   Icons.swap_vert_rounded,
+  Icons.tune_rounded,
+  Icons.rotate_right_rounded,
 ];
 
 class _RoleStyleEditorState extends State<_RoleStyleEditor> {
@@ -2972,7 +3388,18 @@ class _BehaviorCard extends StatelessWidget {
             title: '${role.defaultLabel} · JOYSTICK',
             child: _JoystickConfigEditor(role: role),
           ),
-        if (config.type != ButtonType.joystick)
+        if (config.type == ButtonType.potentiometer)
+          _TabCard(
+            title: '${role.defaultLabel} - POTENTIOMETER',
+            child: _PotentiometerConfigEditor(
+              config: config,
+              onChanged: (next) => customCtrl.applyDraftChange(
+                draft.withButton(role.name, next!),
+              ),
+            ),
+          ),
+        if (config.type != ButtonType.joystick &&
+            config.type != ButtonType.potentiometer)
           _TabCard(
             title: '${role.defaultLabel} · CUSTOM PROPERTIES',
             child: const _InfoNote(

@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
@@ -815,43 +816,43 @@ class _LiveLedSection extends StatelessWidget {
             label: 'ESTOP',
             active: v.estop,
             color: AppColors.eStopColor,
-            pin: 'Q_ES',
+            // pin: 'Q_ES',
           ),
           LedSpec(
             label: 'UP',
             active: v.up,
             color: AppColors.upColor,
-            pin: 'Q0.1',
+            // pin: 'Q0.1',
           ),
           LedSpec(
             label: 'DN',
             active: v.down,
             color: AppColors.downColor,
-            pin: 'Q0.2',
+            // pin: 'Q0.2',
           ),
           LedSpec(
-            label: 'FU',
+            label: 'HF',
             active: v.fast,
             color: AppColors.fastColor,
-            pin: 'Q0.3',
+            // pin: 'Q0.3',
           ),
           LedSpec(
             label: 'LT',
             active: v.left,
             color: AppColors.traverseColor,
-            pin: 'Q0.4',
+            // pin: 'Q0.4',
           ),
           LedSpec(
             label: 'RT',
             active: v.right,
             color: AppColors.traverseColor,
-            pin: 'Q0.5',
+            // pin: 'Q0.5',
           ),
           LedSpec(
-            label: 'FL',
+            label: 'CTF',
             active: v.fastLr,
             color: AppColors.fastColor,
-            pin: 'Q0.6',
+            // pin: 'Q0.6',
           ),
           LedSpec(
             label: 'FW',
@@ -863,13 +864,13 @@ class _LiveLedSection extends StatelessWidget {
             label: 'RV',
             active: v.reverse,
             color: AppColors.travelColor,
-            pin: 'Q0.8',
+            // pin: 'Q0.8',
           ),
           LedSpec(
-            label: 'FB',
+            label: 'LTF',
             active: v.fastFb,
             color: AppColors.fastColor,
-            pin: 'Q0.9',
+            // pin: 'Q0.9',
           ),
         ],
       ),
@@ -1013,6 +1014,20 @@ class _ControlGridSection extends StatelessWidget {
           state: state,
           stateId: resolved.stateId,
           activeVariants: resolved.activeVariants,
+        );
+      },
+      onAnalogCommand: (config, value) {
+        final potentiometer = PotentiometerConfig.fromCustomProperties(
+          config.customProperties,
+        ).normalized();
+        ButtonStateLog.log(
+          'ANALOG_PENDING [${config.id}] -> '
+          '${potentiometer.formatValue(value)} (PLC38)',
+        );
+        context.read<CraneController>().setAnalogButtonValue(
+          buttonId: config.id,
+          value: value,
+          config: potentiometer,
         );
       },
       onEditButton: (config) {

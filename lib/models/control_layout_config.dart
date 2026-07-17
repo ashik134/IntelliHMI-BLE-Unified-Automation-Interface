@@ -51,8 +51,7 @@ class ControlWidgetSizeConfig {
   double get resolvedEstopHeight =>
       baseEstopButtonHeight * estopButtonHeightScale;
 
-  double get resolvedEstopWidth =>
-      baseEstopButtonWidth * estopButtonWidthScale;
+  double get resolvedEstopWidth => baseEstopButtonWidth * estopButtonWidthScale;
 
   /// `null` at the default width scale (1.0) — callers should fall back to
   /// filling the available panel width, matching pre-customization behavior.
@@ -714,7 +713,10 @@ class ControlLayoutConfig {
   /// is migrated on load via ButtonConfig.fromJson, which falls back to
   /// ButtonConfig.migratedStateMappingsFor — reproducing the OLD derivation
   /// exactly as static data — whenever the `stateMappings` key is absent.
-  static const int schemaVersion = 6;
+  /// Bumped 6 -> 7 by the potentiometer control addition: ButtonType gains
+  /// `potentiometer`, with analog range/output metadata stored in
+  /// ButtonConfig.customProperties.
+  static const int schemaVersion = 7;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
@@ -889,16 +891,15 @@ class ControlLayoutConfig {
         gridRows: ButtonConfig.controlGridRows,
         slotIndex: 0,
       ),
-      ControlRole.hoistDown.name: buttons[ControlRole.hoistDown.name]!
-          .copyWith(
-            type: ButtonType.sliderButton,
-            pageIndex: 0,
-            gridX: 1,
-            gridY: 0,
-            gridColumns: 1,
-            gridRows: ButtonConfig.controlGridRows,
-            slotIndex: 1,
-          ),
+      ControlRole.hoistDown.name: buttons[ControlRole.hoistDown.name]!.copyWith(
+        type: ButtonType.sliderButton,
+        pageIndex: 0,
+        gridX: 1,
+        gridY: 0,
+        gridColumns: 1,
+        gridRows: ButtonConfig.controlGridRows,
+        slotIndex: 1,
+      ),
       for (final role in _hoistOnlyHiddenRoles)
         role.name: buttons[role.name]!.copyWith(visible: false),
     };

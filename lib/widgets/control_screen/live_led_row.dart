@@ -2,16 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LiveLedRow
-//
-// Extracted from the near-identical _liveLEDs/_ledIndicator (PLC14) and
-// _liveLEDs/_led (PLC38) methods. Generalized to accept an arbitrary list of
-// LedSpec so it covers PLC14's 4 outputs and PLC38's 10 without needing two
-// near-duplicate implementations — the count/pin-label differences were the
-// only real difference between the two originals.
-// ─────────────────────────────────────────────────────────────────────────────
-
 class LedSpec {
   const LedSpec({
     required this.label,

@@ -18,6 +18,7 @@ import 'package:rev_crane_control_ops/controllers/customization_mode_controller.
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_slot_grid.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
@@ -765,25 +766,25 @@ class _LiveLedSection extends StatelessWidget {
             label: 'ESTOP',
             active: values.estop,
             color: AppColors.eStopColor,
-            pin: 'R0_0',
+            // pin: 'R0_0',
           ),
           LedSpec(
             label: 'UP',
             active: values.up,
             color: AppColors.upColor,
-            pin: 'Q0.1',
+            // pin: 'Q0.1',
           ),
           LedSpec(
             label: 'DOWN',
             active: values.down,
             color: AppColors.downColor,
-            pin: 'Q0.2',
+            // pin: 'Q0.2',
           ),
           LedSpec(
             label: 'FAST',
             active: values.fast,
             color: AppColors.fastColor,
-            pin: 'Q0.3',
+            // pin: 'Q0.3',
           ),
         ],
       ),
@@ -928,6 +929,20 @@ class _ControlGridSection extends StatelessWidget {
           state: state,
           stateId: resolved.stateId,
           activeVariants: resolved.activeVariants,
+        );
+      },
+      onAnalogCommand: (config, value) {
+        final potentiometer = PotentiometerConfig.fromCustomProperties(
+          config.customProperties,
+        ).normalized();
+        ButtonStateLog.log(
+          'ANALOG_PENDING [${config.id}] -> '
+          '${potentiometer.formatValue(value)} (PLC14)',
+        );
+        context.read<CraneController>().setAnalogButtonValue(
+          buttonId: config.id,
+          value: value,
+          config: potentiometer,
         );
       },
       onEditButton: (config) {

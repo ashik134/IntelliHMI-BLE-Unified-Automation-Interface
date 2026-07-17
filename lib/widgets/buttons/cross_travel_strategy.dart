@@ -92,6 +92,7 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     // No sibling config available through the uniform interface — renders
     // using config's own label for both sides as a reasonable single-config
@@ -132,7 +133,10 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
   /// composition, when the gesture fires for real, always re-resolves the
   /// exact zone via crossTravelZoneId + config.stateMappings (see the
   /// control screens' onCommand handlers).
-  Set<PlcMapping> _nearZoneFieldsFor(ButtonConfig config, {required bool isLeft}) {
+  Set<PlcMapping> _nearZoneFieldsFor(
+    ButtonConfig config, {
+    required bool isLeft,
+  }) {
     final zoneId = crossTravelZoneId(
       isLeftButton: isLeft,
       state: ControlState.slow,
@@ -210,6 +214,7 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final endpoints = traverseEndpointsFor(config);
 

@@ -18,6 +18,8 @@ typedef ButtonActiveStateResolver = ControlState Function(ButtonConfig config);
 typedef ButtonDisabledResolver = bool Function(ButtonConfig config);
 typedef ButtonCommandDispatcher =
     void Function(String buttonId, ControlState state);
+typedef AnalogButtonCommandDispatcher =
+    void Function(ButtonConfig config, double value);
 typedef ButtonEditorLauncher = void Function(ButtonConfig config);
 typedef ButtonSelectionHandler = void Function(ButtonConfig? config);
 typedef ButtonResizeHandler =
@@ -48,6 +50,7 @@ class ControlSlotGrid extends StatefulWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    this.onAnalogCommand,
     this.selectedRole,
     this.selectedButtonId,
     this.onSelectButton,
@@ -69,6 +72,7 @@ class ControlSlotGrid extends StatefulWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
   final String? selectedButtonId;
@@ -187,6 +191,7 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
                   activeStateFor: widget.activeStateFor,
                   isDisabled: widget.isDisabled,
                   onCommand: widget.onCommand,
+                  onAnalogCommand: widget.onAnalogCommand,
                   onEditButton: widget.onEditButton,
                   selectedRole: widget.selectedRole,
                   selectedButtonId: widget.selectedButtonId,
@@ -236,6 +241,7 @@ class _SlotGridBody extends StatelessWidget {
     required this.activeStateFor,
     required this.isDisabled,
     required this.onCommand,
+    required this.onAnalogCommand,
     required this.onEditButton,
     required this.selectedRole,
     required this.selectedButtonId,
@@ -253,6 +259,7 @@ class _SlotGridBody extends StatelessWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
   final String? selectedButtonId;
@@ -325,6 +332,7 @@ class _SlotGridBody extends StatelessWidget {
                         activeStateFor: activeStateFor,
                         isDisabled: isDisabled,
                         onCommand: onCommand,
+                        onAnalogCommand: onAnalogCommand,
                         onEditButton: onEditButton,
                         selectedRole: selectedRole,
                         selectedButtonId: selectedButtonId,
@@ -350,6 +358,7 @@ class _SlotGridBody extends StatelessWidget {
                     activeStateFor: activeStateFor,
                     isDisabled: isDisabled,
                     onCommand: onCommand,
+                    onAnalogCommand: onAnalogCommand,
                     onEditButton: onEditButton,
                     selectedRole: selectedRole,
                     selectedButtonId: selectedButtonId,
@@ -453,6 +462,7 @@ class _SlotTarget extends StatefulWidget {
     required this.activeStateFor,
     required this.isDisabled,
     required this.onCommand,
+    required this.onAnalogCommand,
     required this.onEditButton,
     required this.selectedRole,
     required this.selectedButtonId,
@@ -469,6 +479,7 @@ class _SlotTarget extends StatefulWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
   final String? selectedButtonId;
@@ -499,6 +510,7 @@ class _SlotTargetState extends State<_SlotTarget> {
                   activeState: widget.activeStateFor(widget.item!.config),
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
+                  onAnalogCommand: widget.onAnalogCommand,
                 ),
               ),
       );
@@ -555,6 +567,7 @@ class _SlotTargetState extends State<_SlotTarget> {
                   activeState: widget.activeStateFor(widget.item!.config),
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
+                  onAnalogCommand: widget.onAnalogCommand,
                   onEditButton: widget.onEditButton,
                   onResizeButton: widget.onResizeButton,
                   isSelected: selected,
@@ -610,6 +623,7 @@ class _DraggableSlotContent extends StatelessWidget {
     required this.activeState,
     required this.isDisabled,
     required this.onCommand,
+    required this.onAnalogCommand,
     required this.onEditButton,
     required this.onResizeButton,
     required this.isSelected,
@@ -620,6 +634,7 @@ class _DraggableSlotContent extends StatelessWidget {
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ButtonResizeHandler? onResizeButton;
   final bool isSelected;
@@ -645,6 +660,7 @@ class _DraggableSlotContent extends StatelessWidget {
                   activeState: activeState,
                   isDisabled: true,
                   onCommand: onCommand,
+                  onAnalogCommand: onAnalogCommand,
                 ),
               ),
             ),
@@ -693,12 +709,14 @@ class _ButtonBody extends StatelessWidget {
     required this.activeState,
     required this.isDisabled,
     required this.onCommand,
+    required this.onAnalogCommand,
   });
 
   final ButtonConfig config;
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final AnalogButtonCommandDispatcher? onAnalogCommand;
 
   @override
   Widget build(BuildContext context) {
@@ -709,6 +727,7 @@ class _ButtonBody extends StatelessWidget {
           activeState: activeState,
           isDisabled: isDisabled,
           onCommand: onCommand,
+          onAnalogCommand: onAnalogCommand,
           height: constraints.maxHeight,
         );
       },
