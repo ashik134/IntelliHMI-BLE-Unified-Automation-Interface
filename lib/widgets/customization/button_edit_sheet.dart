@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
+import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
@@ -474,6 +476,14 @@ class _OutputMappingEditor extends StatelessWidget {
       );
     }
 
+    if (config.type == ButtonType.alarmIndicator) {
+      return _AlarmIndicatorOutputEditor(
+        config: config,
+        bucket: bucket,
+        onChanged: onChanged,
+      );
+    }
+
     final states = config.type.logicalStates;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -716,6 +726,72 @@ class _PotentiometerOutputEditor extends StatelessWidget {
   }
 }
 
+class _AlarmIndicatorOutputEditor extends StatelessWidget {
+  const _AlarmIndicatorOutputEditor({
+    required this.config,
+    required this.bucket,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final LayoutBucket bucket;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final alarmConfig = AlarmIndicatorConfig.fromCustomProperties(
+      config.customProperties,
+    );
+
+    if (!alarmConfig.acknowledgeEnabled) {
+      return const _InfoNote(
+        message:
+            'This indicator is view-only — it never sends a PLC output. '
+            'Turn on "Allow acknowledge" in the ALARM INDICATOR tab to map '
+            'an output for the acknowledge/mute tap.',
+      );
+    }
+
+    final state = config.type.logicalStates.single;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _InfoNote(
+          message:
+              'Sent only when the operator taps to acknowledge/mute an '
+              'active alarm — never for display state changes.',
+          color: AppColors.fastColor,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          state.label,
+          style: const TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _VariantChipGroup(
+          selectable: selectableVariantsFor(bucket),
+          selected: config.stateMappings[state.id]?.activeVariants ?? const {},
+          onChanged: (next) {
+            final updated = Map<String, ButtonStateOutputMapping>.from(
+              config.stateMappings,
+            );
+            updated[state.id] = ButtonStateOutputMapping(
+              stateId: state.id,
+              activeVariants: next,
+            );
+            onChanged(config.copyWith(stateMappings: updated));
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _VariantChipGroup extends StatelessWidget {
   const _VariantChipGroup({
     required this.selectable,
@@ -929,8 +1005,23 @@ class _CustomButtonConfigEditor extends StatelessWidget {
                 onChanged: onChanged,
               ),
             ),
+          if (realConfig.type == ButtonType.horn)
+            _TabCard(
+              title: 'HORN / BUZZER',
+              child: _HornConfigEditor(config: realConfig, onChanged: onChanged),
+            ),
+          if (realConfig.type == ButtonType.alarmIndicator)
+            _TabCard(
+              title: 'ALARM INDICATOR',
+              child: _AlarmIndicatorConfigEditor(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
+            ),
           if (realConfig.type != ButtonType.joystick &&
-              realConfig.type != ButtonType.potentiometer)
+              realConfig.type != ButtonType.potentiometer &&
+              realConfig.type != ButtonType.horn &&
+              realConfig.type != ButtonType.alarmIndicator)
             const _TabCard(
               title: 'CUSTOM PARAMETERS',
               child: _InfoNote(
@@ -1056,16 +1147,24 @@ const _customTypeEntries = [
     note: 'Digital or analog joystick-style control.',
   ),
   _CustomTypeEntry(
-    type: null,
-    label: 'Gauge',
-    icon: Icons.speed_rounded,
-    available: false,
-    note: 'Coming soon.',
+    type: ButtonType.horn,
+    label: 'Horn / Buzzer',
+    icon: Icons.campaign_rounded,
+    available: true,
+    note: 'Momentary or latched horn output, with glow and beep feedback.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.alarmIndicator,
+    label: 'Alarm Indicator',
+    icon: Icons.notification_important_rounded,
+    available: true,
+    note: 'Status monitor for PLC alarm feedback. View-only unless '
+        'acknowledge is enabled.',
   ),
   _CustomTypeEntry(
     type: null,
-    label: 'Indicator',
-    icon: Icons.lightbulb_outline_rounded,
+    label: 'Gauge',
+    icon: Icons.speed_rounded,
     available: false,
     note: 'Coming soon.',
   ),
@@ -1337,7 +1436,8 @@ class _CustomBehaviorPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final wiringApplicable =
         config.type == ButtonType.pushButton ||
-        config.type == ButtonType.toggle;
+        config.type == ButtonType.toggle ||
+        config.type == ButtonType.horn;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1986,6 +2086,166 @@ class _PotentiometerPresetChip extends StatelessWidget {
   }
 }
 
+class _HornConfigEditor extends StatelessWidget {
+  const _HornConfigEditor({required this.config, required this.onChanged});
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final horn = HornConfig.fromCustomProperties(config.customProperties);
+
+    void save(HornConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'SOUND PATTERN',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final pattern in HornSoundPattern.values)
+              ChoiceChip(
+                label: Text(_hornPatternLabel(pattern)),
+                selected: horn.soundPattern == pattern,
+                selectedColor: AppColors.accent.withAlpha(55),
+                labelStyle: TextStyle(
+                  color: horn.soundPattern == pattern
+                      ? AppColors.accent
+                      : AppColors.darkTextSub,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+                onSelected: (_) => save(horn.copyWith(soundPattern: pattern)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          value: horn.visualBeepAnimation,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Beep ring animation',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(horn.copyWith(visualBeepAnimation: value)),
+        ),
+        SwitchListTile(
+          value: horn.hapticFeedback,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Haptic feedback',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(horn.copyWith(hapticFeedback: value)),
+        ),
+      ],
+    );
+  }
+}
+
+String _hornPatternLabel(HornSoundPattern pattern) => switch (pattern) {
+  HornSoundPattern.steady => 'Steady',
+  HornSoundPattern.pulsing => 'Pulsing',
+  HornSoundPattern.doubleBeep => 'Double beep',
+};
+
+class _AlarmIndicatorConfigEditor extends StatelessWidget {
+  const _AlarmIndicatorConfigEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final alarm = AlarmIndicatorConfig.fromCustomProperties(
+      config.customProperties,
+    );
+
+    void save(AlarmIndicatorConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _InfoNote(
+          message:
+              'Severity is currently driven by this button\'s live state '
+              '(idle/slow/fast) as a stand-in until real PLC alarm status '
+              'feedback is wired up.',
+        ),
+        const SizedBox(height: 10),
+        SwitchListTile(
+          value: alarm.acknowledgeEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Allow acknowledge',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          subtitle: const Text(
+            'Lets the operator tap to acknowledge/mute an active alarm. '
+            'Configure the resulting output in OUTPUT MAPPING above.',
+            style: TextStyle(color: AppColors.darkTextSub, fontSize: 10.5),
+          ),
+          onChanged: (value) => save(alarm.copyWith(acknowledgeEnabled: value)),
+        ),
+        SwitchListTile(
+          value: alarm.showStatusText,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Show status text',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(alarm.copyWith(showStatusText: value)),
+        ),
+        SwitchListTile(
+          value: alarm.showTimestamp,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Show timestamp area',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(alarm.copyWith(showTimestamp: value)),
+        ),
+      ],
+    );
+  }
+}
+
 class _ConfigTextField extends StatefulWidget {
   const _ConfigTextField({
     required this.label,
@@ -2098,14 +2358,20 @@ ButtonConfig _newCustomButtonSeed({
 /// ButtonType -> ControlWidgetType, purely for feeding the existing
 /// AxisTypePreview widget's API (presentation-only — the model itself reads
 /// and writes ButtonType directly, with no ControlWidgetType intermediary).
+/// horn/alarmIndicator are never reachable here — they're absent from
+/// _typeEntries (the 8 legacy motion/safety roles never offer them, since a
+/// hoist/traverse/travel axis becoming a horn or alarm makes no semantic
+/// sense) and only ever created via the free-standing custom-button picker,
+/// which uses AxisTypePreview's replacement, not this function.
 ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
-  ButtonType.pushButton => ControlWidgetType.pushButton,
+  ButtonType.pushButton || ButtonType.horn => ControlWidgetType.pushButton,
   ButtonType.toggle => ControlWidgetType.toggle,
   ButtonType.sliderButton ||
   ButtonType.crossTravel ||
   ButtonType.crossTravelSlowOnly => ControlWidgetType.sliderButton,
   ButtonType.joystick => ControlWidgetType.joystick,
-  ButtonType.potentiometer => ControlWidgetType.rotary,
+  ButtonType.potentiometer || ButtonType.alarmIndicator =>
+    ControlWidgetType.rotary,
 };
 
 bool _spanAwareTypeChangesEnabled() => true;

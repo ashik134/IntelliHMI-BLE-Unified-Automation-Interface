@@ -858,7 +858,7 @@ class _LiveLedSection extends StatelessWidget {
             label: 'FW',
             active: v.forward,
             color: AppColors.travelColor,
-            pin: 'Q0.7',
+            // pin: 'Q0.7',
           ),
           LedSpec(
             label: 'RV',

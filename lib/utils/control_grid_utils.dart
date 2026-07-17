@@ -101,6 +101,18 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config.type == ButtonType.potentiometer) {
     return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
   }
+  if (config.type == ButtonType.alarmIndicator) {
+    // AlarmIndicatorControl has no gesture-driven physical state (see
+    // logicalStateIdFor) — any onCommand call it makes is always the
+    // operator's acknowledge/mute tap, regardless of the ControlState value
+    // passed through (AlarmIndicatorStrategy always passes ControlState.slow
+    // as a nominal "non-idle" signal).
+    return ResolvedButtonCommand(
+      stateId: 'acknowledge',
+      activeVariants:
+          config.stateMappings['acknowledge']?.activeVariants ?? const {},
+    );
+  }
 
   final String stateId;
   if (config.type == ButtonType.crossTravel ||

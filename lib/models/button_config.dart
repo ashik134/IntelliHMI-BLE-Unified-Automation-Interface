@@ -28,6 +28,8 @@ enum ButtonType {
   crossTravelSlowOnly,
   joystick,
   potentiometer,
+  horn,
+  alarmIndicator,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,8 +359,12 @@ class ButtonConfig {
 
     switch (type) {
       case ButtonType.pushButton:
+      case ButtonType.horn:
         // Legacy push buttons never reached ControlState.fast — 'active'
-        // gets the slow-equivalent set only.
+        // gets the slow-equivalent set only. Horn shares the identical
+        // idle/active shape (see ButtonTypeLogicalStates) but is never a
+        // fromLegacyAxis migration target — reachable only for
+        // completeness/future direct construction.
         return {
           ...entry('idle', idleVariants),
           ...entry('active', slowVariants),
@@ -371,6 +377,11 @@ class ButtonConfig {
           ...entry('step2', fastVariants),
         };
       case ButtonType.potentiometer:
+      case ButtonType.alarmIndicator:
+        // Alarm indicator is a monitor widget — its severity is caller-
+        // supplied, never composed from stateMappings (see
+        // AlarmIndicatorStrategy). Its only mappable state is 'acknowledge',
+        // left empty/inert by default (opt-in via the edit sheet).
         return const <String, ButtonStateOutputMapping>{};
       case ButtonType.toggle:
         return {

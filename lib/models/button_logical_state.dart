@@ -76,6 +76,20 @@ extension ButtonTypeLogicalStates on ButtonType {
       ButtonLogicalState(id: 'step2', label: 'Step 2', isIdle: false),
     ],
     ButtonType.potentiometer => const [],
+    ButtonType.horn => const [
+      ButtonLogicalState(id: 'idle', label: 'Idle / Off', isIdle: true),
+      ButtonLogicalState(id: 'active', label: 'Sounding / On', isIdle: false),
+    ],
+    // AlarmIndicatorControl's own displayed severity is never composed from
+    // this table (see AlarmIndicatorStrategy) — 'acknowledge' is the sole
+    // optional, user-opt-in output a configured alarm may emit on tap.
+    ButtonType.alarmIndicator => const [
+      ButtonLogicalState(
+        id: 'acknowledge',
+        label: 'Acknowledge / Mute',
+        isIdle: false,
+      ),
+    ],
   };
 }
 

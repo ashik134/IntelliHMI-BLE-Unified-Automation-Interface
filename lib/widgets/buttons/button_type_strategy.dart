@@ -68,6 +68,7 @@ String logicalStateIdFor({
 }) {
   switch (type) {
     case ButtonType.pushButton:
+    case ButtonType.horn:
       return switch (physicalState) {
         ControlState.idle => 'idle',
         ControlState.slow || ControlState.fast => 'active',
@@ -93,6 +94,14 @@ String logicalStateIdFor({
     case ButtonType.potentiometer:
       throw UnsupportedError(
         'logicalStateIdFor does not handle analog potentiometer values.',
+      );
+    case ButtonType.alarmIndicator:
+      // AlarmIndicatorControl has no gesture-driven physical state — its
+      // severity is caller-supplied, never physical-state-derived. Reaching
+      // here is a programming error; see AlarmIndicatorStrategy.
+      throw UnsupportedError(
+        'logicalStateIdFor does not handle alarmIndicator; its severity is '
+        'caller-supplied, not gesture-derived.',
       );
     case ButtonType.crossTravel:
     case ButtonType.crossTravelSlowOnly:
