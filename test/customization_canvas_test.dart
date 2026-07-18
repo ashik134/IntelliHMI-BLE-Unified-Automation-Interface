@@ -20,7 +20,6 @@ Widget _harness(CustomizationModeController customCtrl) {
             builder: (context, ctrl, _) => CustomizationCanvas(
               layoutCfg: ctrl.draft,
               roles: const [ControlRole.hoistUp, ControlRole.hoistDown],
-              slotCount: 2,
               onEditRole: (_) {},
             ),
           ),

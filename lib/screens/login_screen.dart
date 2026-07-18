@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
+import 'package:rev_crane_control_ops/services/biometric_service.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
@@ -27,6 +28,15 @@ class _LoginScreenState extends State<LoginScreen>
 
   // Tracks the last error message to avoid showing duplicate snackbars.
   String? _lastShownError;
+
+  // Local-only: true while the device biometric prompt / the follow-up PLC
+  // round-trip it triggers is in flight. Distinct from
+  // controller.isAuthenticating so the biometric button can show its own
+  // spinner without the manual form fields also disabling mid-scan — both
+  // paths end up inside the SAME controller.authenticate() call, so once the
+  // PLC round-trip actually starts, controller.isAuthenticating covers it too.
+  bool _biometricInFlight = false;
+  _AuthErrorState? _biometricError;
 
   CraneController? _controllerRef;
 
@@ -414,6 +424,27 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ],
           ],
+          if (!authenticated &&
+              controller.isBiometricAvailable &&
+              controller.isBiometricEnrolled) ...[
+            const SizedBox(height: 18),
+            _BiometricLoginButton(
+              busy: _biometricInFlight,
+              enabled: !controller.isAuthenticating && !_biometricInFlight,
+              onPressed: _submitBiometric,
+            ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: _biometricError == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: ValueKey('biometric_${_biometricError!.message}'),
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _AuthErrorCard(state: _biometricError!),
+                    ),
+            ),
+            const _OrDivider(label: 'OR SIGN IN WITH CREDENTIALS'),
+          ],
           if (!authenticated) ...[
             const SizedBox(height: 18),
             Form(
@@ -726,6 +757,96 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<void> _submitBiometric() async {
+    final controller = context.read<CraneController>();
+    if (controller.isAuthenticated) {
+      _continueAfterAuthentication(controller);
+      return;
+    }
+
+    if (!_hasAuthenticationSession(controller)) {
+      _showSnack(
+        'Connection session ended. Return to scan and reconnect before retrying.',
+      );
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _biometricInFlight = true;
+      _biometricError = null;
+    });
+
+    final result = await controller.authenticateWithBiometrics();
+
+    if (!mounted) return;
+
+    // Cancellation is not an error — the operator changed their mind or the
+    // OS prompt was dismissed. Stay on the page with no banner, exactly as
+    // if they'd never tapped the button (per the "stay on the Authentication
+    // Page" requirement for failed/cancelled biometric attempts).
+    if (result.isCancelled) {
+      setState(() => _biometricInFlight = false);
+      return;
+    }
+
+    if (!result.isSuccess) {
+      setState(() {
+        _biometricInFlight = false;
+        _biometricError = _errorStateForBiometricResult(result);
+      });
+      return;
+    }
+
+    setState(() => _biometricInFlight = false);
+    // Success already ran the real PLC authenticate() call underneath (see
+    // CraneController.authenticateWithBiometrics) — controller.isAuthenticated
+    // now reflects a genuine PLC-verified session, so the existing
+    // "authenticated" branch of the form just renders itself via the
+    // controller listener; nothing else to trigger here.
+  }
+
+  _AuthErrorState _errorStateForBiometricResult(BiometricAuthResult result) {
+    final message = result.message ?? 'Biometric authentication failed.';
+    return switch (result.status) {
+      BiometricAuthStatus.notEnrolled => _AuthErrorState(
+        title: 'No biometrics enrolled',
+        message: message,
+        icon: Icons.fingerprint_rounded,
+      ),
+      BiometricAuthStatus.notAvailable => _AuthErrorState(
+        title: 'Biometrics unavailable',
+        message: message,
+        icon: Icons.no_encryption_gmailerrorred_rounded,
+      ),
+      BiometricAuthStatus.lockedOut => _AuthErrorState(
+        title: 'Biometrics temporarily locked',
+        message: message,
+        icon: Icons.lock_clock_rounded,
+      ),
+      BiometricAuthStatus.permanentlyLockedOut => _AuthErrorState(
+        title: 'Biometrics locked',
+        message: message,
+        icon: Icons.lock_rounded,
+      ),
+      BiometricAuthStatus.credentialsMissing => _AuthErrorState(
+        title: 'Biometric login expired',
+        message: message,
+        icon: Icons.fingerprint_rounded,
+      ),
+      BiometricAuthStatus.failure => _AuthErrorState(
+        title: 'Sign-in rejected',
+        message: message,
+        icon: Icons.lock_person_rounded,
+      ),
+      _ => _AuthErrorState(
+        title: 'Biometric authentication failed',
+        message: message,
+        icon: Icons.error_outline_rounded,
+      ),
+    };
+  }
+
   void _showSnack(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -900,6 +1021,143 @@ class _ContextInfoPill extends StatelessWidget {
                 letterSpacing: 0.2,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Biometric sign-in — a convenience local unlock only. Success here
+// still runs the real PLC authenticate() call underneath (see
+// CraneController.authenticateWithBiometrics); this button never grants
+// crane-control access on its own.
+// ═══════════════════════════════════════════════════════════════
+
+class _BiometricLoginButton extends StatelessWidget {
+  const _BiometricLoginButton({
+    required this.busy,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+            color: AppColors.brandVioletSoft,
+            border: Border.all(color: AppColors.brandViolet.withAlpha(70)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.brandViolet.withAlpha(60),
+                  ),
+                ),
+                child: busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: AppColors.brandViolet,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.fingerprint_rounded,
+                        color: AppColors.brandViolet,
+                        size: 24,
+                      ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      busy ? 'Verifying biometrics…' : 'Sign in with biometrics',
+                      style: const TextStyle(
+                        color: AppColors.brandVioletDeep,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      busy
+                          ? 'Confirm with fingerprint, face, or device unlock'
+                          : 'Use this device\'s fingerprint or face unlock',
+                      style: TextStyle(
+                        color: AppColors.brandTextSub.withValues(alpha: 0.9),
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!busy)
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: AppColors.brandViolet,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrDivider extends StatelessWidget {
+  const _OrDivider({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Divider(color: AppColors.brandBorder, height: 1),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.brandTextMuted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          const Expanded(
+            child: Divider(color: AppColors.brandBorder, height: 1),
           ),
         ],
       ),

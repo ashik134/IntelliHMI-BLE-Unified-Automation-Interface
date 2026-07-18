@@ -766,6 +766,8 @@ class _LiveLedSection extends StatelessWidget {
             label: 'ESTOP',
             active: values.estop,
             color: AppColors.eStopColor,
+            inactiveColor: AppColors.darkSuccess,
+            pulseWhenInactive: true,
             // pin: 'R0_0',
           ),
           LedSpec(
