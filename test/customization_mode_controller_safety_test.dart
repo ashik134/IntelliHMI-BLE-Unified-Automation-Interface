@@ -24,6 +24,7 @@ import 'package:rev_crane_control_ops/controllers/customization_mode_controller.
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 CustomizationModeController _controller() {
@@ -143,6 +144,7 @@ void main() {
     final deleteResult = customCtrl.deleteSelectedButton();
     expect(deleteResult.isValid, isTrue);
     expect(customCtrl.selectedButton, isNull);
+    expect(customCtrl.draft.resolvedButtons.containsKey('custom_test'), false);
   });
 
   test(
@@ -161,6 +163,54 @@ void main() {
       expect(customCtrl.canDeleteSelectedButton, isFalse);
     },
   );
+
+  test(
+    'deleting a selected button removes its config without shifting neighbors',
+    () async {
+      final customCtrl = _controller();
+      await customCtrl.enter();
+
+      final up = customCtrl.draft.buttonFor(ControlRole.hoistUp)!;
+      final downBefore = customCtrl.draft.buttonFor(ControlRole.hoistDown)!;
+      final pageCountBefore = customCtrl.draft.controlPageCount;
+
+      customCtrl.selectButton(up);
+      final result = customCtrl.deleteSelectedButton();
+
+      expect(result.isValid, isTrue);
+      expect(customCtrl.selectedButton, isNull);
+      expect(customCtrl.selectedSlotId, isNull);
+      expect(customCtrl.draft.buttonFor(ControlRole.hoistUp), isNull);
+      expect(
+        customCtrl.draft.buttons.containsKey(ControlRole.hoistUp.name),
+        false,
+      );
+      expect(
+        customCtrl.draft.buttonFor(ControlRole.hoistDown)!.slotIndex,
+        downBefore.slotIndex,
+      );
+      expect(
+        customCtrl.draft.buttonFor(ControlRole.hoistDown)!.gridX,
+        downBefore.gridX,
+      );
+      expect(customCtrl.draft.controlPageCount, pageCountBefore);
+      expect(customCtrl.lastValidation.isValid, isTrue);
+    },
+  );
+
+  test('deleting protected safety controls is rejected', () async {
+    final customCtrl = _controller();
+    await customCtrl.enter();
+
+    final estop = customCtrl.draft.buttonFor(ControlRole.estop)!;
+    customCtrl.selectButton(estop);
+
+    expect(customCtrl.canDeleteSelectedButton, isFalse);
+    final result = customCtrl.deleteSelectedButton();
+
+    expect(result.isValid, isFalse);
+    expect(customCtrl.draft.buttonFor(ControlRole.estop), isNotNull);
+  });
 
   test(
     'a freshly-added custom button with empty stateMappings is valid and '
@@ -191,45 +241,45 @@ void main() {
     },
   );
 
-  test(
-    'editing stateMappings via applyDraftChange is exactly as inert during '
-    'Customization Mode as any other draft edit (e.g. label) — never '
-    'triggers a CraneController send',
-    () async {
-      final customCtrl = _controller();
-      await customCtrl.enter();
+  test('editing stateMappings via applyDraftChange is exactly as inert during '
+      'Customization Mode as any other draft edit (e.g. label) — never '
+      'triggers a CraneController send', () async {
+    final customCtrl = _controller();
+    await customCtrl.enter();
 
-      const buttonId = 'hoistUp';
-      final before = customCtrl.draft.resolvedButtons[buttonId]!;
-      customCtrl.applyDraftChange(
-        customCtrl.draft.withButton(
-          buttonId,
-          before.copyWith(
-            stateMappings: {
-              'active': const ButtonStateOutputMapping(
-                stateId: 'active',
-                activeVariants: {PlcMapping.up},
-              ),
-            },
-          ),
+    const buttonId = 'hoistUp';
+    final before = customCtrl.draft.resolvedButtons[buttonId]!;
+    customCtrl.applyDraftChange(
+      customCtrl.draft.withButton(
+        buttonId,
+        before.copyWith(
+          stateMappings: {
+            'active': const ButtonStateOutputMapping(
+              stateId: 'active',
+              activeVariants: {PlcMapping.up},
+            ),
+          },
         ),
-      );
+      ),
+    );
 
-      expect(
-        customCtrl.draft.resolvedButtons[buttonId]!.stateMappings['active']
-            ?.activeVariants,
-        {PlcMapping.up},
-      );
-      // No BLE connection exists in this test at all — if editing
-      // stateMappings ever triggered a CraneController command send, that
-      // call would throw/no-op silently either way, but the more direct
-      // proof is architectural: CustomizationModeController.applyDraftChange
-      // only ever mutates _draft (see the file's own header comment) and
-      // this test's CraneController is never connected, so isConnected is
-      // false and any accidental send attempt would be a guarded no-op —
-      // isActive staying true and the draft value updating above is the
-      // observable proof this stayed a pure draft mutation.
-      expect(customCtrl.isActive, isTrue);
-    },
-  );
+    expect(
+      customCtrl
+          .draft
+          .resolvedButtons[buttonId]!
+          .stateMappings['active']
+          ?.activeVariants,
+      {PlcMapping.up},
+    );
+    // No BLE connection exists in this test at all — if editing
+    // stateMappings ever triggered a CraneController command send, that
+    // call would throw/no-op silently either way, but the more direct
+    // proof is architectural: CustomizationModeController.applyDraftChange
+    // only ever mutates _draft (see the file's own header comment) and
+    // this test's CraneController is never connected, so isConnected is
+    // false and any accidental send attempt would be a guarded no-op —
+    // isActive staying true and the draft value updating above is the
+    // observable proof this stayed a pure draft mutation.
+    expect(customCtrl.isActive, isTrue);
+  });
 }

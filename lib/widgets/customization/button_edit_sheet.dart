@@ -1100,7 +1100,8 @@ const _customTypeEntries = [
     label: 'Alarm Indicator',
     icon: Icons.notification_important_rounded,
     available: true,
-    note: 'Status monitor for PLC alarm feedback. View-only unless '
+    note:
+        'Status monitor for PLC alarm feedback. View-only unless '
         'acknowledge is enabled.',
   ),
   _CustomTypeEntry(
@@ -2527,8 +2528,8 @@ ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
   ButtonType.crossTravel ||
   ButtonType.crossTravelSlowOnly => ControlWidgetType.sliderButton,
   ButtonType.joystick => ControlWidgetType.joystick,
-  ButtonType.potentiometer || ButtonType.alarmIndicator =>
-    ControlWidgetType.rotary,
+  ButtonType.potentiometer ||
+  ButtonType.alarmIndicator => ControlWidgetType.rotary,
 };
 
 bool _spanAwareTypeChangesEnabled() => true;
@@ -2636,14 +2637,46 @@ class _TypeTab extends StatelessWidget {
     final secondaryRole = axis.secondaryRole;
     final (primaryColor, primaryColorLight) = colorsForRole(primaryRole);
     final (secondaryColor, secondaryColorLight) = colorsForRole(secondaryRole);
+    final primaryConfig = draft.buttonFor(primaryRole);
+    final secondaryConfig = draft.buttonFor(secondaryRole);
+    final editConfig = editRole == null ? null : draft.buttonFor(editRole!);
+
+    if (editRole != null && editConfig == null) {
+      return ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.all(16),
+        children: const [
+          _TabCard(
+            title: 'CONTROL TYPE',
+            child: _InfoNote(message: 'This control has been removed.'),
+          ),
+        ],
+      );
+    }
+    if (editRole == null &&
+        (primaryConfig == null || secondaryConfig == null)) {
+      return ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.all(16),
+        children: const [
+          _TabCard(
+            title: 'CONTROL TYPE',
+            child: _InfoNote(
+              message:
+                  'Both axis directions must exist before editing the paired control type.',
+            ),
+          ),
+        ],
+      );
+    }
 
     // Per-button edit (editRole != null): this button's own type. Axis-level
     // edit (traverse cross-travel pair, editRole == null): show "mixed" if
     // the two directions currently disagree, else the shared type.
-    final primaryType = draft.buttonFor(primaryRole)!.type;
-    final secondaryType = draft.buttonFor(secondaryRole)!.type;
+    final primaryType = primaryConfig?.type ?? editConfig!.type;
+    final secondaryType = secondaryConfig?.type ?? editConfig!.type;
     final previewType = editRole != null
-        ? draft.buttonFor(editRole!)!.type
+        ? editConfig!.type
         : (primaryType == secondaryType ? primaryType : null);
 
     final entries = [
@@ -2666,9 +2699,9 @@ class _TypeTab extends StatelessWidget {
             children: [
               _InfoNote(
                 message: editRole != null
-                    ? 'Applies to ${draft.buttonFor(editRole!)!.label} only.'
-                    : 'Applies to both ${draft.buttonFor(primaryRole)!.label} and '
-                          '${draft.buttonFor(secondaryRole)!.label} on '
+                    ? 'Applies to ${editConfig!.label} only.'
+                    : 'Applies to both ${primaryConfig!.label} and '
+                          '${secondaryConfig!.label} on '
                           '${axis.displayName}.',
               ),
               if (previewType == null) ...[
@@ -2683,8 +2716,7 @@ class _TypeTab extends StatelessWidget {
                 _TypeTile(
                   entry: entry,
                   isSelected: entry.isNone
-                      ? editRole != null &&
-                            draft.buttonFor(editRole!)?.visible == false
+                      ? editRole != null && editConfig?.visible == false
                       : previewType != null && previewType == entry.type,
                   onTap: entry.available
                       ? () {
@@ -2715,7 +2747,7 @@ class _TypeTab extends StatelessWidget {
                                 primaryType == ButtonType.crossTravel &&
                                 secondaryType == ButtonType.crossTravel;
                             final combinedCrossTravelRole =
-                                draft.buttonFor(primaryRole)!.visible
+                                primaryConfig?.visible == true
                                 ? primaryRole
                                 : secondaryRole;
                             final rolesToUpdate =
@@ -2770,9 +2802,10 @@ class _TypeTab extends StatelessWidget {
           title: 'LIVE PREVIEW',
           child: AxisTypePreview(
             widgetType: _previewWidgetType(previewType ?? primaryType),
-            wiringConfig: draft.buttonFor(primaryRole)!.behavior.wiring,
-            primaryLabel: draft.buttonFor(primaryRole)!.label,
-            secondaryLabel: draft.buttonFor(secondaryRole)!.label,
+            wiringConfig: (primaryConfig ?? editConfig!).behavior.wiring,
+            primaryLabel: primaryConfig?.label ?? primaryRole.defaultLabel,
+            secondaryLabel:
+                secondaryConfig?.label ?? secondaryRole.defaultLabel,
             primaryIcon: iconForRole(primaryRole),
             secondaryIcon: iconForRole(secondaryRole),
             primaryColor: primaryColor,

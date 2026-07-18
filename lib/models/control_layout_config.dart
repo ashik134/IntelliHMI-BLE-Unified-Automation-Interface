@@ -696,7 +696,8 @@ class ControlLayoutConfig {
     this.axisOrder = kDefaultAxisOrder,
     this.buttons = const <String, ButtonConfig>{},
     this.controlPageCount = 1,
-  });
+    bool buttonsAreAuthoritative = false,
+  }) : _buttonsAreAuthoritative = buttonsAreAuthoritative;
 
   /// Schema version. Bumped 2 → 3 by the button-centric refactor: adds the
   /// `buttons` map AND, for the first time, this field is actually written
@@ -716,7 +717,11 @@ class ControlLayoutConfig {
   /// Bumped 6 -> 7 by the potentiometer control addition: ButtonType gains
   /// `potentiometer`, with analog range/output metadata stored in
   /// ButtonConfig.customProperties.
-  static const int schemaVersion = 7;
+  ///
+  /// Bumped 7 -> 8 by true button deletion: a present `buttons` map is now
+  /// authoritative. Missing entries are deleted controls, not legacy defaults
+  /// to synthesize back in.
+  static const int schemaVersion = 8;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
@@ -740,23 +745,20 @@ class ControlLayoutConfig {
   /// JSON) or synthesized from [axisConfigs]/[roleStyles]/[labelConfig] on
   /// load when absent (old-format JSON) — see [fromJson].
   final Map<String, ButtonConfig> buttons;
+  final bool _buttonsAreAuthoritative;
 
   /// User-requested minimum number of horizontal control pages. Extra pages
   /// are also rendered automatically when buttons occupy higher page indexes.
   final int controlPageCount;
 
-  /// Fallback default buttons map, used only when [buttons] lacks an entry
-  /// for a role — this happens exclusively for `const ControlLayoutConfig()`
-  /// (whose `buttons` defaults to `{}`), since every config loaded through
-  /// [fromJson] always has `buttons` populated for all 8 roles via
-  /// [_synthesizeButtonsFromLegacy]. This is the SINGLE fallback point for
-  /// the whole app — screens and the edit sheet call [buttonFor] and treat
-  /// its result as always non-null for the 8 closed ControlRole values,
-  /// rather than each maintaining its own "effectiveX" resolver per field.
-  Map<String, ButtonConfig> get resolvedButtons => {
-    ..._synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig),
-    ...buttons,
-  };
+  /// Effective button map. The bare `const ControlLayoutConfig()` constructor
+  /// still resolves to synthesized legacy defaults so tests and fallback
+  /// callers have a useful layout. Once [buttons] is present, the map is
+  /// treated as authoritative: missing ids are intentionally deleted controls.
+  Map<String, ButtonConfig> get resolvedButtons =>
+      _buttonsAreAuthoritative || buttons.isNotEmpty
+      ? buttons
+      : _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
 
   ButtonConfig? buttonFor(ControlRole role) => resolvedButtons[role.name];
 
@@ -782,6 +784,9 @@ class ControlLayoutConfig {
       axisOrder: axisOrder ?? this.axisOrder,
       buttons: buttons ?? this.buttons,
       controlPageCount: controlPageCount ?? this.controlPageCount,
+      buttonsAreAuthoritative: buttons != null
+          ? true
+          : _buttonsAreAuthoritative,
     );
   }
 
@@ -947,16 +952,14 @@ class ControlLayoutConfig {
       roleStyles,
       labelConfig,
     );
-    final buttons = json['buttons'] != null
-        ? {
-            ...legacyButtons,
-            ...(json['buttons'] as Map<String, dynamic>).map(
-              (id, v) => MapEntry(
-                id,
-                ButtonConfig.fromJson(v as Map<String, dynamic>),
-              ),
-            ),
-          }
+    final schema = _parseSchemaVersion(json['schemaVersion']);
+    final hasButtons = json['buttons'] != null;
+    final buttons = hasButtons
+        ? _buttonsFromJson(
+            json['buttons'],
+            legacyButtons: legacyButtons,
+            completeFromLegacy: schema < 8,
+          )
         : legacyButtons;
 
     return ControlLayoutConfig(
@@ -976,6 +979,7 @@ class ControlLayoutConfig {
       axisOrder: _parseAxisOrder(json['axisOrder']),
       buttons: buttons,
       controlPageCount: _parsePositiveInt(json['controlPageCount']),
+      buttonsAreAuthoritative: hasButtons && schema >= 8,
     );
   }
 
@@ -1042,6 +1046,23 @@ int _parsePositiveInt(dynamic value, {int fallback = 1}) {
   final parsed = value is num ? value.toInt() : int.tryParse('$value');
   if (parsed == null || parsed < 1) return fallback;
   return parsed;
+}
+
+int _parseSchemaVersion(dynamic value) {
+  final parsed = value is num ? value.toInt() : int.tryParse('$value');
+  return parsed ?? 0;
+}
+
+Map<String, ButtonConfig> _buttonsFromJson(
+  dynamic raw, {
+  required Map<String, ButtonConfig> legacyButtons,
+  required bool completeFromLegacy,
+}) {
+  final parsed = (raw as Map<String, dynamic>).map(
+    (id, v) => MapEntry(id, ButtonConfig.fromJson(v as Map<String, dynamic>)),
+  );
+  if (!completeFromLegacy) return parsed;
+  return {...legacyButtons, ...parsed};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

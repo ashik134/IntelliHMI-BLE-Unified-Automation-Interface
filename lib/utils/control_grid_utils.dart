@@ -101,7 +101,8 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config.type == ButtonType.potentiometer) {
     return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
   }
-  if (config.type == ButtonType.horn || config.type == ButtonType.alarmIndicator) {
+  if (config.type == ButtonType.horn ||
+      config.type == ButtonType.alarmIndicator) {
     // Both are PLC status-driven FEEDBACK widgets (see HornButtonStrategy/
     // AlarmIndicatorStrategy) — neither ever calls onCommand, so this branch
     // only guards against a stray/legacy call reaching here; always inert.
@@ -450,9 +451,10 @@ ButtonConfig normalizeButtonPlacement(
 /// (it's the base grid every screen renders), even if empty. Returns the
 /// same [layout] instance if nothing changed.
 ///
-/// Called after any mutation that can empty a page (delete, drag off,
-/// resize) so a Customization Mode session never leaves a blank page behind
-/// for the operator to page into.
+/// Called after drag-off and resize mutations that can empty a page, so a
+/// Customization Mode session never leaves a blank page behind for the
+/// operator to page into. Delete intentionally does not use this helper,
+/// because deleting a control leaves its slot/page position vacant.
 ControlLayoutConfig compactControlPages(
   ControlLayoutConfig layout, {
   int slotCount = ButtonConfig.controlSlotCount,
@@ -793,15 +795,50 @@ GridMutationResult buildButtonDelete({
     );
   }
 
-  final next = {...buttons};
-  next[selected.id] = selected.copyWith(visible: false, columnSpan: 1);
-  final arranged = autoArrangeButtons(
-    next,
-    slotCount: slotCount,
-    columns: columns,
-    rows: rows,
+  final deletedIds = _buttonIdsForDelete(selected, buttons);
+  final next = <String, ButtonConfig>{};
+  for (final entry in buttons.entries) {
+    if (deletedIds.contains(entry.key) || deletedIds.contains(entry.value.id)) {
+      continue;
+    }
+    next[entry.key] = _withoutButtonReferences(entry.value, deletedIds);
+  }
+  return GridMutationResult.valid(next);
+}
+
+Set<String> _buttonIdsForDelete(
+  ButtonConfig selected,
+  Map<String, ButtonConfig> buttons,
+) {
+  final ids = <String>{selected.id};
+  final role = selected.role;
+  final pairedRole = role?.pairedRole;
+  final paired = pairedRole == null ? null : buttons[pairedRole.name];
+  if (selected.type == ButtonType.crossTravel &&
+      role?.axis == AxisKind.traverse &&
+      paired?.type == ButtonType.crossTravel) {
+    ids.add(paired!.id);
+  }
+  return ids;
+}
+
+ButtonConfig _withoutButtonReferences(
+  ButtonConfig button,
+  Set<String> deletedIds,
+) {
+  final mutualExclusion = button.mutualExclusion;
+  final excluded = mutualExclusion.excludedButtonIds.difference(deletedIds);
+  final included = mutualExclusion.inclusiveButtonIds.difference(deletedIds);
+  if (excluded.length == mutualExclusion.excludedButtonIds.length &&
+      included.length == mutualExclusion.inclusiveButtonIds.length) {
+    return button;
+  }
+  return button.copyWith(
+    mutualExclusion: mutualExclusion.copyWith(
+      excludedButtonIds: excluded,
+      inclusiveButtonIds: included,
+    ),
   );
-  return GridMutationResult.valid(arranged);
 }
 
 LayoutMutationResult buildButtonTypeChange({

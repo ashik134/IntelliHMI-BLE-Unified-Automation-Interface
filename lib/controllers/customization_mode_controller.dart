@@ -153,9 +153,8 @@ class CustomizationModeController extends ChangeNotifier {
       slotCount: slotCount,
     );
     if (!result.isValid) return result;
-    applyDraftChangeAndCompact(_draft.copyWith(buttons: result.buttons));
     _selectedButtonId = null;
-    notifyListeners();
+    applyDraftChange(_draft.copyWith(buttons: result.buttons));
     return result;
   }
 
@@ -210,7 +209,7 @@ class CustomizationModeController extends ChangeNotifier {
   }
 
   /// Like [applyDraftChange], but also drops any control page left fully
-  /// vacant by [next] (delete, drag-off, resize-off) as part of the same
+  /// vacant by [next] (drag-off, resize-off) as part of the same
   /// undo step, and re-points [_activeControlPage] at wherever the active
   /// page landed after compaction. Screens use this instead of
   /// [applyDraftChange] for slot-drop and resize mutations, since either can

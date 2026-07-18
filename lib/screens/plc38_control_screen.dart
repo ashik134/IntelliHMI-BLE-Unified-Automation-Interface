@@ -260,7 +260,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
           style: TextStyle(color: AppColors.darkText),
         ),
         content: Text(
-          'Remove $name from the grid? The adjacent button will fill the row when possible.',
+          'Remove $name from the grid? The slot will stay vacant until you add or move another control.',
           style: const TextStyle(color: AppColors.darkTextSub),
         ),
         actions: [

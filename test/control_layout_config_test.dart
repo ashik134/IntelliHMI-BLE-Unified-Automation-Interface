@@ -304,7 +304,7 @@ void main() {
       final decoded =
           jsonDecode(const ControlLayoutConfig().toJsonString())
               as Map<String, dynamic>;
-      expect(decoded['schemaVersion'], 7);
+      expect(decoded['schemaVersion'], 8);
     });
 
     test('manual control page count round-trips through JSON', () {
@@ -376,7 +376,7 @@ void main() {
     });
 
     test(
-      'new-format JSON with partial buttons is completed from legacy fields',
+      'schema 7 JSON with partial buttons is completed from legacy fields',
       () {
         final json =
             const ControlLayoutConfig(
@@ -386,6 +386,7 @@ void main() {
                   ),
                 ),
               ).toJson()
+              ..['schemaVersion'] = 7
               ..['buttons'] = {
                 'hoistUp': const ButtonConfig(
                   id: 'hoistUp',
@@ -407,6 +408,37 @@ void main() {
         );
       },
     );
+
+    test(
+      'schema 8 buttons map is authoritative and preserves deleted roles',
+      () {
+        final base = ControlLayoutConfig.defaultForBucket(LayoutBucket.plc38);
+        final buttons = {...base.resolvedButtons}
+          ..remove(ControlRole.hoistDown.name);
+        final json = base.copyWith(buttons: buttons).toJson();
+
+        final restored = ControlLayoutConfig.fromJson(json);
+
+        expect(restored.buttonFor(ControlRole.hoistDown), isNull);
+        expect(restored.buttons.containsKey(ControlRole.hoistDown.name), false);
+        expect(
+          (json['buttons'] as Map<String, dynamic>).containsKey(
+            ControlRole.hoistDown.name,
+          ),
+          false,
+        );
+      },
+    );
+
+    test('schema 8 empty buttons map does not synthesize defaults', () {
+      final restored = ControlLayoutConfig.fromJson({
+        'schemaVersion': 8,
+        'buttons': <String, dynamic>{},
+      });
+
+      expect(restored.resolvedButtons, isEmpty);
+      expect(restored.toJson()['buttons'], isEmpty);
+    });
 
     test(
       'built-in templates populate button configs used by button-centric screens',
@@ -656,6 +688,58 @@ void main() {
 
       expect(arranged.values.any((button) => button.pageIndex == 1), isTrue);
       expect(validateGridOccupancy(arranged), isEmpty);
+    });
+
+    test('delete removes a button without auto-arranging neighbors', () {
+      final buttons = ControlLayoutConfig.defaultForBucket(
+        LayoutBucket.plc38,
+      ).resolvedButtons;
+      final downBefore = buttons[ControlRole.hoistDown.name]!;
+
+      final result = buildButtonDelete(
+        buttons: buttons,
+        selected: buttons[ControlRole.hoistUp.name]!,
+      );
+
+      expect(result.isValid, isTrue);
+      expect(result.buttons!.containsKey(ControlRole.hoistUp.name), false);
+      expect(result.buttons![ControlRole.hoistDown.name]!.slotIndex, 1);
+      expect(
+        result.buttons![ControlRole.hoistDown.name]!.gridX,
+        downBefore.gridX,
+      );
+      expect(
+        result
+            .buttons![ControlRole.hoistDown.name]!
+            .mutualExclusion
+            .excludedButtonIds,
+        isNot(contains(ControlRole.hoistUp.name)),
+      );
+      expect(validateGridOccupancy(result.buttons!), isEmpty);
+    });
+
+    test('delete removes both configs for a paired cross-travel control', () {
+      final buttons = ControlLayoutConfig.defaultForBucket(
+        LayoutBucket.plc38,
+      ).resolvedButtons;
+      final travelBefore = buttons[ControlRole.travelForward.name]!;
+
+      final result = buildButtonDelete(
+        buttons: buttons,
+        selected: buttons[ControlRole.traverseLeft.name]!,
+      );
+
+      expect(result.isValid, isTrue);
+      expect(result.buttons!.containsKey(ControlRole.traverseLeft.name), false);
+      expect(
+        result.buttons!.containsKey(ControlRole.traverseRight.name),
+        false,
+      );
+      expect(
+        result.buttons![ControlRole.travelForward.name]!.slotIndex,
+        travelBefore.slotIndex,
+      );
+      expect(validateGridOccupancy(result.buttons!), isEmpty);
     });
 
     test(
