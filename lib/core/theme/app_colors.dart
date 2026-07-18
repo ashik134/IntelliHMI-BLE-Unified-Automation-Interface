@@ -115,4 +115,64 @@ class AppColors {
   static const Color connBorder = Color(0xFFD0D9E4);
   static const Color divider = Color(0xFFE8ECF2);
   static const Color connSuccess = Color(0xFF059669);
+
+  // ── Unified brand system – Home / Scan / Auth ─────────────────────────
+  // Shared industrial-HMI language for the three "onboarding" screens,
+  // built on the same violet accent as the Control Screen AppBar so the
+  // whole app reads as one product.
+  static const Color brandInk = Color(0xFF0B1120); // deep slate, hero surfaces
+  static const Color brandInkAlt = Color(0xFF141B2E);
+  static const Color brandSurface = Color(0xFFFFFFFF);
+  static const Color brandSurfaceAlt = Color(0xFFF4F5F9);
+  static const Color brandBg = Color(0xFFF1F2F7);
+  static const Color brandBorder = Color(0xFFE3E5EE);
+  static const Color brandBorderStrong = Color(0xFFD3D6E3);
+  static const Color brandText = Color(0xFF13172A);
+  static const Color brandTextSub = Color(0xFF5B6178);
+  static const Color brandTextMuted = Color(0xFF9498AC);
+  static const Color brandOnDark = Color(0xFFF5F6FB);
+  static const Color brandOnDarkSub = Color(0xFFAEB3C9);
+
+  // Violet brand accent (matches Control Screen appBarGlow/selectionViolet)
+  static const Color brandViolet = Color(0xFF8B5CF6); // violet-500
+  static const Color brandVioletDeep = Color(0xFF6D28D9); // violet-700
+  static const Color brandVioletSoft = Color(0xFFF1EBFE);
+  static const Color brandVioletGlow = Color(0x668B5CF6); // violet-500 @ 40%
+
+  // Status language shared by all three screens
+  static const Color brandSuccess = Color(0xFF12B76A);
+  static const Color brandSuccessSoft = Color(0xFFE7F9F1);
+  static const Color brandWarning = Color(0xFFF79009);
+  static const Color brandWarningSoft = Color(0xFFFEF3E2);
+  static const Color brandDanger = Color(0xFFF04438);
+  static const Color brandDangerSoft = Color(0xFFFEECEB);
+  static const Color brandInfo = Color(0xFF3B82F6);
+  static const Color brandInfoSoft = Color(0xFFEAF1FE);
+}
+
+/// Shared spacing / radius / elevation scale for the Home, Scan and
+/// Authentication screens so all three read as one design system.
+class AppMetrics {
+  AppMetrics._();
+
+  static const double radiusSm = 10;
+  static const double radiusMd = 14;
+  static const double radiusLg = 20;
+  static const double radiusXl = 26;
+  static const double radiusPill = 999;
+
+  static const double spaceXs = 4;
+  static const double spaceSm = 8;
+  static const double spaceMd = 12;
+  static const double spaceLg = 16;
+  static const double spaceXl = 20;
+  static const double space2xl = 28;
+
+  static const List<BoxShadow> shadowSm = [
+    BoxShadow(color: Color(0x0A0B1120), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  static const List<BoxShadow> shadowMd = [
+    BoxShadow(color: Color(0x140B1120), blurRadius: 20, offset: Offset(0, 8)),
+  ];
 }

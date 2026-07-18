@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
+import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 class _StatusCardModel {
   const _StatusCardModel({
-    required this.primary,
-    required this.background,
-    required this.border,
+    required this.tone,
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -15,9 +14,7 @@ class _StatusCardModel {
     this.actions = const [],
   });
 
-  final Color primary;
-  final Color background;
-  final Color border;
+  final BrandTone tone;
   final IconData icon;
   final String title;
   final String subtitle;
@@ -34,102 +31,32 @@ class HeroStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = _resolveStatus(controller);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeInOut,
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: BoxDecoration(
-        color: status.background,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: status.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: status.loading
-                    ? Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.2,
-                          color: status.primary,
-                        ),
-                      )
-                    : Icon(status.icon, color: status.primary, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      status.title,
-                      style: TextStyle(
-                        color: status.primary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      status.subtitle,
-                      style: const TextStyle(
-                        color: AppColors.connTextSub,
-                        fontSize: 12.5,
-                        height: 1.35,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: status.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
-          ),
-          if (status.actions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 8, children: status.actions),
-          ],
-        ],
-      ),
+    return BrandStatusBanner(
+      icon: status.icon,
+      title: status.title,
+      message: status.subtitle,
+      tone: status.tone,
+      busy: status.loading,
+      actions: status.actions,
     );
   }
 
   _StatusCardModel _resolveStatus(CraneController controller) {
     if (!controller.permissionsGranted) {
       return _StatusCardModel(
-        primary: AppColors.connWarning,
-        background: AppColors.warningBg,
-        border: AppColors.warningBorder,
+        tone: BrandTone.warning,
         icon: Icons.key_rounded,
         title: 'Permissions Required',
         subtitle: 'Bluetooth permissions are required to discover PLC devices.',
         actions: [
           _StatusActionButton(
             label: 'Open Settings',
-            color: AppColors.connWarning,
+            tone: BrandTone.warning,
             onTap: controller.openSettings,
           ),
           _StatusActionButton(
             label: 'Retry Permissions',
-            color: AppColors.connWarning,
+            tone: BrandTone.warning,
             outlined: true,
             onTap: controller.refreshPermissions,
           ),
@@ -139,16 +66,14 @@ class HeroStatusCard extends StatelessWidget {
 
     if (!controller.bluetoothReady) {
       return _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.bluetooth_disabled_rounded,
         title: 'Bluetooth Off',
         subtitle: 'Turn on Bluetooth to scan for ${BLEConstants.deviceName}.',
         actions: [
           _StatusActionButton(
             label: 'Enable Bluetooth',
-            color: AppColors.scanning,
+            tone: BrandTone.violet,
             onTap: controller.enableBluetooth,
           ),
         ],
@@ -157,9 +82,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isScanning) {
       return const _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.radar_rounded,
         title: 'Scanning',
         subtitle:
@@ -170,9 +93,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isConnecting) {
       return _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.bluetooth_searching_rounded,
         title: 'Connecting',
         subtitle: 'Linking to ${controller.connectedDeviceName ?? "device"}...',
@@ -182,9 +103,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isDiscoveringServices) {
       return _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.settings_ethernet_rounded,
         title: 'Discovering Services',
         subtitle:
@@ -195,9 +114,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isConfiguringNotifications) {
       return const _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.notifications_active_rounded,
         title: 'Configuring Notifications',
         subtitle: 'Initializing communication channels...',
@@ -207,9 +124,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isInitializingSafeState) {
       return const _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.shield_rounded,
         title: 'Initializing Safety State',
         subtitle: 'Applying safe PLC state...',
@@ -219,9 +134,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isAwaitingAuthentication || controller.isAuthenticating) {
       return _StatusCardModel(
-        primary: AppColors.scanning,
-        background: AppColors.scanningBg,
-        border: AppColors.scanningBorder,
+        tone: BrandTone.violet,
         icon: Icons.lock_outline_rounded,
         title: 'Preparing Authentication',
         subtitle:
@@ -232,9 +145,7 @@ class HeroStatusCard extends StatelessWidget {
 
     if (controller.isConnected) {
       return _StatusCardModel(
-        primary: AppColors.connected,
-        background: AppColors.connectedBg,
-        border: AppColors.connectedBorder,
+        tone: BrandTone.success,
         icon: Icons.bluetooth_connected_rounded,
         title: 'Session Active',
         subtitle:
@@ -248,10 +159,8 @@ class HeroStatusCard extends StatelessWidget {
         title: 'Cancelling Connection',
         subtitle:
             'Aborting connection to ${controller.cancellingDevice?.name ?? "device"}...',
-        border: AppColors.neutralBorder,
         loading: true,
-        primary: AppColors.connTextSub,
-        background: AppColors.neutralBg,
+        tone: BrandTone.neutral,
       );
     }
 
@@ -266,9 +175,7 @@ class HeroStatusCard extends StatelessWidget {
           msgLower.contains('out of range') ||
           msgLower.contains('offline');
       return _StatusCardModel(
-        primary: isUnreachable ? AppColors.connWarning : AppColors.error,
-        background: isUnreachable ? AppColors.warningBg : AppColors.errorBg,
-        border: isUnreachable ? AppColors.warningBorder : AppColors.errorBorder,
+        tone: isUnreachable ? BrandTone.warning : BrandTone.danger,
         icon: isUnreachable
             ? Icons.wifi_off_rounded
             : Icons.error_outline_rounded,
@@ -278,9 +185,7 @@ class HeroStatusCard extends StatelessWidget {
     }
 
     return const _StatusCardModel(
-      primary: AppColors.neutral,
-      background: AppColors.neutralBg,
-      border: AppColors.neutralBorder,
+      tone: BrandTone.neutral,
       icon: Icons.bluetooth_searching_rounded,
       title: 'Ready to Scan',
       subtitle: 'Tap scan to discover available crane controllers.',
@@ -291,15 +196,24 @@ class HeroStatusCard extends StatelessWidget {
 class _StatusActionButton extends StatelessWidget {
   const _StatusActionButton({
     required this.label,
-    required this.color,
+    required this.tone,
     required this.onTap,
     this.outlined = false,
   });
 
   final String label;
-  final Color color;
+  final BrandTone tone;
   final VoidCallback onTap;
   final bool outlined;
+
+  Color get _color => switch (tone) {
+    BrandTone.violet => AppColors.brandViolet,
+    BrandTone.info => AppColors.brandInfo,
+    BrandTone.warning => AppColors.brandWarning,
+    BrandTone.success => AppColors.brandSuccess,
+    BrandTone.danger => AppColors.brandDanger,
+    BrandTone.neutral => AppColors.brandTextSub,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -307,10 +221,10 @@ class _StatusActionButton extends StatelessWidget {
       return OutlinedButton(
         onPressed: onTap,
         style: OutlinedButton.styleFrom(
-          foregroundColor: color,
-          side: BorderSide(color: color.withValues(alpha: 0.45)),
+          foregroundColor: _color,
+          side: BorderSide(color: _color.withAlpha(115)),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           minimumSize: Size.zero,
@@ -324,9 +238,11 @@ class _StatusActionButton extends StatelessWidget {
     return FilledButton(
       onPressed: onTap,
       style: FilledButton.styleFrom(
-        backgroundColor: color,
+        backgroundColor: _color,
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,

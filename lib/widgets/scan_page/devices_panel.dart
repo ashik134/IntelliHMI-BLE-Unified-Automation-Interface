@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/device_card.dart';
+import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 class DevicesPanel extends StatefulWidget {
   const DevicesPanel({super.key, required this.controller});
@@ -77,14 +78,16 @@ class _DevicesPanelState extends State<DevicesPanel>
     final count = c.isConnected ? 1 : c.devices.length;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.connBorder),
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
+        border: Border.all(color: AppColors.brandBorder),
+        boxShadow: AppMetrics.shadowSm,
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(16, 14, 14, 12),
             child: Row(
               children: [
                 const Text(
@@ -93,27 +96,25 @@ class _DevicesPanelState extends State<DevicesPanel>
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.2,
-                    color: AppColors.connTextMuted,
+                    color: AppColors.brandTextMuted,
                   ),
                 ),
                 const SizedBox(width: 8),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: c.isScanning
-                      ? const _Badge(
+                      ? const BrandBadge(
                           key: ValueKey('scanning'),
                           label: 'SCANNING',
-                          color: AppColors.scanning,
-                          bg: AppColors.scanningBg,
-                          border: AppColors.scanningBorder,
+                          tone: BrandTone.violet,
+                          dense: true,
                         )
                       : count > 0
-                      ? _Badge(
+                      ? BrandBadge(
                           key: ValueKey('count-$count'),
                           label: '$count found',
-                          color: AppColors.connPrimary,
-                          bg: AppColors.primarySoft,
-                          border: AppColors.connBorder,
+                          tone: BrandTone.neutral,
+                          dense: true,
                         )
                       : const SizedBox.shrink(key: ValueKey('none')),
                 ),
@@ -128,9 +129,9 @@ class _DevicesPanelState extends State<DevicesPanel>
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: AppColors.brandSurface,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.connBorder),
+                        border: Border.all(color: AppColors.brandBorder),
                       ),
                       child: Center(
                         child: RotationTransition(
@@ -139,8 +140,8 @@ class _DevicesPanelState extends State<DevicesPanel>
                             Icons.refresh_sharp,
                             size: 15,
                             color: blocked
-                                ? AppColors.connBorder
-                                : AppColors.connTextMuted,
+                                ? AppColors.brandBorder
+                                : AppColors.brandTextMuted,
                           ),
                         ),
                       ),
@@ -150,7 +151,7 @@ class _DevicesPanelState extends State<DevicesPanel>
               ],
             ),
           ),
-          const Divider(height: 1, color: AppColors.divider),
+          const Divider(height: 1, color: AppColors.brandBorder),
           AnimatedBuilder(
             animation: _scanPulseAnim,
             builder: (_, _) {
@@ -165,33 +166,7 @@ class _DevicesPanelState extends State<DevicesPanel>
               );
             },
           ),
-          Expanded(
-            child: Stack(
-              children: [
-                Center(
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      return LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withAlpha(100),
-                          Colors.white.withAlpha(255),
-                        ],
-                      ).createShader(bounds);
-                    },
-                    blendMode: BlendMode.dstOut,
-                    child: const Image(
-                      image: AssetImage('assets/images/app_icon1.png'),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                // assetImages('assets/images/app_icon1.png',filterQuality: FilterQuality.high, fit: BoxFit.cover,),
-                _buildBody(),
-              ],
-            ),
-          ),
+          Expanded(child: _buildBody()),
         ],
       ),
     );
@@ -330,18 +305,17 @@ class _EmptyDeviceStateState extends State<_EmptyDeviceState>
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (widget.scanning) ...[
-              SizedBox(
-                width: 80,
-                height: 80,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Outer pulse ring
+            SizedBox(
+              width: 84,
+              height: 84,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (widget.scanning)
                     AnimatedBuilder(
                       animation: _pulseCtrl,
                       builder: (_, _) => Opacity(
@@ -354,7 +328,7 @@ class _EmptyDeviceStateState extends State<_EmptyDeviceState>
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: AppColors.scanning,
+                                color: AppColors.brandViolet,
                                 width: 2,
                               ),
                             ),
@@ -362,36 +336,43 @@ class _EmptyDeviceStateState extends State<_EmptyDeviceState>
                         ),
                       ),
                     ),
-                    // Center radar icon
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: AppColors.scanningBg,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.scanningBorder),
-                      ),
-                      child: const Icon(
-                        Icons.radar_rounded,
-                        color: AppColors.scanning,
-                        size: 30,
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: widget.scanning
+                          ? AppColors.brandVioletSoft
+                          : AppColors.brandSurfaceAlt,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.scanning
+                            ? AppColors.brandViolet.withAlpha(70)
+                            : AppColors.brandBorder,
                       ),
                     ),
-                  ],
-                ),
+                    child: Icon(
+                      widget.scanning
+                          ? Icons.radar_rounded
+                          : Icons.bluetooth_disabled_rounded,
+                      color: widget.scanning
+                          ? AppColors.brandViolet
+                          : AppColors.brandTextMuted,
+                      size: 30,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-            ] else
-              const SizedBox(height: 14),
+            ),
+            const SizedBox(height: 18),
             Text(
               widget.scanning
                   ? 'Scanning for Devices...'
                   : 'No Controllers Found',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: AppColors.connText,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+                color: AppColors.brandText,
+                fontSize: 15.5,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 6),
@@ -401,48 +382,12 @@ class _EmptyDeviceStateState extends State<_EmptyDeviceState>
                   : 'Power on the PLC controller and keep it in BLE range.',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: AppColors.connTextMuted,
+                color: AppColors.brandTextMuted,
                 fontSize: 12.5,
-                height: 1.4,
+                height: 1.45,
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({
-    super.key,
-    required this.label,
-    required this.color,
-    required this.bg,
-    required this.border,
-  });
-
-  final String label;
-  final Color color;
-  final Color bg;
-  final Color border;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: border),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-          color: color,
         ),
       ),
     );
@@ -459,15 +404,14 @@ class _ScanSweepPainter extends CustomPainter {
     const sweepWidth = 120.0;
     final center = progress * (size.width + sweepWidth) - sweepWidth / 2;
     final left = center - sweepWidth / 2;
-    // final right = center + sweepWidth / 2;
 
     final rect = Rect.fromLTWH(left, 0, sweepWidth, size.height);
     final paint = Paint()
       ..shader = LinearGradient(
         colors: [
-          AppColors.scanning.withAlpha(0),
-          AppColors.scanning.withAlpha(200),
-          AppColors.scanning.withAlpha(0),
+          AppColors.brandViolet.withAlpha(0),
+          AppColors.brandViolet.withAlpha(200),
+          AppColors.brandViolet.withAlpha(0),
         ],
       ).createShader(rect);
 

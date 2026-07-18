@@ -71,14 +71,14 @@ class _LedIndicator extends StatelessWidget {
           },
         ),
         const SizedBox(height: 4),
-        Text(
-          spec.pin ?? '',
-          style: const TextStyle(
-            fontSize: 6,
-            fontWeight: FontWeight.bold,
-            color: AppColors.darkTextSub,
-          ),
-        ),
+        // Text(
+        //   spec.pin ?? '',
+        //   style: const TextStyle(
+        //     fontSize: 6,
+        //     fontWeight: FontWeight.bold,
+        //     color: AppColors.darkTextSub,
+        //   ),
+        // ),
         Text(
           spec.label,
           style: TextStyle(

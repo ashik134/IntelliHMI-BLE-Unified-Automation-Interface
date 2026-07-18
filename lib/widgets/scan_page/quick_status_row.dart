@@ -31,8 +31,8 @@ class QuickStatusRow extends StatelessWidget {
                 ? Icons.bluetooth_connected_rounded
                 : Icons.bluetooth_disabled_rounded,
             valueColor: controller.bluetoothReady
-                ? AppColors.connected
-                : AppColors.error,
+                ? AppColors.brandSuccess
+                : AppColors.brandDanger,
           ),
         ),
         const SizedBox(width: 8),
@@ -44,8 +44,8 @@ class QuickStatusRow extends StatelessWidget {
                 ? Icons.verified_rounded
                 : Icons.key_off_rounded,
             valueColor: controller.permissionsGranted
-                ? AppColors.connected
-                : AppColors.connWarning,
+                ? AppColors.brandSuccess
+                : AppColors.brandWarning,
           ),
         ),
       ],
@@ -58,7 +58,7 @@ class _MiniStatCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
-    this.valueColor = AppColors.connPrimary,
+    this.valueColor = AppColors.brandViolet,
   });
 
   final String label;
@@ -69,22 +69,28 @@ class _MiniStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final double cardWidth = screenWidth < 600 ? 110 : 140;
-    final double cardHeight = screenWidth < 600 ? 65 : 75;
+    final double cardHeight = screenWidth < 600 ? 66 : 76;
 
     return Container(
-      width: cardWidth,
       height: cardHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.connBorder),
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+        border: Border.all(color: AppColors.brandBorder),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: AppColors.connTextMuted),
-          const SizedBox(width: 6),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: valueColor.withAlpha(20),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 15, color: valueColor),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,7 +100,7 @@ class _MiniStatCard extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     fontSize: 10,
-                    color: AppColors.connTextMuted,
+                    color: AppColors.brandTextMuted,
                     fontWeight: FontWeight.w600,
                   ),
                   maxLines: 1,
@@ -103,7 +109,7 @@ class _MiniStatCard extends StatelessWidget {
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     color: valueColor,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.3,

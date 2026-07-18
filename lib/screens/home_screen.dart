@@ -9,19 +9,20 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/screens/settings/settings_screen.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 // ─── Data Models ─────────────────────────────────────────────────────────────
 
 class _RecentEvent {
   const _RecentEvent({
     required this.icon,
-    required this.color,
+    required this.tone,
     required this.title,
     required this.detail,
     required this.time,
   });
   final IconData icon;
-  final Color color;
+  final BrandTone tone;
   final String title;
   final String detail;
   final String time;
@@ -48,32 +49,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   static const List<_RecentEvent> _recentEvents = [
     _RecentEvent(
-      icon: Icons.check_circle_outline_rounded,
-      color: AppColors.homeSuccess,
+      icon: Icons.check_circle_rounded,
+      tone: BrandTone.success,
       title: 'System Initialized',
       detail: 'Application started successfully',
       time: 'Just now',
     ),
     _RecentEvent(
       icon: Icons.bluetooth_rounded,
-      color: AppColors.homePrimary,
+      tone: BrandTone.violet,
       title: 'BLE Adapter Checked',
       detail: 'Bluetooth adapter scanned',
       time: 'Just now',
     ),
     _RecentEvent(
       icon: Icons.shield_outlined,
-      color: AppColors.homeInfo,
+      tone: BrandTone.info,
       title: 'Permissions Verified',
       detail: 'Runtime permissions checked',
       time: 'Just now',
     ),
     _RecentEvent(
       icon: Icons.info_outline_rounded,
-      color: AppColors.lightTextMuted,
+      tone: BrandTone.neutral,
       title: 'No Previous Session',
       detail: 'Connect to start a new session',
-      time: '\u2014',
+      time: '—',
     ),
   ];
 
@@ -120,54 +121,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final controller = context.watch<CraneController>();
 
     return Scaffold(
-      backgroundColor: AppColors.homeBg,
+      backgroundColor: AppColors.brandBg,
       body: FadeTransition(
         opacity: _fadeAnimation,
-        child: SafeArea(
-          child: CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(
-                child: _ProfessionalHeader(onSettingsTap: _navigateToSettings),
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: _HeroHeader(
+                controller: controller,
+                onSettingsTap: _navigateToSettings,
+                onConnect: _navigateToConnect,
               ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    _ConnectPlcCard(onConnect: _navigateToConnect),
-                    const SizedBox(height: 22),
-                    const _SectionLabel(label: 'QUICK ACTIONS'),
-                    const SizedBox(height: 10),
-                    _QuickActionsGrid(
-                      onControlPanel: _navigateToConnect,
-                      onDiagnostics: () => context
-                          .read<NavigationController>()
-                          .navigateToDiagnostics(),
-                      onLogs: () =>
-                          context.read<NavigationController>().navigateToLogs(),
-                      onSettings: _navigateToSettings,
-                    ),
-                    const SizedBox(height: 22),
-                    const _SectionLabel(label: 'SYSTEM HEALTH'),
-                    const SizedBox(height: 10),
-                    _SystemHealthCard(controller: controller),
-                    const SizedBox(height: 16),
-                    _CommStatsPanel(
-                      expanded: _commStatsExpanded,
-                      onToggle: () => setState(
-                        () => _commStatsExpanded = !_commStatsExpanded,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const _SectionLabel(label: 'RECENT EVENTS'),
-                    const SizedBox(height: 10),
-                    const _RecentEventsCard(events: _recentEvents),
-                    const SizedBox(height: 8),
-                  ]),
-                ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  const BrandSectionLabel(label: 'Quick Actions'),
+                  const SizedBox(height: 10),
+                  _QuickActionsGrid(
+                    onControlPanel: _navigateToConnect,
+                    onDiagnostics: () =>
+                        context.read<NavigationController>().navigateToDiagnostics(),
+                    onLogs: () =>
+                        context.read<NavigationController>().navigateToLogs(),
+                    onSettings: _navigateToSettings,
+                  ),
+                  const SizedBox(height: 24),
+                  const BrandSectionLabel(label: 'System Health'),
+                  const SizedBox(height: 10),
+                  _SystemHealthCard(controller: controller),
+                  const SizedBox(height: 16),
+                  _CommStatsPanel(
+                    expanded: _commStatsExpanded,
+                    onToggle: () =>
+                        setState(() => _commStatsExpanded = !_commStatsExpanded),
+                  ),
+                  const SizedBox(height: 24),
+                  const BrandSectionLabel(label: 'Recent Events'),
+                  const SizedBox(height: 10),
+                  const _RecentEventsCard(events: _recentEvents),
+                  const SizedBox(height: 8),
+                ]),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -175,119 +174,148 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Section Label
+// Hero Header — dark industrial slab with brand mark, status & CTA
 // ═══════════════════════════════════════════════════════════════
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.label});
-  final String label;
+class _HeroHeader extends StatelessWidget {
+  const _HeroHeader({
+    required this.controller,
+    required this.onSettingsTap,
+    required this.onConnect,
+  });
 
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        color: AppColors.lightTextMuted,
-        fontSize: 10,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.4,
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Professional Header
-// ═══════════════════════════════════════════════════════════════
-
-class _ProfessionalHeader extends StatelessWidget {
-  const _ProfessionalHeader({required this.onSettingsTap});
-
+  final CraneController controller;
   final VoidCallback onSettingsTap;
+  final VoidCallback onConnect;
 
   @override
   Widget build(BuildContext context) {
+    final connected = controller.isConnected || controller.isAuthenticated;
+    final deviceName = controller.connectedDeviceName;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 10, 14),
       decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(
-          bottom: BorderSide(color: AppColors.homeBorder, width: 0.5),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.brandInk, AppColors.brandInkAlt],
         ),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Container(
-            width: 60,
-            height: 46,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: AppColors.homePrimaryLight,
-              borderRadius: BorderRadius.circular(13),
-              border: Border.all(color: AppColors.homePrimary.withAlpha(40)),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(9),
-              child: Image.asset(
-                'assets/images/intellicontrol-icon-1024x1024 (6).png',
-                fit: BoxFit.fill,
+          Positioned(
+            top: -70,
+            right: -60,
+            child: _GlowOrb(size: 220, color: AppColors.brandViolet.withAlpha(46)),
+          ),
+          Positioned(
+            bottom: -90,
+            left: -50,
+            child: _GlowOrb(size: 200, color: AppColors.brandViolet.withAlpha(26)),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const BrandMark(size: 46, dark: true),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'INTELLIHMI',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: AppColors.brandOnDark,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.5,
+                                height: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Industrial PLC Control System',
+                              style: TextStyle(
+                                color: AppColors.brandOnDarkSub,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      BrandIconButton(
+                        icon: Icons.person_outline_rounded,
+                        tooltip: 'Profile',
+                        dark: true,
+                        onTap: () {},
+                      ),
+                      const SizedBox(width: 8),
+                      BrandIconButton(
+                        icon: Icons.settings_outlined,
+                        tooltip: 'Settings',
+                        dark: true,
+                        onTap: onSettingsTap,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            BrandBadge(
+                              label: connected ? 'SYSTEM ONLINE' : 'SYSTEM STANDBY',
+                              tone: connected ? BrandTone.success : BrandTone.neutral,
+                              icon: connected
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              connected
+                                  ? 'Linked to ${deviceName ?? "PLC controller"}'
+                                  : 'No active PLC session',
+                              style: const TextStyle(
+                                color: AppColors.brandOnDark,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              connected
+                                  ? 'Session ready — open the control panel to operate.'
+                                  : 'Connect to a nearby PLC to begin a control session.',
+                              style: const TextStyle(
+                                color: AppColors.brandOnDarkSub,
+                                fontSize: 12.5,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _HeroConnectCta(connected: connected, onConnect: onConnect),
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'INTELLIHMI',
-                  style: GoogleFonts.plusJakartaSans(
-                    color: const Color.fromARGB(255, 2, 36, 109),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                    height: 1.0,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'PLC Control System',
-                  style: TextStyle(
-                    color: AppColors.lightTextSub,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Container(
-          //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          //   decoration: BoxDecoration(
-          //     color: AppColors.homePrimaryLight,
-          //     borderRadius: BorderRadius.circular(8),
-          //   ),
-          //   child: const Text(
-          //     'v${AppConstants.appVersion}',
-          //     style: TextStyle(
-          //       color: AppColors.homePrimary,
-          //       fontSize: 10,
-          //       fontWeight: FontWeight.w700,
-          //     ),
-          //   ),
-          // ),
-          const SizedBox(width: 2),
-          _HeaderIconButton(
-            icon: Icons.person_outline_rounded,
-            tooltip: 'Profile',
-            onTap: () {},
-          ),
-          _HeaderIconButton(
-            icon: Icons.settings_outlined,
-            tooltip: 'Settings',
-            onTap: onSettingsTap,
           ),
         ],
       ),
@@ -295,49 +323,37 @@ class _ProfessionalHeader extends StatelessWidget {
   }
 }
 
-class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
+class _GlowOrb extends StatelessWidget {
+  const _GlowOrb({required this.size, required this.color});
+  final double size;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(icon, color: AppColors.lightTextSub, size: 22),
-          ),
-        ),
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Connect PLC — Primary CTA Card
+// Hero Connect CTA
 // ═══════════════════════════════════════════════════════════════
 
-class _ConnectPlcCard extends StatefulWidget {
-  const _ConnectPlcCard({required this.onConnect});
+class _HeroConnectCta extends StatefulWidget {
+  const _HeroConnectCta({required this.connected, required this.onConnect});
+  final bool connected;
   final VoidCallback onConnect;
 
   @override
-  State<_ConnectPlcCard> createState() => _ConnectPlcCardState();
+  State<_HeroConnectCta> createState() => _HeroConnectCtaState();
 }
 
-class _ConnectPlcCardState extends State<_ConnectPlcCard>
+class _HeroConnectCtaState extends State<_HeroConnectCta>
     with SingleTickerProviderStateMixin {
   late AnimationController _pressCtrl;
   late Animation<double> _pressAnim;
@@ -376,57 +392,61 @@ class _ConnectPlcCardState extends State<_ConnectPlcCard>
             Transform.scale(scale: _pressAnim.value, child: child),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [AppColors.homePrimary, AppColors.homePrimaryDark],
+              colors: [AppColors.brandViolet, AppColors.brandVioletDeep],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
             boxShadow: [
               BoxShadow(
-                color: AppColors.homePrimary.withAlpha(90),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+                color: AppColors.brandViolet.withAlpha(90),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
           child: Row(
             children: [
               Container(
-                width: 58,
-                height: 58,
+                width: 50,
+                height: 50,
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(38),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(
-                  Icons.bluetooth_searching_rounded,
+                child: Icon(
+                  widget.connected
+                      ? Icons.dashboard_customize_rounded
+                      : Icons.bluetooth_searching_rounded,
                   color: Colors.white,
-                  size: 32,
+                  size: 26,
                 ),
               ),
-              const SizedBox(width: 18),
-              const Expanded(
+              const SizedBox(width: 16),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'CONNECT PLC',
-                      style: TextStyle(
+                      widget.connected ? 'OPEN CONTROL PANEL' : 'CONNECT PLC',
+                      style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      'Scan & pair your PLC device via Bluetooth LE',
-                      style: TextStyle(
+                      widget.connected
+                          ? 'Resume operating your connected device'
+                          : 'Scan & pair your PLC device via Bluetooth LE',
+                      style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 12,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
@@ -434,8 +454,8 @@ class _ConnectPlcCardState extends State<_ConnectPlcCard>
                 ),
               ),
               Container(
-                width: 36,
-                height: 36,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(38),
                   borderRadius: BorderRadius.circular(10),
@@ -443,7 +463,7 @@ class _ConnectPlcCardState extends State<_ConnectPlcCard>
                 child: const Icon(
                   Icons.arrow_forward_ios_rounded,
                   color: Colors.white,
-                  size: 16,
+                  size: 15,
                 ),
               ),
             ],
@@ -482,34 +502,34 @@ class _QuickActionsGrid extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 10,
           crossAxisSpacing: 10,
-          childAspectRatio: isTablet ? 1.1 : 1.55,
+          childAspectRatio: isTablet ? 1.1 : 1.5,
           children: [
             _QuickActionCard(
               icon: Icons.dashboard_customize_rounded,
               label: 'Control Panel',
               subtitle: 'Machine controls',
-              color: AppColors.homePrimary,
+              tone: BrandTone.violet,
               onTap: onControlPanel,
             ),
             _QuickActionCard(
               icon: Icons.monitor_heart_rounded,
               label: 'Diagnostics',
               subtitle: 'System health check',
-              color: AppColors.homeInfo,
+              tone: BrandTone.info,
               onTap: onDiagnostics,
             ),
             _QuickActionCard(
               icon: Icons.receipt_long_rounded,
               label: 'Event Logs',
               subtitle: 'Activity history',
-              color: AppColors.homeWarning,
+              tone: BrandTone.warning,
               onTap: onLogs,
             ),
             _QuickActionCard(
               icon: Icons.tune_rounded,
               label: 'Settings',
               subtitle: 'App configuration',
-              color: AppColors.lightTextSub,
+              tone: BrandTone.neutral,
               onTap: onSettings,
             ),
           ],
@@ -524,14 +544,14 @@ class _QuickActionCard extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.subtitle,
-    required this.color,
+    required this.tone,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
   final String subtitle;
-  final Color color;
+  final BrandTone tone;
   final VoidCallback onTap;
 
   @override
@@ -562,6 +582,15 @@ class _QuickActionCardState extends State<_QuickActionCard>
     super.dispose();
   }
 
+  Color get _color => switch (widget.tone) {
+    BrandTone.violet => AppColors.brandViolet,
+    BrandTone.info => AppColors.brandInfo,
+    BrandTone.warning => AppColors.brandWarning,
+    BrandTone.success => AppColors.brandSuccess,
+    BrandTone.danger => AppColors.brandDanger,
+    BrandTone.neutral => AppColors.brandTextSub,
+  };
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -575,20 +604,9 @@ class _QuickActionCardState extends State<_QuickActionCard>
         animation: _pressAnim,
         builder: (_, child) =>
             Transform.scale(scale: _pressAnim.value, child: child),
-        child: Container(
+        child: BrandCard(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.homeBorder),
-            boxShadow: const [
-              BoxShadow(
-                color: AppColors.shadowLight,
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
+          radius: AppMetrics.radiusMd,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -597,10 +615,10 @@ class _QuickActionCardState extends State<_QuickActionCard>
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: widget.color.withAlpha(24),
+                  color: _color.withAlpha(24),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(widget.icon, color: widget.color, size: 18),
+                child: Icon(widget.icon, color: _color, size: 18),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -608,8 +626,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                   Text(
                     widget.label,
                     style: const TextStyle(
-                      color: AppColors.lightText,
-                      fontSize: 12,
+                      color: AppColors.brandText,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -617,7 +635,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                   Text(
                     widget.subtitle,
                     style: const TextStyle(
-                      color: AppColors.lightTextMuted,
+                      color: AppColors.brandTextMuted,
                       fontSize: 10,
                     ),
                   ),
@@ -670,7 +688,7 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
   }
 
   String get _batteryValue {
-    if (_batteryLevel == null) return '\u2014';
+    if (_batteryLevel == null) return '—';
     return '$_batteryLevel%';
   }
 
@@ -697,20 +715,8 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return BrandCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.homeBorder),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadowLight,
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
       child: Column(
         children: [
           const _HealthMetricRow(
@@ -775,17 +781,17 @@ class _HealthMetricRow extends StatelessWidget {
   final bool isLast;
 
   Color get _color => switch (status) {
-    _MetricStatus.ok => AppColors.homeSuccess,
-    _MetricStatus.warning => AppColors.homeWarning,
-    _MetricStatus.error => AppColors.homeDanger,
-    _MetricStatus.neutral => AppColors.lightTextMuted,
+    _MetricStatus.ok => AppColors.brandSuccess,
+    _MetricStatus.warning => AppColors.brandWarning,
+    _MetricStatus.error => AppColors.brandDanger,
+    _MetricStatus.neutral => AppColors.brandTextMuted,
   };
 
   Color get _bgColor => switch (status) {
-    _MetricStatus.ok => AppColors.homeSuccessLight,
-    _MetricStatus.warning => AppColors.homeWarningLight,
-    _MetricStatus.error => AppColors.homeDangerLight,
-    _MetricStatus.neutral => AppColors.homeSurfaceAlt,
+    _MetricStatus.ok => AppColors.brandSuccessSoft,
+    _MetricStatus.warning => AppColors.brandWarningSoft,
+    _MetricStatus.error => AppColors.brandDangerSoft,
+    _MetricStatus.neutral => AppColors.brandSurfaceAlt,
   };
 
   @override
@@ -793,7 +799,7 @@ class _HealthMetricRow extends StatelessWidget {
     return Column(
       children: [
         if (!isFirst)
-          const Divider(height: 1, thickness: 0.5, color: AppColors.homeBorder),
+          const Divider(height: 1, thickness: 0.5, color: AppColors.brandBorder),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 11),
           child: Row(
@@ -812,7 +818,7 @@ class _HealthMetricRow extends StatelessWidget {
                 child: Text(
                   label,
                   style: const TextStyle(
-                    color: AppColors.lightText,
+                    color: AppColors.brandText,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -858,16 +864,10 @@ class _CommStatsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.homeBorder),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadowLight,
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
+        border: Border.all(color: AppColors.brandBorder),
+        boxShadow: AppMetrics.shadowSm,
       ),
       clipBehavior: Clip.hardEdge,
       child: Column(
@@ -882,12 +882,12 @@ class _CommStatsPanel extends StatelessWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: AppColors.homePrimaryLight,
+                      color: AppColors.brandVioletSoft,
                       borderRadius: BorderRadius.circular(9),
                     ),
                     child: const Icon(
                       Icons.bar_chart_rounded,
-                      color: AppColors.homePrimary,
+                      color: AppColors.brandViolet,
                       size: 16,
                     ),
                   ),
@@ -896,7 +896,7 @@ class _CommStatsPanel extends StatelessWidget {
                     child: Text(
                       'COMMUNICATION STATISTICS',
                       style: TextStyle(
-                        color: AppColors.lightText,
+                        color: AppColors.brandText,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.3,
@@ -908,7 +908,7 @@ class _CommStatsPanel extends StatelessWidget {
                     duration: const Duration(milliseconds: 220),
                     child: const Icon(
                       Icons.keyboard_arrow_down_rounded,
-                      color: AppColors.lightTextMuted,
+                      color: AppColors.brandTextMuted,
                       size: 22,
                     ),
                   ),
@@ -924,7 +924,7 @@ class _CommStatsPanel extends StatelessWidget {
             firstChild: const SizedBox.shrink(),
             secondChild: const Column(
               children: [
-                Divider(height: 1, thickness: 0.5, color: AppColors.homeBorder),
+                Divider(height: 1, thickness: 0.5, color: AppColors.brandBorder),
                 Padding(
                   padding: EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
@@ -995,15 +995,15 @@ class _StatRowItem extends StatelessWidget {
                 icon,
                 size: 15,
                 color: isWarning
-                    ? AppColors.homeWarning
-                    : AppColors.lightTextMuted,
+                    ? AppColors.brandWarning
+                    : AppColors.brandTextMuted,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   label,
                   style: const TextStyle(
-                    color: AppColors.lightTextSub,
+                    color: AppColors.brandTextSub,
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
                   ),
@@ -1012,9 +1012,7 @@ class _StatRowItem extends StatelessWidget {
               Text(
                 value,
                 style: TextStyle(
-                  color: isWarning
-                      ? AppColors.homeWarning
-                      : AppColors.lightText,
+                  color: isWarning ? AppColors.brandWarning : AppColors.brandText,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -1027,7 +1025,7 @@ class _StatRowItem extends StatelessWidget {
           const Divider(
             height: 1,
             thickness: 0.5,
-            color: AppColors.homeBorder,
+            color: AppColors.brandBorder,
             indent: 25,
           ),
       ],
@@ -1045,20 +1043,7 @@ class _RecentEventsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.homeBorder),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadowLight,
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
+    return BrandCard(
       child: Column(
         children: List.generate(events.length, (i) {
           return _EventTimelineItem(
@@ -1076,6 +1061,15 @@ class _EventTimelineItem extends StatelessWidget {
   final _RecentEvent event;
   final bool isLast;
 
+  Color get _color => switch (event.tone) {
+    BrandTone.violet => AppColors.brandViolet,
+    BrandTone.info => AppColors.brandInfo,
+    BrandTone.warning => AppColors.brandWarning,
+    BrandTone.success => AppColors.brandSuccess,
+    BrandTone.danger => AppColors.brandDanger,
+    BrandTone.neutral => AppColors.brandTextMuted,
+  };
+
   @override
   Widget build(BuildContext context) {
     return IntrinsicHeight(
@@ -1090,17 +1084,17 @@ class _EventTimelineItem extends StatelessWidget {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: event.color.withAlpha(24),
+                    color: _color.withAlpha(24),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(event.icon, size: 12, color: event.color),
+                  child: Icon(event.icon, size: 12, color: _color),
                 ),
                 if (!isLast)
                   Expanded(
                     child: Container(
                       width: 1.5,
                       margin: const EdgeInsets.symmetric(vertical: 3),
-                      color: AppColors.homeBorder,
+                      color: AppColors.brandBorder,
                     ),
                   ),
               ],
@@ -1119,7 +1113,7 @@ class _EventTimelineItem extends StatelessWidget {
                         child: Text(
                           event.title,
                           style: const TextStyle(
-                            color: AppColors.lightText,
+                            color: AppColors.brandText,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1128,7 +1122,7 @@ class _EventTimelineItem extends StatelessWidget {
                       Text(
                         event.time,
                         style: const TextStyle(
-                          color: AppColors.lightTextMuted,
+                          color: AppColors.brandTextMuted,
                           fontSize: 10,
                         ),
                       ),
@@ -1138,7 +1132,7 @@ class _EventTimelineItem extends StatelessWidget {
                   Text(
                     event.detail,
                     style: const TextStyle(
-                      color: AppColors.lightTextSub,
+                      color: AppColors.brandTextSub,
                       fontSize: 11,
                     ),
                   ),
