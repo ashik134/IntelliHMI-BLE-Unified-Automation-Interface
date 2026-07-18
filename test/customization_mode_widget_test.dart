@@ -12,7 +12,11 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/screens/plc14_control_screen.dart';
+import 'package:rev_crane_control_ops/widgets/customization/button_edit_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/customization/customization_mode_bar.dart';
 
 Widget _harness() {
@@ -36,6 +40,32 @@ Widget _harness() {
     ],
     child: const MaterialApp(home: ControlScreen()),
   );
+}
+
+Widget _sheetHarness(CustomizationModeController customCtrl) {
+  return ChangeNotifierProvider.value(
+    value: customCtrl,
+    child: const MaterialApp(
+      home: Scaffold(body: ButtonEditSheet.forRole(role: ControlRole.hoistUp)),
+    ),
+  );
+}
+
+Future<CustomizationModeController> _controllerWithHoistType(
+  ButtonType type,
+) async {
+  final craneController = CraneController();
+  final layoutSettingsController = LayoutSettingsController();
+  final customCtrl = CustomizationModeController(
+    layoutSettings: layoutSettingsController,
+    craneController: craneController,
+  );
+  await customCtrl.enter();
+  final hoistUp = customCtrl.draft.buttonFor(ControlRole.hoistUp)!;
+  customCtrl.applyDraftChange(
+    customCtrl.draft.withButton(hoistUp.id, hoistUp.copyWith(type: type)),
+  );
+  return customCtrl;
 }
 
 void main() {
@@ -86,4 +116,43 @@ void main() {
       expect(find.byType(CustomizationModeBar), findsNothing);
     },
   );
+
+  testWidgets('role Behavior tab shows push-button momentary/latching modes', (
+    tester,
+  ) async {
+    final customCtrl = await _controllerWithHoistType(ButtonType.pushButton);
+
+    await tester.pumpWidget(_sheetHarness(customCtrl));
+    await tester.pump();
+    await tester.tap(find.text('BEHAVIOR'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Momentary'), findsWidgets);
+    expect(find.textContaining('Latched'), findsWidgets);
+    expect(find.textContaining('Spring Return Both'), findsNothing);
+
+    await tester.tap(find.textContaining('Latched').first);
+    await tester.pump();
+
+    expect(
+      customCtrl.draft.buttonFor(ControlRole.hoistUp)!.behavior.wiring,
+      PushButtonWiringConfig.offLatched,
+    );
+  });
+
+  testWidgets('role Behavior tab shows toggle-only switch modes', (
+    tester,
+  ) async {
+    final customCtrl = await _controllerWithHoistType(ButtonType.toggle);
+
+    await tester.pumpWidget(_sheetHarness(customCtrl));
+    await tester.pump();
+    await tester.tap(find.text('BEHAVIOR'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Momentary'), findsWidgets);
+    expect(find.textContaining('Latched'), findsWidgets);
+    expect(find.textContaining('Spring Return Both'), findsWidgets);
+    expect(find.textContaining('Latching Both'), findsWidgets);
+  });
 }

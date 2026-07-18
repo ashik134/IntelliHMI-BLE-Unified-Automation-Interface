@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -595,6 +597,10 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                                     isOn: isOn,
                                     activeColor: widget.activeColor,
                                     activeColorLight: widget.activeColorLight,
+                                    mode: widget.resolvedMode,
+                                    position: _pos,
+                                    topLabel: widget.resolvedTopLabel,
+                                    bottomLabel: widget.resolvedBottomLabel,
                                   ),
                                 ),
                               );
@@ -645,10 +651,9 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 // ─────────────────────────────────────────────────────────────────────────────
 // _LeverBody
 //
-// Pure-visual industrial toggle switch housing.  All text labels and LED
-// indicators have been removed; state is conveyed entirely through the knob's
-// position and color.  Receives a raw [knobY] float (the AnimationController
-// value) so it can be driven at full frame rate via AnimatedBuilder.
+// Pure-visual industrial toggle switch housing. Compact O/T/R indicators are
+// drawn on top of the switch face only as visual labels; state and output are
+// still driven exclusively by the knob position and existing callbacks.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LeverBody extends StatelessWidget {
@@ -657,12 +662,20 @@ class _LeverBody extends StatelessWidget {
     required this.isOn,
     required this.activeColor,
     required this.activeColorLight,
+    required this.mode,
+    required this.position,
+    required this.topLabel,
+    required this.bottomLabel,
   });
 
   final double knobY;
   final bool isOn;
   final Color activeColor;
   final Color activeColorLight;
+  final ToggleSwitchMode mode;
+  final ToggleSwitchPosition position;
+  final String topLabel;
+  final String bottomLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -785,10 +798,158 @@ class _LeverBody extends StatelessWidget {
                   ),
                 ),
               ),
+
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: _PositionIndicators(
+                      mode: mode,
+                      position: position,
+                      topLabel: topLabel,
+                      bottomLabel: bottomLabel,
+                      activeColor: activeColorLight,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _PositionIndicators extends StatelessWidget {
+  const _PositionIndicators({
+    required this.mode,
+    required this.position,
+    required this.topLabel,
+    required this.bottomLabel,
+    required this.activeColor,
+  });
+
+  final ToggleSwitchMode mode;
+  final ToggleSwitchPosition position;
+  final String topLabel;
+  final String bottomLabel;
+  final Color activeColor;
+
+  bool get _isThreePosition => switch (mode) {
+    ToggleSwitchMode.springReturnBoth ||
+    ToggleSwitchMode.latchingBoth ||
+    ToggleSwitchMode.mixed => true,
+    _ => false,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        if (w < 42 || h < 78) return const SizedBox.shrink();
+
+        final labelSize = math.min(w * 0.30, h * 0.105).clamp(12.0, 18.0);
+        final right = (w * 0.06).clamp(3.0, 8.0);
+        final centerLabel = _isThreePosition ? 'O' : null;
+
+        return Stack(
+          children: [
+            _alignedLabel(
+              label: topLabel,
+              alignment: const Alignment(1.0, _kKnobTopY),
+              size: labelSize,
+              right: right,
+              isActive: _isThreePosition
+                  ? position == ToggleSwitchPosition.left
+                  : position == ToggleSwitchPosition.center,
+            ),
+            if (centerLabel != null)
+              _alignedLabel(
+                label: centerLabel,
+                alignment: Alignment.centerRight,
+                size: labelSize,
+                right: right,
+                isActive: position == ToggleSwitchPosition.center,
+              ),
+            _alignedLabel(
+              label: bottomLabel,
+              alignment: const Alignment(1.0, _kKnobBotY),
+              size: labelSize,
+              right: right,
+              isActive: position == ToggleSwitchPosition.right,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _alignedLabel({
+    required String label,
+    required Alignment alignment,
+    required double size,
+    required double right,
+    required bool isActive,
+  }) {
+    return Align(
+      alignment: alignment,
+      child: Padding(
+        padding: EdgeInsets.only(right: right),
+        child: _PositionIndicatorLabel(
+          label: label,
+          size: size,
+          isActive: isActive,
+          activeColor: activeColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _PositionIndicatorLabel extends StatelessWidget {
+  const _PositionIndicatorLabel({
+    required this.label,
+    required this.size,
+    required this.isActive,
+    required this.activeColor,
+  });
+
+  final String label;
+  final double size;
+  final bool isActive;
+  final Color activeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = (size * 0.56).clamp(7.0, 10.0);
+    final color = isActive ? activeColor : AppColors.darkTextSub;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(isActive ? 100 : 70),
+        borderRadius: BorderRadius.circular(size * 0.35),
+        border: Border.all(
+          color: color.withAlpha(isActive ? 170 : 105),
+          width: 1,
+        ),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.clip,
+        softWrap: false,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+          height: 1,
+        ),
+      ),
     );
   }
 }

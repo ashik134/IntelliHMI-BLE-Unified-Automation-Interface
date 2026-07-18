@@ -863,26 +863,34 @@ LayoutMutationResult buildButtonTypeChange({
   );
 
   if (type == ButtonType.crossTravel) {
-    final candidate = current.copyWith(
-      type: type,
-      visible: true,
-      gridColumns: defaultColumns,
-      gridRows: defaultRows,
-    );
-    buttons[current.id] = _findFirstPlacement(
-      candidate,
-      occupied: _occupiedExcept(
-        buttons,
-        {current.id, paired?.id},
-        columns,
-        rows,
-        slotCount,
+    final candidate = normalizeButtonPlacement(
+      current.copyWith(
+        type: type,
+        visible: true,
+        gridColumns: defaultColumns,
+        gridRows: defaultRows,
       ),
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    final occupied = _occupiedExcept(
+      buttons,
+      {current.id, paired?.id},
+      columns,
+      rows,
+      slotCount,
+    );
+    if (!_isPlacementFree(
+      candidate,
+      occupied,
       columns: columns,
       rows: rows,
       slotCount: slotCount,
-      startPage: current.pageIndex,
-    );
+    )) {
+      return const LayoutMutationResult.invalid(kCrossTravelSpanMessage);
+    }
+    buttons[current.id] = candidate;
     if (role.axis == AxisKind.traverse && paired != null) {
       buttons[paired.id] = paired.copyWith(visible: false);
     }

@@ -131,7 +131,7 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -190,7 +190,6 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
                   ),
                   tabs: const [
                     Tab(text: 'TYPE'),
-                    Tab(text: 'SIZE'),
                     Tab(text: 'LABEL'),
                     Tab(text: 'APPEARANCE'),
                     Tab(text: 'BEHAVIOR'),
@@ -202,11 +201,6 @@ class _ButtonEditSheetState extends State<ButtonEditSheet>
                     controller: _tabController,
                     children: [
                       _TypeTab(
-                        axis: widget.resolvedAxis,
-                        editRole: widget.role,
-                        scrollController: scrollController,
-                      ),
-                      _SizeTab(
                         axis: widget.resolvedAxis,
                         editRole: widget.role,
                         scrollController: scrollController,
@@ -918,14 +912,6 @@ class _CustomButtonConfigEditor extends StatelessWidget {
               onChanged: onChanged,
             ),
           ),
-          _TabCard(
-            title: 'SIZE & POSITION',
-            child: _CustomSizePicker(
-              config: realConfig,
-              isPendingCreate: isPendingCreate,
-              onChanged: onChanged,
-            ),
-          ),
           if (realConfig.type == ButtonType.joystick)
             _TabCard(
               title: 'JOYSTICK',
@@ -1433,6 +1419,48 @@ class _CustomBehaviorPicker extends StatelessWidget {
   }
 }
 
+class _SwitchWiringPicker extends StatelessWidget {
+  const _SwitchWiringPicker({required this.config, required this.onChanged});
+
+  final ButtonConfig config;
+  final ValueChanged<PushButtonWiringConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final modes = PushButtonWiringConfig.values.where((wiring) {
+      return !wiring.isToggleOnly || config.type == ButtonType.toggle;
+    });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final wiring in modes)
+              ChoiceChip(
+                label: Text(wiring.label),
+                selected: config.behavior.wiring == wiring,
+                selectedColor: AppColors.accent.withAlpha(55),
+                labelStyle: TextStyle(
+                  color: config.behavior.wiring == wiring
+                      ? AppColors.accent
+                      : AppColors.darkTextSub,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+                onSelected: (_) => onChanged(wiring),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _InfoNote(message: config.behavior.wiring.description),
+      ],
+    );
+  }
+}
+
 class _CustomAppearancePicker extends StatelessWidget {
   const _CustomAppearancePicker({
     required this.config,
@@ -1493,123 +1521,6 @@ class _CustomAppearancePicker extends StatelessWidget {
                 onTap: () => onChanged(config.copyWith(icon: icon)),
               ),
           ],
-        ),
-      ],
-    );
-  }
-}
-
-class _CustomSizePicker extends StatelessWidget {
-  const _CustomSizePicker({
-    required this.config,
-    required this.isPendingCreate,
-    required this.onChanged,
-  });
-
-  final ButtonConfig config;
-  final bool isPendingCreate;
-  final ValueChanged<ButtonConfig?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _CustomStepperButton(
-            label: 'Columns',
-            value: config.gridColumnSpan,
-            onMinus: () => _resize(context, -1, 0),
-            onPlus: () => _resize(context, 1, 0),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _CustomStepperButton(
-            label: 'Rows',
-            value: config.gridRowSpan,
-            onMinus: () => _resize(context, 0, -1),
-            onPlus: () => _resize(context, 0, 1),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _resize(BuildContext context, int dx, int dy) {
-    final minSize = ButtonConfig.defaultGridSizeFor(
-      config.type,
-      customProperties: config.customProperties,
-    );
-    final nextColumns = (config.gridColumnSpan + dx).clamp(
-      minSize.$1,
-      ButtonConfig.controlGridColumns,
-    );
-    final nextRows = (config.gridRowSpan + dy).clamp(
-      minSize.$2,
-      ButtonConfig.controlGridRows,
-    );
-
-    if (isPendingCreate) {
-      onChanged(
-        config.copyWith(
-          gridColumns: nextColumns,
-          gridRows: nextRows,
-          columnSpan: nextColumns,
-        ),
-      );
-      return;
-    }
-
-    final customCtrl = context.read<CustomizationModeController>();
-    final result = buildButtonResize(
-      buttons: customCtrl.draft.resolvedButtons,
-      selected: config,
-      gridColumns: nextColumns,
-      gridRows: nextRows,
-    );
-    if (!result.isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? kWidgetPlacementMessage)),
-      );
-      return;
-    }
-    onChanged(result.buttons![config.id]);
-  }
-}
-
-class _CustomStepperButton extends StatelessWidget {
-  const _CustomStepperButton({
-    required this.label,
-    required this.value,
-    required this.onMinus,
-    required this.onPlus,
-  });
-
-  final String label;
-  final int value;
-  final VoidCallback onMinus;
-  final VoidCallback onPlus;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          icon: const Icon(Icons.remove_rounded),
-          color: AppColors.darkTextSub,
-          onPressed: onMinus,
-        ),
-        Expanded(
-          child: Text(
-            '$label: $value',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.darkText, fontSize: 12),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.add_rounded),
-          color: AppColors.darkTextSub,
-          onPressed: onPlus,
         ),
       ],
     );
@@ -2923,165 +2834,6 @@ class _TypeTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SIZE tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _SizeTab extends StatefulWidget {
-  const _SizeTab({
-    required this.axis,
-    required this.scrollController,
-    this.editRole,
-  });
-  final AxisKind axis;
-  final ControlRole? editRole;
-  final ScrollController scrollController;
-
-  @override
-  State<_SizeTab> createState() => _SizeTabState();
-}
-
-class _SizeTabState extends State<_SizeTab> {
-  double? _localHeightScale;
-  double? _localWidthScale;
-
-  List<ControlRole> get _roles => widget.editRole != null
-      ? [widget.editRole!]
-      : [widget.axis.primaryRole, widget.axis.secondaryRole];
-
-  Widget _sizeCard(BuildContext context, ControlRole role) {
-    final customCtrl = context.watch<CustomizationModeController>();
-    final draft = customCtrl.draft;
-    final config = draft.buttonFor(role)!;
-    final heightScale = _localHeightScale ?? config.heightScale;
-    final widthScale = _localWidthScale ?? config.widthScale;
-    final resolvedPx = AxisControlConfig.baseHeight * heightScale;
-    final belowMin = resolvedPx < AxisControlConfig.minTouchTargetPx;
-    final slotIndex =
-        config.slotIndex ?? ButtonConfig.defaultSlotIndexFor(role) ?? 0;
-    final defaultSlotIndex = ButtonConfig.defaultSlotIndexFor(role) ?? 0;
-
-    return _TabCard(
-      title: '${role.defaultLabel} SIZE & POSITION',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${resolvedPx.toStringAsFixed(0)} px',
-                style: TextStyle(
-                  color: belowMin
-                      ? AppColors.eStopColor
-                      : AppColors.darkSuccess,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
-              ),
-              Text(
-                'HEIGHT ×${heightScale.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: AppColors.darkTextMuted,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: belowMin
-                  ? AppColors.eStopColor
-                  : AppColors.accent,
-              thumbColor: belowMin ? AppColors.eStopColor : AppColors.accent,
-              inactiveTrackColor: AppColors.darkBorder,
-            ),
-            child: Slider(
-              value: heightScale,
-              min: ButtonConfig.minHeightScale,
-              max: ButtonConfig.maxHeightScale,
-              divisions: 16,
-              onChanged: (v) => setState(() => _localHeightScale = v),
-              onChangeEnd: (v) {
-                setState(() => _localHeightScale = null);
-                customCtrl.applyDraftChange(
-                  draft.withButton(role.name, config.copyWith(heightScale: v)),
-                );
-              },
-            ),
-          ),
-          if (belowMin)
-            const _InfoNote(
-              message:
-                  'Below the 48px minimum industrial touch target. Increase '
-                  'the scale before applying.',
-              color: AppColors.eStopColor,
-            ),
-          const SizedBox(height: 10),
-          Text(
-            'WIDTH ×${widthScale.toStringAsFixed(2)}',
-            style: const TextStyle(
-              color: AppColors.darkTextMuted,
-              fontSize: 11,
-            ),
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: AppColors.accent,
-              thumbColor: AppColors.accent,
-              inactiveTrackColor: AppColors.darkBorder,
-            ),
-            child: Slider(
-              value: widthScale,
-              min: ButtonConfig.minWidthScale,
-              max: ButtonConfig.maxWidthScale,
-              divisions: 16,
-              onChanged: (v) => setState(() => _localWidthScale = v),
-              onChangeEnd: (v) {
-                setState(() => _localWidthScale = null);
-                customCtrl.applyDraftChange(
-                  draft.withButton(role.name, config.copyWith(widthScale: v)),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Grid slot: ${slotIndex + 1}',
-                style: const TextStyle(
-                  color: AppColors.darkTextMuted,
-                  fontSize: 11,
-                ),
-              ),
-              TextButton(
-                onPressed: () => customCtrl.applyDraftChange(
-                  draft.withButton(
-                    role.name,
-                    config.copyWith(slotIndex: defaultSlotIndex),
-                  ),
-                ),
-                child: const Text('Reset slot'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      controller: widget.scrollController,
-      padding: const EdgeInsets.all(16),
-      children: [for (final role in _roles) _sizeCard(context, role)],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // LABEL tab
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3657,6 +3409,9 @@ class _BehaviorCard extends StatelessWidget {
     final draft = customCtrl.draft;
     final config = draft.buttonFor(role)!;
     final isSafety = role.isSafetyControl;
+    final wiringApplicable =
+        config.type == ButtonType.pushButton ||
+        config.type == ButtonType.toggle;
     final validation = const LayoutValidationService().validateButtonConfig(
       config,
       draft.buttons,
@@ -3711,35 +3466,26 @@ class _BehaviorCard extends StatelessWidget {
               ],
             ),
           ),
-        // _TabCard(
-        //   title: '${role.defaultLabel} · SWITCH WIRING',
-        //   child: wiringApplicable
-        //       ? Column(
-        //           crossAxisAlignment: CrossAxisAlignment.start,
-        //           children: [
-        //             for (final cfg in PushButtonWiringConfig.values)
-        //               // Three-position modes only make sense for Toggle Switch.
-        //               if (!cfg.isToggleOnly || config.type == ButtonType.toggle)
-        //                 _WiringTile(
-        //                   cfg: cfg,
-        //                   isSelected: config.behavior.wiring == cfg,
-        //                   onTap: () => customCtrl.applyDraftChange(
-        //                     draft.withButton(
-        //                       role.name,
-        //                       config.copyWith(
-        //                         behavior: config.behavior.copyWith(wiring: cfg),
-        //                       ),
-        //                     ),
-        //                   ),
-        //                 ),
-        //           ],
-        //         )
-        //       : const _InfoNote(
-        //           message:
-        //               'Not applicable — Slider/Cross Travel controls use '
-        //               'continuous drag speed, not switch wiring.',
-        //         ),
-        // ),
+        if (!isSafety)
+          _TabCard(
+            title: '${role.defaultLabel} · MODE',
+            child: wiringApplicable
+                ? _SwitchWiringPicker(
+                    config: config,
+                    onChanged: (wiring) => customCtrl.applyDraftChange(
+                      draft.withButton(
+                        role.name,
+                        config.copyWith(
+                          behavior: config.behavior.copyWith(wiring: wiring),
+                        ),
+                      ),
+                    ),
+                  )
+                : const _InfoNote(
+                    message:
+                        'This control type does not use push-button latching or spring-return wiring.',
+                  ),
+          ),
         // _TabCard(
         //   title: '${role.defaultLabel} · REPEAT WHILE HELD',
         //   child: Column(
@@ -3834,11 +3580,11 @@ class _BehaviorCard extends StatelessWidget {
             ],
           ),
         ),
-        if (!isSafety)
-          _TabCard(
-            title: '${role.defaultLabel} · GROUP',
-            child: _GroupField(role: role),
-          ),
+        // if (!isSafety)
+        //   _TabCard(
+        //     title: '${role.defaultLabel} · GROUP',
+        //     child: _GroupField(role: role),
+        //   ),
         if (config.type == ButtonType.joystick)
           _TabCard(
             title: '${role.defaultLabel} · JOYSTICK',

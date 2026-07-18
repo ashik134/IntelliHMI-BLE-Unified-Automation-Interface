@@ -594,7 +594,7 @@ void main() {
       final result = validator.validateFullConfig(config);
 
       expect(result.isValid, isFalse);
-      expect(result.errors.join('\n'), contains('both occupy slot 1'));
+      expect(result.errors.join('\n'), contains('both occupy page 1, slot 1'));
     });
 
     test('5-zone cross travel declares a two-column grid span', () {
