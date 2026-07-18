@@ -68,7 +68,6 @@ String logicalStateIdFor({
 }) {
   switch (type) {
     case ButtonType.pushButton:
-    case ButtonType.horn:
       return switch (physicalState) {
         ControlState.idle => 'idle',
         ControlState.slow || ControlState.fast => 'active',
@@ -95,13 +94,16 @@ String logicalStateIdFor({
       throw UnsupportedError(
         'logicalStateIdFor does not handle analog potentiometer values.',
       );
+    case ButtonType.horn:
     case ButtonType.alarmIndicator:
-      // AlarmIndicatorControl has no gesture-driven physical state — its
-      // severity is caller-supplied, never physical-state-derived. Reaching
-      // here is a programming error; see AlarmIndicatorStrategy.
+      // Both are PLC STATUS-DRIVEN FEEDBACK widgets with no gesture-driven
+      // physical state at all — their on/off or severity is computed
+      // directly from live PlcOutputCommand fields (see
+      // HornButtonStrategy/AlarmIndicatorStrategy), never from a
+      // ControlState. Reaching here is a programming error.
       throw UnsupportedError(
-        'logicalStateIdFor does not handle alarmIndicator; its severity is '
-        'caller-supplied, not gesture-derived.',
+        'logicalStateIdFor does not handle $type; it is a PLC status-driven '
+        'feedback widget, not gesture-derived.',
       );
     case ButtonType.crossTravel:
     case ButtonType.crossTravelSlowOnly:

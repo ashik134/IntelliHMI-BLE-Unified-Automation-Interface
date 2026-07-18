@@ -10,17 +10,13 @@ import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dar
 // ─────────────────────────────────────────────────────────────────────────────
 // IndustrialHornControl
 //
-// Professional horn/buzzer control: speaker-style glyph, pulsing active
-// glow, and an optional expanding "sound ring" beep animation while active.
-// Mirrors IndustrialSpringButton's press/haptic conventions (pointer-based,
-// not GestureDetector, so a fast release is never dropped) but is visually
-// its own thing — a speaker cone rather than a round pushbutton cap.
-//
-// Momentary by default (sounds while held, silent on release), matching a
-// real horn button; a maintained/latching mode is left to
-// ButtonBehaviorConfig.wiring exactly like PushButtonStrategy, so this
-// widget only renders `isActive` and reports raw press/release — it never
-// decides latching semantics itself.
+// Pure PLC-status FEEDBACK widget — a horn/buzzer that reflects whether its
+// configured trigger condition is currently true. It has no gestures: it is
+// never tapped, pressed, or dragged, and it never calls back into the app
+// (no onPressed/onChanged/onCommand). [isActive] is caller-supplied (see
+// HornButtonStrategy, which derives it from live PLC output/status fields),
+// and this widget only ever renders that boolean — plus plays the optional
+// sound-ring animation and haptic pulse on the idle->active transition.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndustrialHornControl extends StatefulWidget {
@@ -33,29 +29,18 @@ class IndustrialHornControl extends StatefulWidget {
     required this.enabled,
     this.icon = Icons.campaign_rounded,
     this.config = const HornConfig(),
-    this.onPressed,
-    this.onReleased,
-    this.onChanged,
-    this.isSpringReturn = true,
   });
 
   final String label;
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+
+  /// Whether the configured PLC condition is currently true. Purely
+  /// caller-supplied — this widget never evaluates or sends anything itself.
   final bool isActive;
   final bool enabled;
   final HornConfig config;
-
-  /// Spring-return (momentary) semantics: fires while held. Matches
-  /// PushButtonStrategy's onPressed/onReleased pairing.
-  final VoidCallback? onPressed;
-  final VoidCallback? onReleased;
-
-  /// Latching semantics: fires the new toggled value on tap-release. Only
-  /// used when [isSpringReturn] is false.
-  final ValueChanged<bool>? onChanged;
-  final bool isSpringReturn;
 
   @override
   State<IndustrialHornControl> createState() => _IndustrialHornControlState();
@@ -63,41 +48,25 @@ class IndustrialHornControl extends StatefulWidget {
 
 class _IndustrialHornControlState extends State<IndustrialHornControl>
     with TickerProviderStateMixin {
-  late final AnimationController _pressCtrl;
-  late final Animation<double> _pressAnim;
   late final AnimationController _ringCtrl;
-
-  bool _pointerIsDown = false;
-  int? _activePointerId;
-  bool _internalActive = false;
 
   @override
   void initState() {
     super.initState();
-    _internalActive = widget.isActive;
-    _pressCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 90),
-      reverseDuration: const Duration(milliseconds: 150),
-    );
-    _pressAnim = CurvedAnimation(
-      parent: _pressCtrl,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeOutBack,
-    );
     _ringCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    if (_internalActive) _startRing();
+    if (widget.isActive) _startRing();
   }
 
   @override
   void didUpdateWidget(covariant IndustrialHornControl oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive != oldWidget.isActive) {
-      _internalActive = widget.isActive;
-      if (_internalActive) {
+      if (widget.isActive) {
+        _triggerHaptic();
+        _playSound();
         _startRing();
       } else {
         _ringCtrl.stop();
@@ -107,20 +76,19 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
 
   @override
   void dispose() {
-    _pressCtrl.dispose();
     _ringCtrl.dispose();
     super.dispose();
   }
 
   void _startRing() {
-    if (!widget.config.visualBeepAnimation) return;
+    if (!widget.enabled || !widget.config.visualPulseEnabled) return;
     _ringCtrl
       ..reset()
       ..repeat();
   }
 
   Future<void> _triggerHaptic() async {
-    if (!widget.config.hapticFeedback) return;
+    if (!widget.enabled || !widget.config.hapticFeedback) return;
     try {
       await HapticFeedback.mediumImpact();
     } catch (_) {
@@ -130,77 +98,26 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
     }
   }
 
-  void _setActive(bool value) {
-    if (_internalActive == value) return;
-    setState(() => _internalActive = value);
-    if (value) {
-      _startRing();
-    } else {
-      _ringCtrl.stop();
-    }
-  }
-
-  void _handlePointerDown(PointerDownEvent event) {
-    if (!widget.enabled || _pointerIsDown) return;
-    _pointerIsDown = true;
-    _activePointerId = event.pointer;
-    _triggerHaptic();
-    _pressCtrl.forward();
-
-    if (widget.isSpringReturn) {
-      _setActive(true);
-      widget.onPressed?.call();
-    } else {
-      widget.onPressed?.call();
-    }
-  }
-
-  void _handlePointerUp(PointerUpEvent event) {
-    if (event.pointer != _activePointerId) return;
-    final wasDown = _pointerIsDown;
-    _finishPress();
-    if (wasDown && !widget.isSpringReturn) {
-      _setActive(!_internalActive);
-      widget.onChanged?.call(_internalActive);
-    }
-  }
-
-  void _handlePointerCancel(PointerCancelEvent event) {
-    if (event.pointer != _activePointerId) return;
-    _finishPress();
-  }
-
-  void _finishPress() {
-    if (!_pointerIsDown) return;
-    _pointerIsDown = false;
-    _activePointerId = null;
-    _pressCtrl.animateBack(
-      0.0,
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOutBack,
-    );
-
-    if (widget.isSpringReturn) {
-      _setActive(false);
-      widget.onReleased?.call();
-    }
+  /// Platform system-alert sound — a placeholder buzzer tone requiring no
+  /// new audio dependency. Swappable later for a real asset-based player
+  /// (e.g. audioplayers) without touching any call site: this is the one
+  /// place the "sound enabled" toggle takes effect.
+  Future<void> _playSound() async {
+    if (!widget.enabled || !widget.config.soundEnabled) return;
+    try {
+      await SystemSound.play(SystemSoundType.alert);
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
-    final isActive = widget.enabled && _internalActive;
+    final isActive = widget.enabled && widget.isActive;
     return Semantics(
-      button: true,
-      enabled: widget.enabled,
-      toggled: _internalActive,
       label: widget.label,
-      child: FocusableActionDetector(
-        enabled: widget.enabled,
-        mouseCursor: widget.enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
+      value: isActive ? 'Sounding' : 'Idle',
+      child: RepaintBoundary(
         child: AnimatedBuilder(
-          animation: Listenable.merge([_pressAnim, _ringCtrl]),
+          animation: _ringCtrl,
           builder: (context, _) {
             return LayoutBuilder(
               builder: (context, constraints) {
@@ -215,25 +132,16 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
                   height: constraints.hasBoundedHeight
                       ? double.infinity
                       : height,
-                  child: RepaintBoundary(
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: _handlePointerDown,
-                      onPointerUp: _handlePointerUp,
-                      onPointerCancel: _handlePointerCancel,
-                      child: _HornContent(
-                        label: widget.label,
-                        icon: widget.icon,
-                        activeColor: widget.activeColor,
-                        activeColorLight: widget.activeColorLight,
-                        press: _pressAnim.value.clamp(0.0, 1.0),
-                        ringT: _ringCtrl.value,
-                        isActive: isActive,
-                        isEnabled: widget.enabled,
-                        showRing: widget.config.visualBeepAnimation,
-                        pattern: widget.config.soundPattern,
-                      ),
-                    ),
+                  child: _HornContent(
+                    label: widget.label,
+                    icon: widget.icon,
+                    activeColor: widget.activeColor,
+                    activeColorLight: widget.activeColorLight,
+                    ringT: _ringCtrl.value,
+                    isActive: isActive,
+                    isEnabled: widget.enabled,
+                    showRing: widget.config.visualPulseEnabled,
+                    pattern: widget.config.soundPattern,
                   ),
                 );
               },
@@ -251,7 +159,6 @@ class _HornContent extends StatelessWidget {
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
-    required this.press,
     required this.ringT,
     required this.isActive,
     required this.isEnabled,
@@ -263,7 +170,6 @@ class _HornContent extends StatelessWidget {
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
-  final double press;
   final double ringT;
   final bool isActive;
   final bool isEnabled;
@@ -325,40 +231,35 @@ class _HornContent extends StatelessWidget {
                       final diameter = math
                           .min(box.maxWidth, box.maxHeight)
                           .clamp(48.0, 120.0);
-                      final visualScale = 1.0 - (0.04 * press);
                       return SizedBox.square(
                         dimension: diameter,
-                        child: Transform.scale(
-                          scale: visualScale,
-                          child: CustomPaint(
-                            painter: _HornPainter(
-                              activeColor: activeColor,
-                              activeColorLight: activeColorLight,
-                              isActive: isActive,
-                              isEnabled: isEnabled,
-                              press: press,
-                              ringT: ringT,
-                              showRing: showRing,
-                              pattern: pattern,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                icon,
-                                size: diameter * 0.34,
-                                color: !isEnabled
-                                    ? AppColors.darkTextSub.withAlpha(120)
-                                    : isActive
-                                    ? Colors.white
-                                    : activeColorLight,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withAlpha(
-                                      isActive ? 150 : 90,
-                                    ),
-                                    blurRadius: isActive ? 8 : 4,
+                        child: CustomPaint(
+                          painter: _HornPainter(
+                            activeColor: activeColor,
+                            activeColorLight: activeColorLight,
+                            isActive: isActive,
+                            isEnabled: isEnabled,
+                            ringT: ringT,
+                            showRing: showRing,
+                            pattern: pattern,
+                          ),
+                          child: Center(
+                            child: Icon(
+                              icon,
+                              size: diameter * 0.34,
+                              color: !isEnabled
+                                  ? AppColors.darkTextSub.withAlpha(120)
+                                  : isActive
+                                  ? Colors.white
+                                  : activeColorLight,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withAlpha(
+                                    isActive ? 150 : 90,
                                   ),
-                                ],
-                              ),
+                                  blurRadius: isActive ? 8 : 4,
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -420,17 +321,16 @@ class _StatusDot extends StatelessWidget {
   }
 }
 
-/// Speaker/horn cone: a bezeled disc with a trapezoid cone glyph baked into
-/// the backdrop, plus an expanding ring "sound wave" animation while active.
-/// The disc itself carries the glow — Icon(icon) painted on top by the
-/// parent is the actual campaign/volume glyph so custom icons still work.
+/// Speaker/horn cone: a bezeled disc with mesh ticks, plus an expanding ring
+/// "sound wave" animation while active. The disc carries the glow — the
+/// Icon painted on top by the parent is the actual campaign/volume glyph so
+/// custom icons still work.
 class _HornPainter extends CustomPainter {
   const _HornPainter({
     required this.activeColor,
     required this.activeColorLight,
     required this.isActive,
     required this.isEnabled,
-    required this.press,
     required this.ringT,
     required this.showRing,
     required this.pattern,
@@ -440,7 +340,6 @@ class _HornPainter extends CustomPainter {
   final Color activeColorLight;
   final bool isActive;
   final bool isEnabled;
-  final double press;
   final double ringT;
   final bool showRing;
   final HornSoundPattern pattern;
@@ -503,7 +402,6 @@ class _HornPainter extends CustomPainter {
         ..color = Colors.white.withAlpha(isEnabled ? 46 : 20),
     );
 
-    // Speaker mesh ticks — subtle industrial detail ring.
     final meshPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = math.max(1.0, side * 0.012)
@@ -556,7 +454,6 @@ class _HornPainter extends CustomPainter {
         oldDelegate.activeColorLight != activeColorLight ||
         oldDelegate.isActive != isActive ||
         oldDelegate.isEnabled != isEnabled ||
-        oldDelegate.press != press ||
         oldDelegate.ringT != ringT ||
         oldDelegate.showRing != showRing ||
         oldDelegate.pattern != pattern;

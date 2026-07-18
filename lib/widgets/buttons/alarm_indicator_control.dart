@@ -9,28 +9,33 @@ import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // AlarmIndicatorControl
 //
-// Read-mostly monitor widget: renders an AlarmSeverity with the appropriate
-// red/amber/green styling and blink/pulse animation. Never asserts a PLC
-// output on its own — see AlarmIndicatorConfig.acknowledgeEnabled doc. The
-// severity is entirely caller-supplied (today: derived from ControlState by
-// AlarmIndicatorStrategy; later: real PLC status feedback) — this widget has
-// no PLC/controller awareness of its own.
+// Pure PLC STATUS-DRIVEN FEEDBACK widget: [rawSeverity] is caller-supplied
+// (see AlarmIndicatorStrategy, which derives it from live PLC output/status
+// fields) and is NEVER AlarmSeverity.muted — muted is a purely LOCAL,
+// UI-only concept this widget owns for itself. Acknowledging never sends a
+// PLC output and never leaves this widget (no onCommand, no callback out to
+// the strategy/controller) — it just suppresses the escalated look for the
+// CURRENT alarm occurrence until [rawSeverity] either clears to normal or
+// changes to a new, more urgent severity.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AlarmIndicatorControl extends StatefulWidget {
   const AlarmIndicatorControl({
     super.key,
     required this.label,
-    required this.severity,
+    required this.rawSeverity,
     required this.enabled,
     this.config = const AlarmIndicatorConfig(),
     this.statusText,
     this.timestampText,
-    this.onAcknowledge,
   });
 
   final String label;
-  final AlarmSeverity severity;
+
+  /// The live, unmuted severity as computed from PlcConditionConfig against
+  /// current PLC status. Passing AlarmSeverity.muted here has no special
+  /// meaning — muted is derived internally, never caller-supplied.
+  final AlarmSeverity rawSeverity;
   final bool enabled;
   final AlarmIndicatorConfig config;
 
@@ -40,12 +45,6 @@ class AlarmIndicatorControl extends StatefulWidget {
 
   /// Optional small timestamp/message area, e.g. "14:32:07".
   final String? timestampText;
-
-  /// Only ever invoked when [config.acknowledgeEnabled] is true AND
-  /// [severity] is acknowledgeable (alarm/critical/warning) — see
-  /// _isAcknowledgeable. Null (the default via strategy wiring) makes this
-  /// widget purely passive/view-only.
-  final VoidCallback? onAcknowledge;
 
   static bool isAcknowledgeable(AlarmSeverity severity) =>
       severity == AlarmSeverity.warning ||
@@ -60,6 +59,14 @@ class _AlarmIndicatorControlState extends State<AlarmIndicatorControl>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseCtrl;
 
+  /// The raw severity that was active when the operator last acknowledged.
+  /// While the current rawSeverity equals this value, the display shows
+  /// Muted instead. Any change (a new/escalated occurrence, or clearing to
+  /// Normal) invalidates this and the real severity shows again — an
+  /// acknowledge is never "forever," only for the alarm instance in effect
+  /// at the time it was tapped.
+  AlarmSeverity? _acknowledgedFor;
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +80,10 @@ class _AlarmIndicatorControlState extends State<AlarmIndicatorControl>
   @override
   void didUpdateWidget(covariant AlarmIndicatorControl oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.severity != widget.severity) _syncAnimation();
+    if (oldWidget.rawSeverity != widget.rawSeverity) {
+      if (widget.rawSeverity != _acknowledgedFor) _acknowledgedFor = null;
+      _syncAnimation();
+    }
   }
 
   @override
@@ -82,8 +92,13 @@ class _AlarmIndicatorControlState extends State<AlarmIndicatorControl>
     super.dispose();
   }
 
+  AlarmSeverity get _displaySeverity =>
+      _acknowledgedFor != null && _acknowledgedFor == widget.rawSeverity
+      ? AlarmSeverity.muted
+      : widget.rawSeverity;
+
   void _syncAnimation() {
-    if (_isAnimated(widget.severity)) {
+    if (_isAnimated(_displaySeverity)) {
       if (!_pulseCtrl.isAnimating) _pulseCtrl.repeat(reverse: true);
     } else {
       _pulseCtrl.stop();
@@ -97,21 +112,24 @@ class _AlarmIndicatorControlState extends State<AlarmIndicatorControl>
   void _handleTap() {
     if (!widget.enabled) return;
     if (!widget.config.acknowledgeEnabled) return;
-    if (!AlarmIndicatorControl.isAcknowledgeable(widget.severity)) return;
+    if (!AlarmIndicatorControl.isAcknowledgeable(widget.rawSeverity)) return;
     HapticFeedback.selectionClick();
-    widget.onAcknowledge?.call();
+    setState(() => _acknowledgedFor = widget.rawSeverity);
+    _syncAnimation();
   }
 
   @override
   Widget build(BuildContext context) {
+    final displaySeverity = _displaySeverity;
     final canAcknowledge =
         widget.enabled &&
         widget.config.acknowledgeEnabled &&
-        AlarmIndicatorControl.isAcknowledgeable(widget.severity);
+        AlarmIndicatorControl.isAcknowledgeable(widget.rawSeverity) &&
+        displaySeverity != AlarmSeverity.muted;
 
     return Semantics(
       label: widget.label,
-      value: _severityLabel(widget.severity),
+      value: _severityLabel(displaySeverity),
       button: canAcknowledge,
       enabled: widget.enabled,
       child: GestureDetector(
@@ -122,7 +140,7 @@ class _AlarmIndicatorControlState extends State<AlarmIndicatorControl>
           builder: (context, _) {
             return _AlarmContent(
               label: widget.label,
-              severity: widget.severity,
+              severity: displaySeverity,
               enabled: widget.enabled,
               pulseT: _pulseCtrl.value,
               statusText: widget.statusText,

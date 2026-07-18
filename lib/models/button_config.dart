@@ -359,12 +359,8 @@ class ButtonConfig {
 
     switch (type) {
       case ButtonType.pushButton:
-      case ButtonType.horn:
         // Legacy push buttons never reached ControlState.fast — 'active'
-        // gets the slow-equivalent set only. Horn shares the identical
-        // idle/active shape (see ButtonTypeLogicalStates) but is never a
-        // fromLegacyAxis migration target — reachable only for
-        // completeness/future direct construction.
+        // gets the slow-equivalent set only.
         return {
           ...entry('idle', idleVariants),
           ...entry('active', slowVariants),
@@ -377,11 +373,12 @@ class ButtonConfig {
           ...entry('step2', fastVariants),
         };
       case ButtonType.potentiometer:
+      case ButtonType.horn:
       case ButtonType.alarmIndicator:
-        // Alarm indicator is a monitor widget — its severity is caller-
-        // supplied, never composed from stateMappings (see
-        // AlarmIndicatorStrategy). Its only mappable state is 'acknowledge',
-        // left empty/inert by default (opt-in via the edit sheet).
+        // horn/alarmIndicator are PLC status-driven FEEDBACK widgets, never
+        // fromLegacyAxis migration targets and never composed from
+        // stateMappings at all (see HornButtonStrategy/
+        // AlarmIndicatorStrategy) — always empty/inert.
         return const <String, ButtonStateOutputMapping>{};
       case ButtonType.toggle:
         return {

@@ -101,17 +101,11 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config.type == ButtonType.potentiometer) {
     return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
   }
-  if (config.type == ButtonType.alarmIndicator) {
-    // AlarmIndicatorControl has no gesture-driven physical state (see
-    // logicalStateIdFor) — any onCommand call it makes is always the
-    // operator's acknowledge/mute tap, regardless of the ControlState value
-    // passed through (AlarmIndicatorStrategy always passes ControlState.slow
-    // as a nominal "non-idle" signal).
-    return ResolvedButtonCommand(
-      stateId: 'acknowledge',
-      activeVariants:
-          config.stateMappings['acknowledge']?.activeVariants ?? const {},
-    );
+  if (config.type == ButtonType.horn || config.type == ButtonType.alarmIndicator) {
+    // Both are PLC status-driven FEEDBACK widgets (see HornButtonStrategy/
+    // AlarmIndicatorStrategy) — neither ever calls onCommand, so this branch
+    // only guards against a stray/legacy call reaching here; always inert.
+    return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
 
   final String stateId;

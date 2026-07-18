@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 
 // Retained for PLC14/PLC21 UI backward-compatibility.
 enum HoistDirection { idle, up, down }
@@ -263,6 +264,25 @@ class PlcOutputCommand {
     if (forward && reverse) return false;
     return true;
   }
+
+  /// Generic per-[PlcMapping] field lookup — reads this command's live
+  /// boolean for any of the 10 wire fields without the caller needing a
+  /// switch of its own. Used by PLC-status-driven feedback widgets (horn/
+  /// buzzer, alarm indicator) that watch one or more output/status variants
+  /// (e.g. "is A2 on", "are A5 and A6 both on") rather than one fixed field
+  /// the way the ledUp/ledDown-style getters on CraneController do.
+  bool fieldValue(PlcMapping mapping) => switch (mapping) {
+    PlcMapping.estop => estop,
+    PlcMapping.up => up,
+    PlcMapping.down => down,
+    PlcMapping.fastUd => fastUd,
+    PlcMapping.left => left,
+    PlcMapping.right => right,
+    PlcMapping.fastLr => fastLr,
+    PlcMapping.forward => forward,
+    PlcMapping.reverse => reverse,
+    PlcMapping.fastFb => fastFb,
+  };
 
   // ── Wire format ─────────────────────────────────────────────────────────────
 

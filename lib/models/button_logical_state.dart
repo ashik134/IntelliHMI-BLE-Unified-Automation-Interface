@@ -75,21 +75,15 @@ extension ButtonTypeLogicalStates on ButtonType {
       ButtonLogicalState(id: 'step1', label: 'Step 1', isIdle: false),
       ButtonLogicalState(id: 'step2', label: 'Step 2', isIdle: false),
     ],
-    ButtonType.potentiometer => const [],
-    ButtonType.horn => const [
-      ButtonLogicalState(id: 'idle', label: 'Idle / Off', isIdle: true),
-      ButtonLogicalState(id: 'active', label: 'Sounding / On', isIdle: false),
-    ],
-    // AlarmIndicatorControl's own displayed severity is never composed from
-    // this table (see AlarmIndicatorStrategy) — 'acknowledge' is the sole
-    // optional, user-opt-in output a configured alarm may emit on tap.
-    ButtonType.alarmIndicator => const [
-      ButtonLogicalState(
-        id: 'acknowledge',
-        label: 'Acknowledge / Mute',
-        isIdle: false,
-      ),
-    ],
+    // horn and alarmIndicator are PLC STATUS-DRIVEN FEEDBACK widgets, never
+    // output controls — they have no ButtonConfig.stateMappings-backed
+    // states at all (mirroring potentiometer's empty list). Their live
+    // on/off or severity is entirely computed from PlcConditionConfig
+    // against CraneController's live PlcOutputCommand (see
+    // HornButtonStrategy/AlarmIndicatorStrategy) and never round-trips
+    // through stateMappings.
+    ButtonType.potentiometer || ButtonType.horn || ButtonType.alarmIndicator =>
+      const [],
   };
 }
 

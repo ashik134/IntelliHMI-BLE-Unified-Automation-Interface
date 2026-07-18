@@ -3,14 +3,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/alarm_indicator_strategy.dart';
 
 void main() {
   test('alarm indicator config round-trips through JSON with defaults', () {
     const config = AlarmIndicatorConfig(
+      warningTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
+      alarmTrigger: PlcConditionConfig(watchedFields: {PlcMapping.down}),
+      criticalTrigger: PlcConditionConfig(
+        watchedFields: {PlcMapping.left, PlcMapping.right},
+        combinator: PlcConditionCombinator.all,
+      ),
       acknowledgeEnabled: true,
       showStatusText: false,
       showTimestamp: true,
@@ -24,10 +31,15 @@ void main() {
       false,
     );
     expect(AlarmIndicatorConfig.fromJson(const {}).showStatusText, true);
+    expect(
+      AlarmIndicatorConfig.fromJson(const {}).warningTrigger.hasCondition,
+      false,
+    );
   });
 
   test('ButtonConfig persists alarm indicator custom properties', () {
     const alarm = AlarmIndicatorConfig(
+      criticalTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
       acknowledgeEnabled: true,
       showTimestamp: true,
     );
@@ -47,37 +59,10 @@ void main() {
     expect(restored.type, ButtonType.alarmIndicator);
     expect(restoredAlarm.acknowledgeEnabled, true);
     expect(restoredAlarm.showTimestamp, true);
+    expect(restoredAlarm.criticalTrigger.watchedFields, {PlcMapping.up});
   });
 
-  test('alarm indicator resolves acknowledge output regardless of physical state', () {
-    const layout = ControlLayoutConfig(
-      buttons: {
-        'custom_alarm': ButtonConfig(
-          id: 'custom_alarm',
-          type: ButtonType.alarmIndicator,
-          plcMapping: PlcMapping.up,
-          label: 'Hoist Alarm',
-          stateMappings: {
-            'acknowledge': ButtonStateOutputMapping(
-              stateId: 'acknowledge',
-              activeVariants: {PlcMapping.up},
-            ),
-          },
-        ),
-      },
-    );
-
-    final resolved = resolveButtonCommand(
-      buttonId: 'custom_alarm',
-      state: ControlState.slow,
-      layoutCfg: layout,
-    );
-
-    expect(resolved.stateId, 'acknowledge');
-    expect(resolved.activeVariants, {PlcMapping.up});
-  });
-
-  test('alarm indicator with no acknowledge mapping resolves to empty variants', () {
+  test('alarm indicator never composes a stateMappings-backed output command', () {
     const layout = ControlLayoutConfig(
       buttons: {
         'custom_alarm': ButtonConfig(
@@ -95,7 +80,57 @@ void main() {
       layoutCfg: layout,
     );
 
-    expect(resolved.stateId, 'acknowledge');
+    expect(resolved.stateId, 'idle');
     expect(resolved.activeVariants, isEmpty);
+  });
+
+  group('AlarmIndicatorStrategy.severityFor', () {
+    test('reads Normal when no field is on', () {
+      const config = AlarmIndicatorConfig(
+        warningTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
+      );
+      final severity = AlarmIndicatorStrategy.severityFor(
+        config,
+        (_) => false,
+      );
+      expect(severity, AlarmSeverity.normal);
+    });
+
+    test('reads Warning when only the warning condition is true', () {
+      const config = AlarmIndicatorConfig(
+        warningTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
+      );
+      final severity = AlarmIndicatorStrategy.severityFor(
+        config,
+        (m) => m == PlcMapping.up,
+      );
+      expect(severity, AlarmSeverity.warning);
+    });
+
+    test('Critical wins over Alarm and Warning when all three are true', () {
+      const config = AlarmIndicatorConfig(
+        warningTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
+        alarmTrigger: PlcConditionConfig(watchedFields: {PlcMapping.down}),
+        criticalTrigger: PlcConditionConfig(watchedFields: {PlcMapping.left}),
+      );
+      final severity = AlarmIndicatorStrategy.severityFor(
+        config,
+        (_) => true,
+      );
+      expect(severity, AlarmSeverity.critical);
+    });
+
+    test('Alarm wins over Warning when both are true but Critical is not', () {
+      const config = AlarmIndicatorConfig(
+        warningTrigger: PlcConditionConfig(watchedFields: {PlcMapping.up}),
+        alarmTrigger: PlcConditionConfig(watchedFields: {PlcMapping.down}),
+        criticalTrigger: PlcConditionConfig(watchedFields: {PlcMapping.left}),
+      );
+      final severity = AlarmIndicatorStrategy.severityFor(
+        config,
+        (m) => m == PlcMapping.up || m == PlcMapping.down,
+      );
+      expect(severity, AlarmSeverity.alarm);
+    });
   });
 }

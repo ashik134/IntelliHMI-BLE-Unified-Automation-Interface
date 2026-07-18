@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
+import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
 import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
@@ -476,14 +477,12 @@ class _OutputMappingEditor extends StatelessWidget {
       );
     }
 
-    if (config.type == ButtonType.alarmIndicator) {
-      return _AlarmIndicatorOutputEditor(
-        config: config,
-        bucket: bucket,
-        onChanged: onChanged,
-      );
-    }
-
+    // horn/alarmIndicator never reach here — ButtonEditSheet skips the
+    // OUTPUT MAPPING tab entirely for both (see the realConfig.type checks
+    // around the OUTPUT MAPPING _TabCard), since neither type has any
+    // ButtonConfig.stateMappings-backed output at all; their PLC trigger
+    // condition is configured in their own dedicated HORN/ALARM INDICATOR
+    // tab instead (_HornConfigEditor/_AlarmIndicatorConfigEditor).
     final states = config.type.logicalStates;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -726,72 +725,6 @@ class _PotentiometerOutputEditor extends StatelessWidget {
   }
 }
 
-class _AlarmIndicatorOutputEditor extends StatelessWidget {
-  const _AlarmIndicatorOutputEditor({
-    required this.config,
-    required this.bucket,
-    required this.onChanged,
-  });
-
-  final ButtonConfig config;
-  final LayoutBucket bucket;
-  final ValueChanged<ButtonConfig> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final alarmConfig = AlarmIndicatorConfig.fromCustomProperties(
-      config.customProperties,
-    );
-
-    if (!alarmConfig.acknowledgeEnabled) {
-      return const _InfoNote(
-        message:
-            'This indicator is view-only — it never sends a PLC output. '
-            'Turn on "Allow acknowledge" in the ALARM INDICATOR tab to map '
-            'an output for the acknowledge/mute tap.',
-      );
-    }
-
-    final state = config.type.logicalStates.single;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _InfoNote(
-          message:
-              'Sent only when the operator taps to acknowledge/mute an '
-              'active alarm — never for display state changes.',
-          color: AppColors.fastColor,
-        ),
-        const SizedBox(height: 12),
-        Text(
-          state.label,
-          style: const TextStyle(
-            color: AppColors.darkTextSub,
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: 6),
-        _VariantChipGroup(
-          selectable: selectableVariantsFor(bucket),
-          selected: config.stateMappings[state.id]?.activeVariants ?? const {},
-          onChanged: (next) {
-            final updated = Map<String, ButtonStateOutputMapping>.from(
-              config.stateMappings,
-            );
-            updated[state.id] = ButtonStateOutputMapping(
-              stateId: state.id,
-              activeVariants: next,
-            );
-            onChanged(config.copyWith(stateMappings: updated));
-          },
-        ),
-      ],
-    );
-  }
-}
-
 class _VariantChipGroup extends StatelessWidget {
   const _VariantChipGroup({
     required this.selectable,
@@ -959,21 +892,25 @@ class _CustomButtonConfigEditor extends StatelessWidget {
             title: 'LABEL',
             child: _CustomLabelField(config: realConfig, onChanged: onChanged),
           ),
-          _TabCard(
-            title: 'OUTPUT MAPPING',
-            child: _OutputMappingEditor(
-              config: realConfig,
-              bucket: bucket,
-              onChanged: onChanged,
+          if (realConfig.type != ButtonType.horn &&
+              realConfig.type != ButtonType.alarmIndicator)
+            _TabCard(
+              title: 'OUTPUT MAPPING',
+              child: _OutputMappingEditor(
+                config: realConfig,
+                bucket: bucket,
+                onChanged: onChanged,
+              ),
             ),
-          ),
-          _TabCard(
-            title: 'BEHAVIOR',
-            child: _CustomBehaviorPicker(
-              config: realConfig,
-              onChanged: onChanged,
+          if (realConfig.type != ButtonType.horn &&
+              realConfig.type != ButtonType.alarmIndicator)
+            _TabCard(
+              title: 'BEHAVIOR',
+              child: _CustomBehaviorPicker(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
             ),
-          ),
           _TabCard(
             title: 'APPEARANCE',
             child: _CustomAppearancePicker(
@@ -1008,13 +945,18 @@ class _CustomButtonConfigEditor extends StatelessWidget {
           if (realConfig.type == ButtonType.horn)
             _TabCard(
               title: 'HORN / BUZZER',
-              child: _HornConfigEditor(config: realConfig, onChanged: onChanged),
+              child: _HornConfigEditor(
+                config: realConfig,
+                bucket: bucket,
+                onChanged: onChanged,
+              ),
             ),
           if (realConfig.type == ButtonType.alarmIndicator)
             _TabCard(
               title: 'ALARM INDICATOR',
               child: _AlarmIndicatorConfigEditor(
                 config: realConfig,
+                bucket: bucket,
                 onChanged: onChanged,
               ),
             ),
@@ -1436,8 +1378,7 @@ class _CustomBehaviorPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final wiringApplicable =
         config.type == ButtonType.pushButton ||
-        config.type == ButtonType.toggle ||
-        config.type == ButtonType.horn;
+        config.type == ButtonType.toggle;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2086,10 +2027,141 @@ class _PotentiometerPresetChip extends StatelessWidget {
   }
 }
 
+/// Shared "which PLC output/status variants trigger this feedback widget"
+/// editor: a variant chip picker (reusing _VariantChipGroup) plus an any-of/
+/// all-of combinator toggle. Used by both HORN/BUZZER (one trigger) and
+/// ALARM INDICATOR (one per severity) — the exact UI the task calls for:
+/// "If A2 is ON", "If A5 and A6 are ON", "any selected output variant ON".
+class _PlcConditionEditor extends StatelessWidget {
+  const _PlcConditionEditor({
+    required this.bucket,
+    required this.condition,
+    required this.onChanged,
+  });
+
+  final LayoutBucket bucket;
+  final PlcConditionConfig condition;
+  final ValueChanged<PlcConditionConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'TRIGGER VARIANTS',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _VariantChipGroup(
+          selectable: selectableVariantsFor(bucket),
+          selected: condition.watchedFields,
+          onChanged: (next) =>
+              onChanged(condition.copyWith(watchedFields: next)),
+        ),
+        const SizedBox(height: 10),
+        if (condition.watchedFields.length > 1) ...[
+          const Text(
+            'CONDITION',
+            style: TextStyle(
+              color: AppColors.darkTextSub,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final combinator in PlcConditionCombinator.values)
+                ChoiceChip(
+                  label: Text(
+                    combinator == PlcConditionCombinator.any
+                        ? 'Any selected ON'
+                        : 'All selected ON',
+                  ),
+                  selected: condition.combinator == combinator,
+                  selectedColor: AppColors.accent.withAlpha(55),
+                  labelStyle: TextStyle(
+                    color: condition.combinator == combinator
+                        ? AppColors.accent
+                        : AppColors.darkTextSub,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  onSelected: (_) =>
+                      onChanged(condition.copyWith(combinator: combinator)),
+                ),
+            ],
+          ),
+        ] else
+          const _InfoNote(
+            message: 'Select 2 or more variants to choose any-of vs all-of.',
+          ),
+      ],
+    );
+  }
+}
+
+/// One severity's titled PlcConditionConfig section within
+/// _AlarmIndicatorConfigEditor — same trigger-picker UI as the horn's, just
+/// repeated per severity (warning/alarm/critical) with a colored heading.
+class _SeverityConditionSection extends StatelessWidget {
+  const _SeverityConditionSection({
+    required this.title,
+    required this.color,
+    required this.bucket,
+    required this.condition,
+    required this.onChanged,
+  });
+
+  final String title;
+  final Color color;
+  final LayoutBucket bucket;
+  final PlcConditionConfig condition;
+  final ValueChanged<PlcConditionConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _PlcConditionEditor(
+          bucket: bucket,
+          condition: condition,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
 class _HornConfigEditor extends StatelessWidget {
-  const _HornConfigEditor({required this.config, required this.onChanged});
+  const _HornConfigEditor({
+    required this.config,
+    required this.bucket,
+    required this.onChanged,
+  });
 
   final ButtonConfig config;
+  final LayoutBucket bucket;
   final ValueChanged<ButtonConfig> onChanged;
 
   @override
@@ -2109,6 +2181,18 @@ class _HornConfigEditor extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const _InfoNote(
+          message:
+              'The buzzer never sends a PLC output — it only sounds when '
+              'the trigger condition below reads true from live PLC status.',
+        ),
+        const SizedBox(height: 10),
+        _PlcConditionEditor(
+          bucket: bucket,
+          condition: horn.trigger,
+          onChanged: (next) => save(horn.copyWith(trigger: next)),
+        ),
+        const SizedBox(height: 14),
         const Text(
           'SOUND PATTERN',
           style: TextStyle(
@@ -2141,14 +2225,24 @@ class _HornConfigEditor extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         SwitchListTile(
-          value: horn.visualBeepAnimation,
+          value: horn.soundEnabled,
           activeThumbColor: AppColors.accent,
           contentPadding: EdgeInsets.zero,
           title: const Text(
-            'Beep ring animation',
+            'Sound enabled',
             style: TextStyle(color: AppColors.darkText, fontSize: 12),
           ),
-          onChanged: (value) => save(horn.copyWith(visualBeepAnimation: value)),
+          onChanged: (value) => save(horn.copyWith(soundEnabled: value)),
+        ),
+        SwitchListTile(
+          value: horn.visualPulseEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Visual pulse / glow',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(horn.copyWith(visualPulseEnabled: value)),
         ),
         SwitchListTile(
           value: horn.hapticFeedback,
@@ -2159,6 +2253,37 @@ class _HornConfigEditor extends StatelessWidget {
             style: TextStyle(color: AppColors.darkText, fontSize: 12),
           ),
           onChanged: (value) => save(horn.copyWith(hapticFeedback: value)),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'ALARM PRIORITY',
+          style: TextStyle(
+            color: AppColors.darkTextSub,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final priority in AlarmPriority.values)
+              ChoiceChip(
+                label: Text(_alarmPriorityLabel(priority)),
+                selected: horn.priority == priority,
+                selectedColor: AppColors.accent.withAlpha(55),
+                labelStyle: TextStyle(
+                  color: horn.priority == priority
+                      ? AppColors.accent
+                      : AppColors.darkTextSub,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+                onSelected: (_) => save(horn.copyWith(priority: priority)),
+              ),
+          ],
         ),
       ],
     );
@@ -2171,13 +2296,21 @@ String _hornPatternLabel(HornSoundPattern pattern) => switch (pattern) {
   HornSoundPattern.doubleBeep => 'Double beep',
 };
 
+String _alarmPriorityLabel(AlarmPriority priority) => switch (priority) {
+  AlarmPriority.low => 'Low',
+  AlarmPriority.normal => 'Normal',
+  AlarmPriority.high => 'High',
+};
+
 class _AlarmIndicatorConfigEditor extends StatelessWidget {
   const _AlarmIndicatorConfigEditor({
     required this.config,
+    required this.bucket,
     required this.onChanged,
   });
 
   final ButtonConfig config;
+  final LayoutBucket bucket;
   final ValueChanged<ButtonConfig> onChanged;
 
   @override
@@ -2201,11 +2334,35 @@ class _AlarmIndicatorConfigEditor extends StatelessWidget {
       children: [
         const _InfoNote(
           message:
-              'Severity is currently driven by this button\'s live state '
-              '(idle/slow/fast) as a stand-in until real PLC alarm status '
-              'feedback is wired up.',
+              'This indicator never sends a PLC output — severity is read '
+              'directly from live PLC status against the conditions below, '
+              'checked Critical, then Alarm, then Warning.',
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
+        _SeverityConditionSection(
+          title: 'WARNING CONDITION',
+          color: AppColors.fastColor,
+          bucket: bucket,
+          condition: alarm.warningTrigger,
+          onChanged: (next) => save(alarm.copyWith(warningTrigger: next)),
+        ),
+        const SizedBox(height: 14),
+        _SeverityConditionSection(
+          title: 'ALARM CONDITION',
+          color: AppColors.darkDanger,
+          bucket: bucket,
+          condition: alarm.alarmTrigger,
+          onChanged: (next) => save(alarm.copyWith(alarmTrigger: next)),
+        ),
+        const SizedBox(height: 14),
+        _SeverityConditionSection(
+          title: 'CRITICAL CONDITION',
+          color: AppColors.eStopColor,
+          bucket: bucket,
+          condition: alarm.criticalTrigger,
+          onChanged: (next) => save(alarm.copyWith(criticalTrigger: next)),
+        ),
+        const SizedBox(height: 12),
         SwitchListTile(
           value: alarm.acknowledgeEnabled,
           activeThumbColor: AppColors.accent,
@@ -2215,8 +2372,8 @@ class _AlarmIndicatorConfigEditor extends StatelessWidget {
             style: TextStyle(color: AppColors.darkText, fontSize: 12),
           ),
           subtitle: const Text(
-            'Lets the operator tap to acknowledge/mute an active alarm. '
-            'Configure the resulting output in OUTPUT MAPPING above.',
+            'Lets the operator tap to mute the display for the current '
+            'alarm occurrence. Purely local — never sends a PLC output.',
             style: TextStyle(color: AppColors.darkTextSub, fontSize: 10.5),
           ),
           onChanged: (value) => save(alarm.copyWith(acknowledgeEnabled: value)),

@@ -1,26 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/alarm_indicator_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AlarmIndicatorStrategy
 //
-// Monitor-only strategy: AlarmIndicatorControl never asserts a PLC output by
-// itself. [activeState] stands in for real PLC status feedback until that
-// transport exists — idle -> normal, slow -> warning, fast -> critical. Once
-// a real status-feedback field is wired (mirroring how live_led_row.dart
-// reads PLC status today), only this mapping needs to change; the widget and
-// config are already future-ready for that swap.
+// PLC STATUS-DRIVEN FEEDBACK strategy — never sends a PLC output ([onCommand]
+// is unused here). Reads the live composed PlcOutputCommand via
+// CraneController.isFieldActive and evaluates AlarmIndicatorConfig's three
+// PlcConditionConfigs (critical/alarm/warning, each an "any of" or "all of"
+// selected PlcMapping variants) most-severe first, exactly mirroring how
+// live_led_row.dart's control screens already read PLC status for LEDs.
 //
-// 'acknowledge' is the ONE state this button type can ever compose into
-// stateMappings (see ButtonTypeLogicalStates), and it is only ever sent when
-// AlarmIndicatorConfig.acknowledgeEnabled is explicitly turned on — the
-// widget's own default keeps it view-only, matching "Do not send PLC output
-// unless explicitly configured later."
+// Acknowledge is handled entirely inside AlarmIndicatorControl as LOCAL,
+// UI-only state — it never reaches onCommand, so this widget can never send
+// a PLC output "unless explicitly designed later," per the safety
+// requirement.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AlarmIndicatorStrategy extends ButtonTypeStrategy {
@@ -29,11 +32,21 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
   @override
   ButtonType get type => ButtonType.alarmIndicator;
 
-  static AlarmSeverity _severityFor(ControlState state) => switch (state) {
-    ControlState.idle => AlarmSeverity.normal,
-    ControlState.slow => AlarmSeverity.warning,
-    ControlState.fast => AlarmSeverity.critical,
-  };
+  static AlarmSeverity severityFor(
+    AlarmIndicatorConfig config,
+    bool Function(PlcMapping) isFieldActive,
+  ) {
+    if (config.criticalTrigger.isActive(isFieldActive)) {
+      return AlarmSeverity.critical;
+    }
+    if (config.alarmTrigger.isActive(isFieldActive)) {
+      return AlarmSeverity.alarm;
+    }
+    if (config.warningTrigger.isActive(isFieldActive)) {
+      return AlarmSeverity.warning;
+    }
+    return AlarmSeverity.normal;
+  }
 
   @override
   Widget build({
@@ -47,16 +60,22 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
     final alarmConfig = AlarmIndicatorConfig.fromCustomProperties(
       config.customProperties,
     );
-    final severity = _severityFor(activeState);
+    final craneController = context.watch<CraneController>();
+    final isCustomizing = context
+        .watch<CustomizationModeController>()
+        .isActive;
+    // Customization Mode never escalates/animates, even if the underlying
+    // live PLC condition happens to be true — editing a layout must not
+    // visually alarm the operator over a preview tile.
+    final severity = isCustomizing
+        ? AlarmSeverity.normal
+        : severityFor(alarmConfig, craneController.isFieldActive);
 
     return AlarmIndicatorControl(
       label: config.label,
-      severity: severity,
+      rawSeverity: severity,
       enabled: !isDisabled,
       config: alarmConfig,
-      onAcknowledge: alarmConfig.acknowledgeEnabled
-          ? () => onCommand(config.id, ControlState.slow)
-          : null,
     );
   }
 }

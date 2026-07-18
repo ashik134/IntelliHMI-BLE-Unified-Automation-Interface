@@ -196,6 +196,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   bool get ledReverse => _activeCommand.reverse && !_activeCommand.estop;
   bool get ledFastFb => _activeCommand.fastFb && !_activeCommand.estop;
 
+  /// Generic "is this PLC output/status field currently ON" lookup, sourced
+  /// from the same live [_activeCommand] echo the ledUp/ledDown-style
+  /// getters above read — the one source of truth for PLC-status-driven
+  /// feedback widgets (see PlcConditionStrategy) that watch a
+  /// user-configured set of PlcMapping variants rather than one fixed field.
+  /// Unlike the ledX getters, this does NOT suppress on estop — a feedback
+  /// widget watching, say, `forward` should still reflect the PLC's actual
+  /// reported field state even during an E-STOP condition.
+  bool isFieldActive(PlcMapping mapping) => _activeCommand.fieldValue(mapping);
+
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;
   int? get connectedDeviceRssi => _transportConnState.connectedDevice?.rssi;
