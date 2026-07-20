@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
+import 'package:rev_crane_control_ops/services/buzzer_tone_service.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,8 +17,8 @@ import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dar
 // never tapped, pressed, or dragged, and it never calls back into the app
 // (no onPressed/onChanged/onCommand). [isActive] is caller-supplied (see
 // HornButtonStrategy, which derives it from live PLC output/status fields),
-// and this widget only ever renders that boolean — plus plays the optional
-// sound-ring animation and haptic pulse on the idle->active transition.
+// and this widget only ever renders that boolean — plus starts/stops the
+// optional local buzzer tone, sound-ring animation, and haptic pulse.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndustrialHornControl extends StatefulWidget {
@@ -49,35 +51,70 @@ class IndustrialHornControl extends StatefulWidget {
 class _IndustrialHornControlState extends State<IndustrialHornControl>
     with TickerProviderStateMixin {
   late final AnimationController _ringCtrl;
+  late final String _buzzerId;
 
   @override
   void initState() {
     super.initState();
+    _buzzerId = 'horn-${identityHashCode(this)}';
     _ringCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    if (widget.isActive) _startRing();
+    if (_isActiveForEffects(widget)) {
+      unawaited(_triggerHaptic());
+      unawaited(_startSound());
+      _startRing();
+    }
   }
 
   @override
   void didUpdateWidget(covariant IndustrialHornControl oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isActive != oldWidget.isActive) {
-      if (widget.isActive) {
-        _triggerHaptic();
-        _playSound();
+    final wasActive = _isActiveForEffects(oldWidget);
+    final isActive = _isActiveForEffects(widget);
+    if (isActive && !wasActive) {
+      unawaited(_triggerHaptic());
+    }
+    _syncSound(oldWidget);
+    if (isActive && widget.config.visualPulseEnabled) {
+      if (!wasActive ||
+          !oldWidget.config.visualPulseEnabled ||
+          oldWidget.enabled != widget.enabled) {
         _startRing();
-      } else {
-        _ringCtrl.stop();
       }
+    } else {
+      _ringCtrl.stop();
     }
   }
 
   @override
   void dispose() {
+    _stopSound();
     _ringCtrl.dispose();
     super.dispose();
+  }
+
+  bool _isActiveForEffects(IndustrialHornControl control) {
+    return control.enabled && control.isActive;
+  }
+
+  bool _isSounding(IndustrialHornControl control) {
+    return _isActiveForEffects(control) && control.config.soundEnabled;
+  }
+
+  void _syncSound(IndustrialHornControl oldWidget) {
+    final wasSounding = _isSounding(oldWidget);
+    final shouldSound = _isSounding(widget);
+    final toneChanged =
+        oldWidget.config.soundPattern != widget.config.soundPattern ||
+        oldWidget.config.priority != widget.config.priority;
+
+    if (shouldSound && (!wasSounding || toneChanged)) {
+      unawaited(_startSound());
+    } else if (wasSounding && !shouldSound) {
+      _stopSound();
+    }
   }
 
   void _startRing() {
@@ -98,15 +135,17 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
     }
   }
 
-  /// Platform system-alert sound — a placeholder buzzer tone requiring no
-  /// new audio dependency. Swappable later for a real asset-based player
-  /// (e.g. audioplayers) without touching any call site: this is the one
-  /// place the "sound enabled" toggle takes effect.
-  Future<void> _playSound() async {
+  Future<void> _startSound() async {
     if (!widget.enabled || !widget.config.soundEnabled) return;
-    try {
-      await SystemSound.play(SystemSoundType.alert);
-    } catch (_) {}
+    await BuzzerToneService.start(
+      id: _buzzerId,
+      pattern: widget.config.soundPattern,
+      priority: widget.config.priority,
+    );
+  }
+
+  void _stopSound() {
+    unawaited(BuzzerToneService.stop(id: _buzzerId));
   }
 
   @override
