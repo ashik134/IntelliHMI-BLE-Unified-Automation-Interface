@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
@@ -13,6 +12,7 @@ import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';
+import 'package:rev_crane_control_ops/services/ble_transport.dart';
 import 'package:rev_crane_control_ops/services/permission_service.dart';
 import 'package:rev_crane_control_ops/services/secure_credential_store.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -20,7 +20,10 @@ import 'package:rev_crane_control_ops/utils/preferences.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
 class CraneController extends ChangeNotifier with WidgetsBindingObserver {
-  final BleService _bleService = BleService();
+  CraneController({BleTransport? bleTransport})
+    : _bleTransport = bleTransport ?? BleService();
+
+  final BleTransport _bleTransport;
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
   final PermissionService _permissionService = PermissionService();
   final AppPreferences _preferences = AppPreferences();
@@ -29,7 +32,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription<List<BleScanDevice>>? _scanSubscription;
   StreamSubscription<Map<String, int>>? _analogSubscription;
   StreamSubscription<PlcOutputCommand>? _statusSubscription;
-  StreamSubscription<BluetoothAdapterState>? _adapterSubscription;
+  StreamSubscription<bool>? _readySubscription;
 
   BleConnectionState _transportConnState = BleConnectionState.initial();
   BleConnectionStatus _lastConnectionStatus = BleConnectionStatus.disconnected;
@@ -101,6 +104,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get isInitializing => _initializing;
   bool get bluetoothReady => _bluetoothReady;
+  bool get usesLocalBluetooth => _bleTransport.requiresLocalBluetooth;
+  String get transportReadinessLabel => _bleTransport.readinessLabel;
   bool get permissionsGranted => _permissionState.isGranted;
   bool get showPermissionBanner =>
       !permissionsGranted && !_permissionBannerDismissed;
@@ -384,7 +389,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _streamsAttached = true;
     WidgetsBinding.instance.addObserver(this);
 
-    _connStateSubscription = _bleService.connectionStream.listen((snapshot) {
+    _connStateSubscription = _bleTransport.connectionStream.listen((snapshot) {
       final previousStatus = _lastConnectionStatus;
       _lastConnectionStatus = snapshot.status;
       _transportConnState = snapshot;
@@ -409,12 +414,12 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
-    _scanSubscription = _bleService.scanStream.listen((devices) {
+    _scanSubscription = _bleTransport.scanStream.listen((devices) {
       if (isConnectionActive || isConnected) return;
       _devices = devices;
       notifyListeners();
     });
-    _statusSubscription = _bleService.statusStream.listen((command) {
+    _statusSubscription = _bleTransport.statusStream.listen((command) {
       // This is the PLC's own hardware echo, arriving asynchronously over
       // BLE — it can lag behind a command the operator has already released
       // locally. It updates `_activeCommand`/`hoistState` for status/output
@@ -437,18 +442,27 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       if (command.estop) _estopLatched = true;
       notifyListeners();
     });
-    _adapterSubscription = FlutterBluePlus.adapterState.listen((state) {
-      _bluetoothReady = state == BluetoothAdapterState.on;
+    _readySubscription = _bleTransport.readyStream.listen((ready) {
+      _bluetoothReady = ready;
       notifyListeners();
     });
 
-    _analogSubscription = _bleService.analogStream.listen((values) {
+    _analogSubscription = _bleTransport.analogStream.listen((values) {
       _analogValues = values;
       notifyListeners();
     });
   }
 
   Future<void> _prepareRunTime() async {
+    if (!_bleTransport.requiresLocalBluetooth) {
+      _permissionState = const PermissionState(
+        isGranted: true,
+        isPermanentlyDenied: false,
+      );
+      await enableBluetooth();
+      return;
+    }
+
     _permissionState = await _permissionService.requestPermissions();
     if (permissionsGranted) {
       await enableBluetooth();
@@ -456,6 +470,17 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refreshPermissions() async {
+    if (!_bleTransport.requiresLocalBluetooth) {
+      _permissionState = const PermissionState(
+        isGranted: true,
+        isPermanentlyDenied: false,
+      );
+      _permissionBannerDismissed = false;
+      await enableBluetooth();
+      notifyListeners();
+      return;
+    }
+
     _permissionState = await _permissionService.requestPermissions();
     _permissionBannerDismissed = false;
     if (permissionsGranted) {
@@ -470,12 +495,11 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> enableBluetooth() async {
     try {
-      await _bleService.ensureBluetoothReady();
-      final state = await FlutterBluePlus.adapterState.first;
-      _bluetoothReady = state == BluetoothAdapterState.on;
+      await _bleTransport.ensureBluetoothReady();
+      _bluetoothReady = await _bleTransport.checkReady();
     } catch (e) {
       _errorMessage =
-          'Bluetooth must be enabled before scanning for PLC devices. Please enable Bluetooth and try again.';
+          '${_bleTransport.readinessLabel} must be ready before scanning for PLC devices. Please check the connection and try again.';
     }
     notifyListeners();
   }
@@ -488,12 +512,12 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> pauseScan() async {
-    await _bleService.pauseScan();
+    await _bleTransport.pauseScan();
   }
 
   Future<void> resumeScan() async {
     if (!bluetoothReady || !permissionsGranted) return;
-    await _bleService.resumeScan();
+    await _bleTransport.resumeScan();
   }
 
   @override
@@ -501,7 +525,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
-      _bleService.pauseScan();
+      _bleTransport.pauseScan();
     } else if (state == AppLifecycleState.resumed) {
       if (currentScreen == AppScreen.connection) {
         resumeScan();
@@ -525,13 +549,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       await enableBluetooth();
       if (!bluetoothReady) {
         _errorMessage =
-            'Bluetooth is not enabled. Please enable Bluetooth and try again.';
+            '${_bleTransport.readinessLabel} is not ready. Please check it and try again.';
         notifyListeners();
         return;
       }
     }
     try {
-      await _bleService.startScan();
+      await _bleTransport.startScan();
     } catch (e) {
       _errorMessage = _friendlyScanError(e);
       notifyListeners();
@@ -563,7 +587,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _errorMessage = null;
 
     try {
-      await _bleService.connect(device);
+      await _bleTransport.connect(device);
     } catch (e) {
       _errorMessage = 'Could not connect to ${device.name}: ${e.toString()}';
       notifyListeners();
@@ -577,7 +601,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _cancellingDevice = _transportConnState.connectedDevice;
     _cancellingConnection = true;
     notifyListeners();
-    await _bleService.cancelConnecting();
+    await _bleTransport.cancelConnecting();
     _cancellingConnection = false;
     _cancellingDevice = null;
     notifyListeners();
@@ -596,13 +620,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         await _sendCommand(PlcOutputCommand.idle());
       } catch (_) {}
     }
-    await _bleService.disconnect();
+    await _bleTransport.disconnect();
     notifyListeners();
   }
 
   Future<void> stopScan() async {
     _errorMessage = null;
-    await _bleService.stopScan();
+    await _bleTransport.stopScan();
     // State transitions via _connStateSubscription when startScan() resolves.
   }
 
@@ -632,7 +656,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _writeBytes(List<int> bytes) async {
     _commandInFlight = true;
     try {
-      await _bleService.writeDigital(bytes);
+      await _bleTransport.writeDigital(bytes);
 
       final next = _pendingCommandBytes;
       _pendingCommandBytes = null;
@@ -688,7 +712,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _pendingCommandBytes = null;
     notifyListeners();
 
-    await _bleService.disconnect();
+    await _bleTransport.disconnect();
   }
 
   /// Stops all crane motion by sending an idle command and resetting PLC38 axis
@@ -957,7 +981,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     try {
-      final outcome = await _bleService.authenticate(
+      final outcome = await _bleTransport.authenticate(
         email: email.trim(),
         password: password,
         deviceId: _deviceId,
@@ -1095,8 +1119,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _scanSubscription?.cancel();
     _analogSubscription?.cancel();
     _statusSubscription?.cancel();
-    _adapterSubscription?.cancel();
-    _bleService.dispose();
+    _readySubscription?.cancel();
+    _bleTransport.dispose();
     super.dispose();
   }
 }

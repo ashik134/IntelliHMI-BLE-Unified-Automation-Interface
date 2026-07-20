@@ -67,12 +67,18 @@ class HeroStatusCard extends StatelessWidget {
     if (!controller.bluetoothReady) {
       return _StatusCardModel(
         tone: BrandTone.violet,
-        icon: Icons.bluetooth_disabled_rounded,
-        title: 'Bluetooth Off',
-        subtitle: 'Turn on Bluetooth to scan for ${BLEConstants.deviceName}.',
+        icon: controller.usesLocalBluetooth
+            ? Icons.bluetooth_disabled_rounded
+            : Icons.cloud_off_rounded,
+        title: '${controller.transportReadinessLabel} Offline',
+        subtitle: controller.usesLocalBluetooth
+            ? 'Turn on Bluetooth to scan for ${BLEConstants.deviceName}.'
+            : 'Reconnect to the phone gateway before scanning for ${BLEConstants.deviceName}.',
         actions: [
           _StatusActionButton(
-            label: 'Enable Bluetooth',
+            label: controller.usesLocalBluetooth
+                ? 'Enable Bluetooth'
+                : 'Retry Gateway',
             tone: BrandTone.violet,
             onTap: controller.enableBluetooth,
           ),

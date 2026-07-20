@@ -9,6 +9,17 @@ class QuickStatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final IconData transportIcon;
+    if (controller.usesLocalBluetooth) {
+      transportIcon = controller.bluetoothReady
+          ? Icons.bluetooth_connected_rounded
+          : Icons.bluetooth_disabled_rounded;
+    } else {
+      transportIcon = controller.bluetoothReady
+          ? Icons.cloud_done_rounded
+          : Icons.cloud_off_rounded;
+    }
+
     return Row(
       children: [
         Expanded(
@@ -25,11 +36,9 @@ class QuickStatusRow extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _MiniStatCard(
-            label: 'Bluetooth',
+            label: controller.transportReadinessLabel,
             value: controller.bluetoothReady ? 'ON' : 'OFF',
-            icon: controller.bluetoothReady
-                ? Icons.bluetooth_connected_rounded
-                : Icons.bluetooth_disabled_rounded,
+            icon: transportIcon,
             valueColor: controller.bluetoothReady
                 ? AppColors.brandSuccess
                 : AppColors.brandDanger,

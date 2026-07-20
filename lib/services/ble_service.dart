@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:rev_crane_control_ops/services/ble_crypto.dart';
+import 'package:rev_crane_control_ops/services/ble_transport.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
@@ -15,7 +16,7 @@ import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
-class BleService {
+class BleService implements BleTransport {
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
 
   final StreamController<BleConnectionState> _connectionController =
@@ -27,11 +28,29 @@ class BleService {
   final StreamController<PlcOutputCommand> _statusController =
       StreamController<PlcOutputCommand>.broadcast();
 
+  @override
   Stream<BleConnectionState> get connectionStream =>
       _connectionController.stream;
+
+  @override
   Stream<List<BleScanDevice>> get scanStream => _scanController.stream;
+
+  @override
   Stream<Map<String, int>> get analogStream => _analogController.stream;
+
+  @override
   Stream<PlcOutputCommand> get statusStream => _statusController.stream;
+
+  @override
+  bool get requiresLocalBluetooth => true;
+
+  @override
+  String get readinessLabel => 'Bluetooth';
+
+  @override
+  Stream<bool> get readyStream => FlutterBluePlus.adapterState
+      .map((state) => state == BluetoothAdapterState.on)
+      .distinct();
 
   BleConnectionState _snapshot = BleConnectionState.initial();
   BluetoothDevice? _device;
@@ -84,6 +103,13 @@ class BleService {
 
   // ── Bluetooth adapter ──────────────────────────────────────────────────────
 
+  @override
+  Future<bool> checkReady() async {
+    final state = await FlutterBluePlus.adapterState.first;
+    return state == BluetoothAdapterState.on;
+  }
+
+  @override
   Future<void> ensureBluetoothReady() async {
     if (!kIsWeb && Platform.isAndroid) {
       final state = await FlutterBluePlus.adapterState.first;
@@ -109,6 +135,7 @@ class BleService {
 
   // ── Scanning ───────────────────────────────────────────────────────────────
 
+  @override
   Future<void> startScan() async {
     _scanContinue = false;
     _scanPaused = false;
@@ -126,6 +153,7 @@ class BleService {
 
   // ── Pause Scanning ───────────────────────────────────────────────────────────────
 
+  @override
   Future<void> pauseScan() async {
     if (_scanDeadline == null) return;
     if (_scanPaused) return;
@@ -142,6 +170,7 @@ class BleService {
 
   // ── Resume Scanning ───────────────────────────────────────────────────────────────
 
+  @override
   Future<void> resumeScan() async {
     if (_scanContinue) return;
     final deadline = _scanDeadline;
@@ -252,6 +281,7 @@ class BleService {
 
   // ── Stop Scanning ───────────────────────────────────────────────────────────────
 
+  @override
   Future<void> stopScan() async {
     _scanContinue = false;
     _scanPaused = false;
@@ -331,6 +361,7 @@ class BleService {
 
   // ── Connection ─────────────────────────────────────────────────────────────
 
+  @override
   Future<void> connect(BleScanDevice scanDevice) async {
     _connectCancelled = false;
 
@@ -542,6 +573,7 @@ class BleService {
 
   // ── Cancel Connecting ─────────────────────────────────────────────────────
 
+  @override
   Future<void> cancelConnecting() async {
     const cancellableStatuses = {
       BleConnectionStatus.connecting,
@@ -615,6 +647,7 @@ class BleService {
 
   // ── Disconnect Device ─────────────────────────────────────────────────────
 
+  @override
   Future<void> disconnect({bool emitState = true}) async {
     _stopRssiPolling();
     _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
@@ -948,6 +981,7 @@ class BleService {
 
   // ── Autheticate the device ─────────────────────────────────────────────────
 
+  @override
   Future<BleAuthOutcome> authenticate({
     required String email,
     required String password,
@@ -1133,6 +1167,7 @@ class BleService {
     return writeFuture;
   }
 
+  @override
   Future<void> writeDigital(List<int> bytes) async {
     if (_digitalChar == null) return;
     if (_sessionAuthenticated) {
@@ -1160,11 +1195,13 @@ class BleService {
     );
   }
 
+  @override
   Future<void> writeAuth(List<int> bytes) async {
     if (_authChar == null) return;
     await _authChar!.write(bytes);
   }
 
+  @override
   void dispose() {
     _isDisposing = true;
     _scanPaused = false;
