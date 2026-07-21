@@ -414,29 +414,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _devices = devices;
       notifyListeners();
     });
-    _statusSubscription = _bleService.statusStream.listen((command) {
-      // This is the PLC's own hardware echo, arriving asynchronously over
-      // BLE — it can lag behind a command the operator has already released
-      // locally. It updates `_activeCommand`/`hoistState` for status/output
-      // indicators (LEDs, status chip) ONLY. Button VISUAL active state is
-      // sourced from each control screen's local touch state
-      // (_activeStateForButton / _localActive), never from this stream, so
-      // a late/stale echo here cannot flicker a button back to active.
-      ButtonStateLog.log(
-        command.estop ||
-                command.up ||
-                command.down ||
-                command.left ||
-                command.right ||
-                command.forward ||
-                command.reverse
-            ? 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)'
-            : 'PLC_STATUS_IDLE (hardware echo, status/LED only)',
-      );
-      _activeCommand = command;
-      if (command.estop) _estopLatched = true;
-      notifyListeners();
-    });
+    _statusSubscription = _bleService.statusStream.listen(_handlePlcStatus);
     _adapterSubscription = FlutterBluePlus.adapterState.listen((state) {
       _bluetoothReady = state == BluetoothAdapterState.on;
       notifyListeners();
@@ -446,6 +424,30 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _analogValues = values;
       notifyListeners();
     });
+  }
+
+  /// Applies PLC feedback to status indicators without changing the local
+  /// E-stop latch. This PLC does not acknowledge reset, so the operator's
+  /// E-stop and reset swipes are the authoritative lock state.
+  @visibleForTesting
+  void handlePlcStatusForTesting(PlcOutputCommand command) {
+    _handlePlcStatus(command);
+  }
+
+  void _handlePlcStatus(PlcOutputCommand command) {
+    ButtonStateLog.log(
+      command.estop ||
+              command.up ||
+              command.down ||
+              command.left ||
+              command.right ||
+              command.forward ||
+              command.reverse
+          ? 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)'
+          : 'PLC_STATUS_IDLE (hardware echo, status/LED only)',
+    );
+    _activeCommand = command;
+    notifyListeners();
   }
 
   Future<void> _prepareRunTime() async {
@@ -705,6 +707,9 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> resetEStop() async {
+    // The completed reset swipe is authoritative because this PLC sends no
+    // reset acknowledgement. _sendCommand notifies the UI synchronously, so
+    // controls become available immediately.
     _estopLatched = false;
     await _sendCommand(PlcOutputCommand.idle());
   }
