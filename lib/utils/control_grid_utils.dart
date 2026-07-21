@@ -132,8 +132,8 @@ ResolvedButtonCommand resolveButtonCommand({
 }
 
 /// The PLC output variants a user may select in the OUTPUT MAPPING editor
-/// for a layout belonging to [bucket]. PLC38 exposes the full a2..a10 range
-/// (a1/E-STOP is excluded at the call site, never included here). PLC14/
+/// for a layout belonging to [bucket]. PLC38 exposes the full DF2..DF10 range
+/// (DF1/E-STOP is excluded at the call site, never included here). PLC14/
 /// PLC21 only ever emit a 4-field wire packet [estop, up, down, fastUd] —
 /// restricting selection here means a user can never configure a variant
 /// that would be silently dropped at wire-serialization time, on top of the

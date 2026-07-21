@@ -38,7 +38,7 @@ class ButtonStateOutputMapping {
 
   Map<String, dynamic> toJson() => {
     'stateId': stateId,
-    // Serialized as PlcMapping.name strings (e.g. 'up'), not 'aN' —
+    // Serialized as PlcMapping.name strings (e.g. 'up'), not 'DFN' —
     // variantId/genericLabel are pure display concerns decoupled from
     // storage, so renaming the display convention never requires a
     // migration of persisted layouts.

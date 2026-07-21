@@ -433,8 +433,8 @@ class _InfoNote extends StatelessWidget {
 //     idle/center state that could assert arbitrary outputs would be a
 //     safety footgun ("never truly off").
 //   - non-idle states are an editable multi-select chip group over
-//     a2..a10 (a1/E-STOP structurally excluded from the list itself, not
-//     just by convention), further restricted to a2..a4 for a PLC14/PLC21
+//     DF2..DF10 (DF1/E-STOP structurally excluded from the list itself, not
+//     just by convention), further restricted to DF2..DF4 for a PLC14/PLC21
 //     layout, since those PLC types only ever emit a 4-field wire packet.
 //
 // Master invariant: this editor only ever writes exactly what the user
