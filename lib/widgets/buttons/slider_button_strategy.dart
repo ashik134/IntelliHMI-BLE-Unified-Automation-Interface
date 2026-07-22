@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
@@ -21,11 +21,11 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
   ButtonType get type => ButtonType.sliderButton;
 
   /// CraneSliderButton's `isUp` is purely cosmetic (drag-gesture orientation
-  /// default) — derived here from plcMapping's "primary" vs "secondary"
+  /// default) — derived here from PlcOutputVariant's "primary" vs "secondary"
   /// direction (up/left/forward vs down/right/reverse), mirroring how each
   /// axis is oriented on the control screens today.
-  bool _isUp(PlcMapping mapping) => switch (mapping) {
-    PlcMapping.up || PlcMapping.left || PlcMapping.forward => true,
+  bool _isUp(PlcOutputVariant mapping) => switch (mapping) {
+    PlcOutputVariant.df2 || PlcOutputVariant.df5 || PlcOutputVariant.df8 => true,
     _ => false,
   };
 

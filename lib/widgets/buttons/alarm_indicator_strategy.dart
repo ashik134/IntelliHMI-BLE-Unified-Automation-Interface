@@ -6,7 +6,7 @@ import 'package:rev_crane_control_ops/controllers/customization_mode_controller.
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/alarm_indicator_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 
@@ -17,7 +17,7 @@ import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart'
 // is unused here). Reads the live composed PlcOutputCommand via
 // CraneController.isFieldActive and evaluates AlarmIndicatorConfig's three
 // PlcConditionConfigs (critical/alarm/warning, each an "any of" or "all of"
-// selected PlcMapping variants) most-severe first, exactly mirroring how
+// selected PlcOutputVariant variants) most-severe first, exactly mirroring how
 // live_led_row.dart's control screens already read PLC status for LEDs.
 //
 // Acknowledge is handled entirely inside AlarmIndicatorControl as LOCAL,
@@ -34,7 +34,7 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
 
   static AlarmSeverity severityFor(
     AlarmIndicatorConfig config,
-    bool Function(PlcMapping) isFieldActive,
+    bool Function(PlcOutputVariant) isFieldActive,
   ) {
     if (config.criticalTrigger.isActive(isFieldActive)) {
       return AlarmSeverity.critical;

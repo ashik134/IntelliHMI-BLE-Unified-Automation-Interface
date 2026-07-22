@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+
 class PotentiometerConfig {
   const PotentiometerConfig({
     this.minValue = 0.0,
@@ -56,7 +58,7 @@ class PotentiometerConfig {
       defaultValue: safeDefault,
       showValue: showValue,
       unit: unit.trim(),
-      outputVariantId: _cleanNullable(outputVariantId),
+      outputVariantId: _cleanVariantId(outputVariantId),
       outputChannel: outputChannel.trim(),
       outputEnabled: outputEnabled,
     );
@@ -169,7 +171,7 @@ class PotentiometerConfig {
       defaultValue: _readDouble(json['defaultValue'], 0.0),
       showValue: json['showValue'] as bool? ?? true,
       unit: json['unit'] as String? ?? '%',
-      outputVariantId: _cleanNullable(json['outputVariantId'] as String?),
+      outputVariantId: _cleanVariantId(json['outputVariantId']),
       outputChannel: json['outputChannel'] as String? ?? '',
       outputEnabled: json['outputEnabled'] as bool? ?? false,
     ).normalized();
@@ -228,4 +230,10 @@ double _snapToStep({
 String? _cleanNullable(String? value) {
   final trimmed = value?.trim();
   return trimmed == null || trimmed.isEmpty ? null : trimmed;
+}
+
+String? _cleanVariantId(Object? value) {
+  final variant = PlcOutputVariant.fromStorageKey(value);
+  if (variant != null) return variant.variantId;
+  return _cleanNullable(value?.toString());
 }

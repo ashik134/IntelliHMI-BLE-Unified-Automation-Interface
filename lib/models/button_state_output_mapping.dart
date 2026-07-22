@@ -1,4 +1,4 @@
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ButtonStateOutputMapping
@@ -14,21 +14,21 @@ import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 class ButtonStateOutputMapping {
   const ButtonStateOutputMapping({
     required this.stateId,
-    this.activeVariants = const <PlcMapping>{},
+    this.activeVariants = const <PlcOutputVariant>{},
   });
 
   final String stateId;
 
-  /// Never contains PlcMapping.estop — enforced here (isValid) and again in
-  /// fromJson, which silently drops an estop entry rather than trusting a
+  /// Never contains PlcOutputVariant.df1 — enforced here (isValid) and again in
+  /// fromJson, which silently drops a DF1/E-STOP entry rather than trusting a
   /// hand-edited/corrupted JSON value. E-STOP stays controller-only.
-  final Set<PlcMapping> activeVariants;
+  final Set<PlcOutputVariant> activeVariants;
 
-  bool get isValid => !activeVariants.contains(PlcMapping.estop);
+  bool get isValid => !activeVariants.contains(PlcOutputVariant.df1);
 
   ButtonStateOutputMapping copyWith({
     String? stateId,
-    Set<PlcMapping>? activeVariants,
+    Set<PlcOutputVariant>? activeVariants,
   }) {
     return ButtonStateOutputMapping(
       stateId: stateId ?? this.stateId,
@@ -38,25 +38,16 @@ class ButtonStateOutputMapping {
 
   Map<String, dynamic> toJson() => {
     'stateId': stateId,
-    // Serialized as PlcMapping.name strings (e.g. 'up'), not 'DFN' —
-    // variantId/genericLabel are pure display concerns decoupled from
-    // storage, so renaming the display convention never requires a
-    // migration of persisted layouts.
-    'activeVariants': activeVariants.map((v) => v.name).toList(),
+    'activeVariants': activeVariants.map((v) => v.storageKey).toList(),
   };
 
   factory ButtonStateOutputMapping.fromJson(Map<String, dynamic> json) {
     final rawVariants = (json['activeVariants'] as List?) ?? const [];
-    final variants = <PlcMapping>{};
+    final variants = <PlcOutputVariant>{};
     for (final raw in rawVariants) {
-      final name = raw.toString();
-      for (final mapping in PlcMapping.values) {
-        if (mapping.name == name) {
-          // estop is structurally excluded even from corrupted/hand-edited
-          // JSON — never smuggled into a button's activeVariants.
-          if (mapping != PlcMapping.estop) variants.add(mapping);
-          break;
-        }
+      final variant = PlcOutputVariant.fromStorageKey(raw);
+      if (variant != null && variant != PlcOutputVariant.df1) {
+        variants.add(variant);
       }
     }
     return ButtonStateOutputMapping(

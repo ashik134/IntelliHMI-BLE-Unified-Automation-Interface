@@ -5,7 +5,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/joystick_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
@@ -115,7 +115,7 @@ class JoystickButtonStrategy extends ButtonTypeStrategy {
     };
   }
 
-  String _virtualIdFor(ButtonConfig config, PlcMapping? mapping) {
+  String _virtualIdFor(ButtonConfig config, PlcOutputVariant? mapping) {
     if (mapping == null) return config.id;
     return joystickVirtualButtonId(config.id, mapping);
   }

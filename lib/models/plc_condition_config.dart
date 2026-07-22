@@ -1,4 +1,4 @@
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PlcConditionCombinator / PlcConditionConfig
@@ -9,27 +9,27 @@ import 'package:rev_crane_control_ops/models/plc_mapping.dart';
 // CraneController.isFieldActive, see crane_controllers.dart) and decide
 // whether their configured condition over [watchedFields] is currently true.
 //
-// "If A2 is ON" -> watchedFields = {up}, combinator = any (or all — with one
+// "If DF2 is ON" -> watchedFields = {DF2}, combinator = any (or all, with one
 // field they're equivalent).
-// "If A5 AND A6 are ON" -> watchedFields = {left, right}, combinator = all.
-// "If any of A5, A6 is ON" -> same fields, combinator = any.
+// "If DF5 AND DF6 are ON" -> watchedFields = {DF5, DF6}, combinator = all.
+// "If any of DF5, DF6 is ON" -> same fields, combinator = any.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum PlcConditionCombinator { any, all }
 
 class PlcConditionConfig {
   const PlcConditionConfig({
-    this.watchedFields = const <PlcMapping>{},
+    this.watchedFields = const <PlcOutputVariant>{},
     this.combinator = PlcConditionCombinator.any,
   });
 
   static const String customPropertiesKey = 'plcCondition';
 
-  /// Never contains PlcMapping.estop — a feedback widget triggering off
+  /// Never contains PlcOutputVariant.df1 — a feedback widget triggering off
   /// E-STOP directly would be a confusing secondary alarm channel for a
   /// condition that already has its own dedicated, protected UI everywhere
   /// else in the app. Enforced in normalized() and fromJson.
-  final Set<PlcMapping> watchedFields;
+  final Set<PlcOutputVariant> watchedFields;
   final PlcConditionCombinator combinator;
 
   bool get hasCondition => watchedFields.isNotEmpty;
@@ -38,7 +38,7 @@ class PlcConditionConfig {
   /// `CraneController.isFieldActive`). An empty [watchedFields] set is
   /// always inactive — an unconfigured feedback widget is inert, never
   /// "always on" by default.
-  bool isActive(bool Function(PlcMapping) fieldValue) {
+  bool isActive(bool Function(PlcOutputVariant) fieldValue) {
     if (watchedFields.isEmpty) return false;
     return combinator == PlcConditionCombinator.all
         ? watchedFields.every(fieldValue)
@@ -47,13 +47,15 @@ class PlcConditionConfig {
 
   PlcConditionConfig normalized() {
     return PlcConditionConfig(
-      watchedFields: watchedFields.where((m) => m != PlcMapping.estop).toSet(),
+      watchedFields: watchedFields
+          .where((m) => m != PlcOutputVariant.df1)
+          .toSet(),
       combinator: combinator,
     );
   }
 
   PlcConditionConfig copyWith({
-    Set<PlcMapping>? watchedFields,
+    Set<PlcOutputVariant>? watchedFields,
     PlcConditionCombinator? combinator,
   }) {
     return PlcConditionConfig(
@@ -62,27 +64,24 @@ class PlcConditionConfig {
     ).normalized();
   }
 
-  PlcConditionConfig toggleField(PlcMapping mapping) {
-    final next = Set<PlcMapping>.from(watchedFields);
+  PlcConditionConfig toggleField(PlcOutputVariant mapping) {
+    final next = Set<PlcOutputVariant>.from(watchedFields);
     if (!next.add(mapping)) next.remove(mapping);
     return copyWith(watchedFields: next);
   }
 
   Map<String, dynamic> toJson() => {
-    'watchedFields': watchedFields.map((m) => m.name).toList(),
+    'watchedFields': watchedFields.map((m) => m.storageKey).toList(),
     'combinator': combinator.name,
   };
 
   factory PlcConditionConfig.fromJson(Map<String, dynamic> json) {
     final rawFields = (json['watchedFields'] as List?) ?? const [];
-    final fields = <PlcMapping>{};
+    final fields = <PlcOutputVariant>{};
     for (final raw in rawFields) {
-      final name = raw.toString();
-      for (final mapping in PlcMapping.values) {
-        if (mapping.name == name) {
-          if (mapping != PlcMapping.estop) fields.add(mapping);
-          break;
-        }
+      final variant = PlcOutputVariant.fromStorageKey(raw);
+      if (variant != null && variant != PlcOutputVariant.df1) {
+        fields.add(variant);
       }
     }
     return PlcConditionConfig(

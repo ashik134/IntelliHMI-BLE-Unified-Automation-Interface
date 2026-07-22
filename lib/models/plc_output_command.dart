@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 // Retained for PLC14/PLC21 UI backward-compatibility.
 enum HoistDirection { idle, up, down }
@@ -265,23 +265,23 @@ class PlcOutputCommand {
     return true;
   }
 
-  /// Generic per-[PlcMapping] field lookup — reads this command's live
+  /// Generic per-[PlcOutputVariant] field lookup — reads this command's live
   /// boolean for any of the 10 wire fields without the caller needing a
   /// switch of its own. Used by PLC-status-driven feedback widgets (horn/
   /// buzzer, alarm indicator) that watch one or more output/status variants
   /// (e.g. "is A2 on", "are A5 and A6 both on") rather than one fixed field
   /// the way the ledUp/ledDown-style getters on CraneController do.
-  bool fieldValue(PlcMapping mapping) => switch (mapping) {
-    PlcMapping.estop => estop,
-    PlcMapping.up => up,
-    PlcMapping.down => down,
-    PlcMapping.fastUd => fastUd,
-    PlcMapping.left => left,
-    PlcMapping.right => right,
-    PlcMapping.fastLr => fastLr,
-    PlcMapping.forward => forward,
-    PlcMapping.reverse => reverse,
-    PlcMapping.fastFb => fastFb,
+  bool fieldValue(PlcOutputVariant mapping) => switch (mapping) {
+    PlcOutputVariant.df1 => estop,
+    PlcOutputVariant.df2 => up,
+    PlcOutputVariant.df3 => down,
+    PlcOutputVariant.df4 => fastUd,
+    PlcOutputVariant.df5 => left,
+    PlcOutputVariant.df6 => right,
+    PlcOutputVariant.df7 => fastLr,
+    PlcOutputVariant.df8 => forward,
+    PlcOutputVariant.df9 => reverse,
+    PlcOutputVariant.df10 => fastFb,
   };
 
   // ── Wire format ─────────────────────────────────────────────────────────────

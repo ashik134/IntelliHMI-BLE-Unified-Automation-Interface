@@ -5,7 +5,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
@@ -81,16 +81,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   // screen either fully uses the legacy per-axis setters or fully uses
   // setButtonCommand), but both compose into the same PlcOutputCommand shape
   // so either can be live during the incremental migration.
-  final Map<String, Set<PlcMapping>> _p38ButtonFields = {};
+  final Map<String, Set<PlcOutputVariant>> _p38ButtonFields = {};
 
   // ── Shared-field ownership ────────────────────────────────────────────────
-  // PlcMapping field → the buttonId that currently owns (actively asserts)
+  // PlcOutputVariant field → the buttonId that currently owns (actively asserts)
   // that field. Enforces the invariant that each PLC field is driven by at
   // most one button at a time. A second button attempting to activate the
   // same field while it is already owned is silently discarded; the UI layer
   // reads isFieldBlockedForButton() to clamp the slider before the drag
   // reaches the zone boundary, giving a physical "stuck" sensation.
-  final Map<PlcMapping, String> _fieldOwners = {};
+  final Map<PlcOutputVariant, String> _fieldOwners = {};
   // bool _conflictActive = false;
   // bool _upActive = false;
   // bool _downActive = false;
@@ -200,11 +200,11 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// from the same live [_activeCommand] echo the ledUp/ledDown-style
   /// getters above read — the one source of truth for PLC-status-driven
   /// feedback widgets (see PlcConditionStrategy) that watch a
-  /// user-configured set of PlcMapping variants rather than one fixed field.
+  /// user-configured set of PlcOutputVariant variants rather than one fixed field.
   /// Unlike the ledX getters, this does NOT suppress on estop — a feedback
   /// widget watching, say, `forward` should still reflect the PLC's actual
   /// reported field state even during an E-STOP condition.
-  bool isFieldActive(PlcMapping mapping) => _activeCommand.fieldValue(mapping);
+  bool isFieldActive(PlcOutputVariant mapping) => _activeCommand.fieldValue(mapping);
 
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;
@@ -833,22 +833,22 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     required String buttonId,
     required ControlState state,
     required String stateId,
-    required Set<PlcMapping> activeVariants,
+    required Set<PlcOutputVariant> activeVariants,
   }) async {
     if (_estopLatched || !isConnected) return;
 
     if (connectedPlcType != PlcType.plc38) {
-      if (activeVariants.contains(PlcMapping.up) ||
+      if (activeVariants.contains(PlcOutputVariant.df2) ||
           buttonId == ControlRole.hoistUp.name) {
         await setHoistCommand(isUp: true, state: state);
-      } else if (activeVariants.contains(PlcMapping.down) ||
+      } else if (activeVariants.contains(PlcOutputVariant.df3) ||
           buttonId == ControlRole.hoistDown.name) {
         await setHoistCommand(isUp: false, state: state);
       } else {
         final joystickField = joystickVirtualFieldFor(buttonId);
-        if (joystickField == PlcMapping.up) {
+        if (joystickField == PlcOutputVariant.df2) {
           await setHoistCommand(isUp: true, state: state);
-        } else if (joystickField == PlcMapping.down) {
+        } else if (joystickField == PlcOutputVariant.df3) {
           await setHoistCommand(isUp: false, state: state);
         }
       }
@@ -856,7 +856,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     final newFields = state == ControlState.idle
-        ? const <PlcMapping>{}
+        ? const <PlcOutputVariant>{}
         : activeVariants;
 
     if (state == ControlState.idle) {
@@ -864,7 +864,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _fieldOwners.removeWhere((_, owner) => owner == buttonId);
       _p38ButtonFields.remove(buttonId);
     } else {
-      final previousFields = _p38ButtonFields[buttonId] ?? const <PlcMapping>{};
+      final previousFields = _p38ButtonFields[buttonId] ?? const <PlcOutputVariant>{};
 
       // Only check fields being NEWLY claimed (not already owned by this button).
       final addedFields = newFields.difference(previousFields);
@@ -916,7 +916,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// doc comment; CraneController never derives this itself.
   bool isFieldBlockedForButton(
     String buttonId,
-    Set<PlcMapping> candidateFields,
+    Set<PlcOutputVariant> candidateFields,
   ) {
     return candidateFields.any(
       (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
@@ -929,7 +929,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// derivation is consulted here — a field is true iff some button
   /// explicitly claims it in its current state, full stop.
   PlcOutputCommand _composeFromButtonStates() {
-    bool fieldActive(PlcMapping field) {
+    bool fieldActive(PlcOutputVariant field) {
       for (final fields in _p38ButtonFields.values) {
         if (fields.contains(field)) return true;
       }
@@ -938,15 +938,15 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
     return PlcOutputCommand.compose(
       estop: false,
-      up: fieldActive(PlcMapping.up),
-      down: fieldActive(PlcMapping.down),
-      fastUd: fieldActive(PlcMapping.fastUd),
-      left: fieldActive(PlcMapping.left),
-      right: fieldActive(PlcMapping.right),
-      fastLr: fieldActive(PlcMapping.fastLr),
-      forward: fieldActive(PlcMapping.forward),
-      reverse: fieldActive(PlcMapping.reverse),
-      fastFb: fieldActive(PlcMapping.fastFb),
+      up: fieldActive(PlcOutputVariant.df2),
+      down: fieldActive(PlcOutputVariant.df3),
+      fastUd: fieldActive(PlcOutputVariant.df4),
+      left: fieldActive(PlcOutputVariant.df5),
+      right: fieldActive(PlcOutputVariant.df6),
+      fastLr: fieldActive(PlcOutputVariant.df7),
+      forward: fieldActive(PlcOutputVariant.df8),
+      reverse: fieldActive(PlcOutputVariant.df9),
+      fastFb: fieldActive(PlcOutputVariant.df10),
     );
   }
 

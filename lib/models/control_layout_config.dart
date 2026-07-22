@@ -709,7 +709,7 @@ class ControlLayoutConfig {
   ///
   /// Bumped 5 → 6 by the generic PLC-output-variant refactor: each
   /// ButtonConfig gains a `stateMappings` field (button-state -> PLC output
-  /// variant list), replacing the old single `plcMapping`-plus-ControlRole/
+  /// variant list), replacing the old single `PlcOutputVariant`-plus-ControlRole/
   /// AxisKind-derivation composition path. Old JSON without `stateMappings`
   /// is migrated on load via ButtonConfig.fromJson, which falls back to
   /// ButtonConfig.migratedStateMappingsFor — reproducing the OLD derivation

@@ -2,7 +2,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
 
@@ -40,7 +40,7 @@ class ResolvedButtonCommand {
   });
 
   final String stateId;
-  final Set<PlcMapping> activeVariants;
+  final Set<PlcOutputVariant> activeVariants;
 }
 
 /// Resolves [buttonId]'s logical stateId + exact active PLC output variants
@@ -134,21 +134,21 @@ ResolvedButtonCommand resolveButtonCommand({
 /// The PLC output variants a user may select in the OUTPUT MAPPING editor
 /// for a layout belonging to [bucket]. PLC38 exposes the full DF2..DF10 range
 /// (DF1/E-STOP is excluded at the call site, never included here). PLC14/
-/// PLC21 only ever emit a 4-field wire packet [estop, up, down, fastUd] —
+/// PLC21 only ever emit the first four digital fields (DF1..DF4), so
 /// restricting selection here means a user can never configure a variant
 /// that would be silently dropped at wire-serialization time, on top of the
 /// wire-level truncation that already makes such a config harmless even if
 /// one existed (e.g. from a hand-edited/imported layout — see
 /// plc14_variant_clamping_test.dart).
-List<PlcMapping> selectableVariantsFor(LayoutBucket bucket) {
-  final all = PlcMapping.values.where((m) => m.isUserConfigurable);
+List<PlcOutputVariant> selectableVariantsFor(LayoutBucket bucket) {
+  final all = PlcOutputVariant.values.where((m) => m.isUserConfigurable);
   if (bucket == LayoutBucket.plc38) return all.toList();
   return all
       .where(
         (m) =>
-            m == PlcMapping.up ||
-            m == PlcMapping.down ||
-            m == PlcMapping.fastUd,
+            m == PlcOutputVariant.df2 ||
+            m == PlcOutputVariant.df3 ||
+            m == PlcOutputVariant.df4,
       )
       .toList();
 }

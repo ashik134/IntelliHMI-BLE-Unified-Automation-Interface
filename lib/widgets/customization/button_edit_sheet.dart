@@ -12,7 +12,7 @@ import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -584,7 +584,7 @@ class _JoystickOutputMappingEditor extends StatelessWidget {
   void _updateEndpoint(
     _JoystickOutputEndpoint endpoint,
     String stateId,
-    Set<PlcMapping> activeVariants,
+    Set<PlcOutputVariant> activeVariants,
   ) {
     final shouldSeedFromParent =
         config.joystickSubButtonMappings.isEmpty &&
@@ -610,7 +610,7 @@ class _JoystickOutputMappingEditor extends StatelessWidget {
     onChanged(config.copyWith(joystickSubButtonMappings: updated));
   }
 
-  Set<PlcMapping> _selectedVariants(String endpointId, String stateId) {
+  Set<PlcOutputVariant> _selectedVariants(String endpointId, String stateId) {
     final states = config.joystickSubButtonMappings[endpointId];
     if (states != null) {
       return states[stateId]?.activeVariants ?? const {};
@@ -726,9 +726,9 @@ class _VariantChipGroup extends StatelessWidget {
     required this.onChanged,
   });
 
-  final List<PlcMapping> selectable;
-  final Set<PlcMapping> selected;
-  final ValueChanged<Set<PlcMapping>> onChanged;
+  final List<PlcOutputVariant> selectable;
+  final Set<PlcOutputVariant> selected;
+  final ValueChanged<Set<PlcOutputVariant>> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1162,7 +1162,7 @@ class _CustomTypePicker extends StatelessWidget {
       type: type,
       visible: true,
       // Selecting a real control type is what activates this slot now that
-      // PLC OUTPUT is no longer a single-value picker — plcMapping/
+      // PLC OUTPUT is no longer a single-value picker — PlcOutputVariant/
       // plcMappingEnabled are demoted to a cosmetic hint (see ButtonConfig
       // doc comment), but 'enabled' still gates whether the control renders
       // interactive vs. grayed-out, so it must flip true here.
@@ -2413,7 +2413,7 @@ ButtonConfig _newCustomButtonSeed({
   return ButtonConfig(
     id: 'custom_${DateTime.now().microsecondsSinceEpoch}',
     type: type,
-    plcMapping: PlcMapping.up,
+    plcMapping: PlcOutputVariant.df2,
     label: '',
     enabled: false,
     plcMappingEnabled: false,

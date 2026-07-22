@@ -6,7 +6,7 @@ import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
 // Custom-properties bag for ButtonType.horn. The horn/buzzer is a PLC
 // STATUS-DRIVEN FEEDBACK widget, never an output control: it never sends a
 // PLC command of its own (see HornButtonStrategy) — [trigger] declares which
-// live PLC output/status fields (PlcMapping variants, e.g. A2, A5+A6) make it
+// live PLC output/status fields (PlcOutputVariant variants, e.g. A2, A5+A6) make it
 // sound, and [trigger.combinator] picks "any selected ON" vs "all selected
 // ON". sound/haptic/pulse toggles only control the LOCAL presentation of an
 // already-true condition; they never gate whether the condition itself is

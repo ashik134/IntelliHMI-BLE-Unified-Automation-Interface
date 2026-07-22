@@ -17,7 +17,7 @@ import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 // PLC STATUS-DRIVEN FEEDBACK strategy — the horn/buzzer is never an output
 // control. It reads the live composed PlcOutputCommand via
 // CraneController.isFieldActive (see crane_controllers.dart) and evaluates
-// HornConfig.trigger (a PlcConditionConfig over one or more PlcMapping
+// HornConfig.trigger (a PlcConditionConfig over one or more PlcOutputVariant
 // variants, e.g. "A2 ON" or "A5 AND A6 ON") to decide whether to sound.
 // [onCommand]/[activeState] are UNUSED here — this strategy never calls
 // onCommand, matching "Buzzer must not send PLC output commands."

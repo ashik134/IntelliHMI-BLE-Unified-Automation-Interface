@@ -7,7 +7,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ButtonType
@@ -109,7 +109,7 @@ class ButtonConfig {
   /// Which PlcOutputCommand field this button ultimately drives. A single
   /// ButtonConfig always has exactly one mapping — cross-travel's two
   /// logical halves each get their own ButtonConfig+mapping.
-  final PlcMapping plcMapping;
+  final PlcOutputVariant plcMapping;
 
   /// The legacy ControlRole this button corresponds to, if any. Present for
   /// all 8 migrated buttons; null is reserved for future free-standing
@@ -187,7 +187,7 @@ class ButtonConfig {
   /// — no output variant is ever activated except by an explicit entry
   /// here for that exact state (see CraneController._fieldsFor).
   ///
-  /// [plcMapping]/[plcMappingEnabled] are kept as a cosmetic/orientation
+  /// [PlcOutputVariant]/[plcMappingEnabled] are kept as a cosmetic/orientation
   /// hint (icon defaults, slider drag-orientation, cross-travel side
   /// resolution) — they no longer drive composition once a button has real
   /// stateMappings entries.
@@ -348,13 +348,13 @@ class ButtonConfig {
     if (ownField == null) return const <String, ButtonStateOutputMapping>{};
     final fastField = role.axis?.fastMapping;
 
-    const Set<PlcMapping> idleVariants = {};
-    final Set<PlcMapping> slowVariants = {ownField};
-    final Set<PlcMapping> fastVariants = {ownField, ?fastField};
+    const Set<PlcOutputVariant> idleVariants = {};
+    final Set<PlcOutputVariant> slowVariants = {ownField};
+    final Set<PlcOutputVariant> fastVariants = {ownField, ?fastField};
 
     Map<String, ButtonStateOutputMapping> entry(
       String id,
-      Set<PlcMapping> variants,
+      Set<PlcOutputVariant> variants,
     ) => {id: ButtonStateOutputMapping(stateId: id, activeVariants: variants)};
 
     switch (type) {
@@ -440,7 +440,7 @@ class ButtonConfig {
   /// for step2) as static data, keyed by joystickVirtualButtonId — exactly
   /// mirroring JoystickButtonStrategy's own role-pair resolution so a
   /// migrated joystick behaves identically to before. NOT recomputed from
-  /// PlcMapping/ControlRole at composition time — CraneController._fieldsFor
+  /// PlcOutputVariant/ControlRole at composition time — CraneController._fieldsFor
   /// only ever reads this baked table.
   static Map<String, Map<String, ButtonStateOutputMapping>>
   migratedJoystickSubButtonMappingsFor({
@@ -448,7 +448,9 @@ class ButtonConfig {
     required ControlRole? role,
     required JoystickConfig joystickConfig,
   }) {
-    Map<String, ButtonStateOutputMapping> subMappingFor(PlcMapping field) {
+    Map<String, ButtonStateOutputMapping> subMappingFor(
+      PlcOutputVariant field,
+    ) {
       final fastField = field.correspondingRole?.axis?.fastMapping;
       return {
         'idle': const ButtonStateOutputMapping(stateId: 'idle'),
@@ -518,7 +520,7 @@ class ButtonConfig {
     return ButtonConfig(
       id: ControlRole.estop.name,
       type: ButtonType.pushButton,
-      plcMapping: PlcMapping.estop,
+      plcMapping: PlcOutputVariant.df1,
       role: ControlRole.estop,
       label: ControlRole.estop.defaultLabel,
       visible: true,
@@ -531,9 +533,9 @@ class ButtonConfig {
 
   /// resetEstop has no PlcOutputCommand field of its own (it's a
   /// controller-level action — CraneController.resetEStop — not a composed
-  /// packet bit); plcMapping is estop only as a structural placeholder since
-  /// PlcMapping has no "none" option and resetEstop is never composed via
-  /// plcMapping in practice (see CraneController.resetEStop).
+  /// packet bit); PlcOutputVariant.df1 is only a structural placeholder since
+  /// PlcOutputVariant has no "none" option and resetEstop is never composed via
+  /// PlcOutputVariant in practice (see CraneController.resetEStop).
   factory ButtonConfig.resetEstopDefault(
     String label, {
     ButtonStyleConfig style = const ButtonStyleConfig(),
@@ -542,7 +544,7 @@ class ButtonConfig {
     return ButtonConfig(
       id: ControlRole.resetEstop.name,
       type: ButtonType.pushButton,
-      plcMapping: PlcMapping.estop,
+      plcMapping: PlcOutputVariant.df1,
       role: ControlRole.resetEstop,
       label: label,
       style: style,
@@ -557,7 +559,7 @@ class ButtonConfig {
   ButtonConfig copyWith({
     String? id,
     ButtonType? type,
-    PlcMapping? plcMapping,
+    PlcOutputVariant? plcMapping,
     ControlRole? role,
     String? label,
     IconData? icon,
@@ -626,7 +628,7 @@ class ButtonConfig {
   Map<String, dynamic> toJson() => {
     'id': id,
     'type': type.name,
-    'plcMapping': plcMapping.name,
+    'plcMapping': plcMapping.storageKey,
     'role': role?.name,
     'label': label,
     'icon': icon?.codePoint,
@@ -691,10 +693,11 @@ class ButtonConfig {
     return ButtonConfig(
       id: json['id'] as String,
       type: type,
-      plcMapping: PlcMapping.values.firstWhere(
-        (e) => e.name == json['plcMapping'],
-        orElse: () => PlcMapping.up,
-      ),
+      plcMapping:
+          PlcOutputVariant.fromStorageKey(
+            json['plcMapping'] ?? json['PlcOutputVariant'],
+          ) ??
+          PlcOutputVariant.df2,
       role: role,
       label: json['label'] as String? ?? '',
       icon: null, // codePoint-only round trip intentionally not restored to

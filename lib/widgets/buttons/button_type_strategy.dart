@@ -51,7 +51,7 @@ abstract class ButtonTypeStrategy {
 // refactor. These functions translate that physical gesture signal into the
 // LOGICAL state id used to key ButtonConfig.stateMappings (see
 // ButtonTypeLogicalStates.logicalStates). This is a PURE RELABELING: it never
-// inspects PlcMapping, never adds a second variant, never consults
+// inspects PlcOutputVariant, never adds a second variant, never consults
 // ControlRole/AxisKind. The actual set of PLC output variants a state
 // activates is looked up separately, directly from
 // ButtonConfig.stateMappings[stateId] — never derived here.

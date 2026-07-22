@@ -5,7 +5,7 @@ import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_slider.dart';
 
@@ -133,7 +133,7 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
   /// composition, when the gesture fires for real, always re-resolves the
   /// exact zone via crossTravelZoneId + config.stateMappings (see the
   /// control screens' onCommand handlers).
-  Set<PlcMapping> _nearZoneFieldsFor(
+  Set<PlcOutputVariant> _nearZoneFieldsFor(
     ButtonConfig config, {
     required bool isLeft,
   }) {
@@ -261,7 +261,7 @@ class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
   /// crossTravelZoneId + config.stateMappings) or a virtual fast-key id
   /// (kTraverseLeftFastKey/kTraverseRightFastKey — resolved via the fixed,
   /// migrated kVirtualFastKeyStateMappings table, never re-derived).
-  Set<PlcMapping> _fieldsForEndpoint(
+  Set<PlcOutputVariant> _fieldsForEndpoint(
     ButtonConfig config,
     String sideId, {
     required bool isLeft,
