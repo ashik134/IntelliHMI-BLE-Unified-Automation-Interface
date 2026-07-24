@@ -110,16 +110,16 @@ ResolvedButtonCommand resolveButtonCommand({
   }
 
   final String stateId;
-  if (config.type == ButtonType.crossTravel ||
-      config.type == ButtonType.crossTravelSlowOnly) {
-    final endpoints = config.type == ButtonType.crossTravel
-        ? const CrossTravelStrategy().traverseEndpointsFor(config)
-        : const CrossTravelSlowOnlyStrategy().traverseEndpointsFor(config);
+  if (config.type == ButtonType.bidirectionalSlider5Step ||
+      config.type == ButtonType.bidirectionalSlider3Step) {
+    final endpoints = config.type == ButtonType.bidirectionalSlider5Step
+        ? const Bidirectional5StepStrategy().traverseEndpointsFor(config)
+        : const Bidirectional3StepStrategy().traverseEndpointsFor(config);
     final isLeftButton = buttonId == endpoints.leftId;
     stateId = crossTravelZoneId(
       isLeftButton: isLeftButton,
       state: state,
-      fiveZone: config.type == ButtonType.crossTravel,
+      fiveZone: config.type == ButtonType.bidirectionalSlider5Step,
     );
   } else {
     stateId = logicalStateIdFor(type: config.type, physicalState: state);
@@ -614,12 +614,14 @@ bool isRedundantCrossTravelConfig(
   ButtonConfig button,
   Map<String, ButtonConfig> buttons,
 ) {
-  if (button.type != ButtonType.crossTravel ||
+  if (button.type != ButtonType.bidirectionalSlider5Step ||
       button.role != ControlRole.traverseRight) {
     return false;
   }
   final left = buttons[ControlRole.traverseLeft.name];
-  return left != null && left.visible && left.type == ButtonType.crossTravel;
+  return left != null &&
+      left.visible &&
+      left.type == ButtonType.bidirectionalSlider5Step;
 }
 
 GridMutationResult buildGridSlotDrop({
@@ -814,9 +816,9 @@ Set<String> _buttonIdsForDelete(
   final role = selected.role;
   final pairedRole = role?.pairedRole;
   final paired = pairedRole == null ? null : buttons[pairedRole.name];
-  if (selected.type == ButtonType.crossTravel &&
+  if (selected.type == ButtonType.bidirectionalSlider5Step &&
       role?.axis == AxisKind.traverse &&
-      paired?.type == ButtonType.crossTravel) {
+      paired?.type == ButtonType.bidirectionalSlider5Step) {
     ids.add(paired!.id);
   }
   return ids;
@@ -862,7 +864,7 @@ LayoutMutationResult buildButtonTypeChange({
     customProperties: current.customProperties,
   );
 
-  if (type == ButtonType.crossTravel) {
+  if (type == ButtonType.bidirectionalSlider5Step) {
     final candidate = normalizeButtonPlacement(
       current.copyWith(
         type: type,
@@ -931,17 +933,19 @@ LayoutMutationResult buildButtonTypeChange({
             startPage: current.pageIndex,
           );
 
-    if (current.type == ButtonType.crossTravel &&
-        type == ButtonType.crossTravelSlowOnly &&
+    if (current.type == ButtonType.bidirectionalSlider5Step &&
+        type == ButtonType.bidirectionalSlider3Step &&
         role.axis == AxisKind.traverse &&
         paired != null) {
       buttons[paired.id] = paired.copyWith(visible: false);
-    } else if (current.type == ButtonType.crossTravel &&
+    } else if (current.type == ButtonType.bidirectionalSlider5Step &&
         role.axis == AxisKind.traverse &&
         paired != null) {
       buttons[paired.id] = paired.copyWith(
         visible: true,
-        type: paired.type == ButtonType.crossTravel ? type : paired.type,
+        type: paired.type == ButtonType.bidirectionalSlider5Step
+            ? type
+            : paired.type,
         gridColumns: defaultColumns,
         gridRows: defaultRows,
       );
@@ -1101,7 +1105,7 @@ bool _isPageControl(ButtonConfig button) {
 }
 
 String _messageForErrors(List<String> errors, ButtonConfig changed) {
-  if (changed.type == ButtonType.crossTravel ||
+  if (changed.type == ButtonType.bidirectionalSlider5Step ||
       changed.occupiesMultipleGridCells) {
     return kCrossTravelSpanMessage;
   }

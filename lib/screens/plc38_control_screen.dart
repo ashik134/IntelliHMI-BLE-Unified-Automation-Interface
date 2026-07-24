@@ -950,8 +950,8 @@ class _ControlGridSection extends StatelessWidget {
     // Applying mutual exclusion here would cause isDisabled to flip true
     // mid-drag (when the paired role's localActive entry is set), which
     // in turn causes the slider to get stuck in a permanently disabled state.
-    if (config.type == ButtonType.crossTravel ||
-        config.type == ButtonType.crossTravelSlowOnly) {
+    if (config.type == ButtonType.bidirectionalSlider5Step ||
+        config.type == ButtonType.bidirectionalSlider3Step) {
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {

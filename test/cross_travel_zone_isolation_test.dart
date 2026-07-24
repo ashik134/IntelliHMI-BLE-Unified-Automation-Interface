@@ -24,7 +24,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/models/plc_mapping.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
 
 void main() {
@@ -39,19 +39,16 @@ void main() {
     ];
 
     for (final (isLeftButton, state, expected) in cases) {
-      test(
-        'isLeftButton=$isLeftButton, state=${state.name} -> $expected',
-        () {
-          expect(
-            crossTravelZoneId(
-              isLeftButton: isLeftButton,
-              state: state,
-              fiveZone: true,
-            ),
-            expected,
-          );
-        },
-      );
+      test('isLeftButton=$isLeftButton, state=${state.name} -> $expected', () {
+        expect(
+          crossTravelZoneId(
+            isLeftButton: isLeftButton,
+            state: state,
+            fiveZone: true,
+          ),
+          expected,
+        );
+      });
     }
 
     test('all 6 combinations resolve to 5 distinct non-center ids plus the '
@@ -79,19 +76,16 @@ void main() {
     ];
 
     for (final (isLeftButton, state, expected) in cases) {
-      test(
-        'isLeftButton=$isLeftButton, state=${state.name} -> $expected',
-        () {
-          expect(
-            crossTravelZoneId(
-              isLeftButton: isLeftButton,
-              state: state,
-              fiveZone: false,
-            ),
-            expected,
-          );
-        },
-      );
+      test('isLeftButton=$isLeftButton, state=${state.name} -> $expected', () {
+        expect(
+          crossTravelZoneId(
+            isLeftButton: isLeftButton,
+            state: state,
+            fiveZone: false,
+          ),
+          expected,
+        );
+      });
     }
   });
 
@@ -102,40 +96,44 @@ void main() {
     // mechanism is fully generic, not secretly still crane-shaped.
     final leftConfig = ButtonConfig(
       id: ControlRole.traverseLeft.name,
-      type: ButtonType.crossTravel,
-      plcMapping: PlcMapping.left,
+      type: ButtonType.bidirectionalSlider5Step,
+      plcMapping: PlcOutputVariant.df5,
       role: ControlRole.traverseLeft,
       stateMappings: const {
         'zone1': ButtonStateOutputMapping(
           stateId: 'zone1',
-          activeVariants: {PlcMapping.fastFb},
+          activeVariants: {PlcOutputVariant.df10},
         ),
         'zone2': ButtonStateOutputMapping(
           stateId: 'zone2',
-          activeVariants: {PlcMapping.down},
+          activeVariants: {PlcOutputVariant.df3},
         ),
         'center': ButtonStateOutputMapping(stateId: 'center'),
       },
     );
     final rightConfig = ButtonConfig(
       id: ControlRole.traverseRight.name,
-      type: ButtonType.crossTravel,
-      plcMapping: PlcMapping.right,
+      type: ButtonType.bidirectionalSlider5Step,
+      plcMapping: PlcOutputVariant.df6,
       role: ControlRole.traverseRight,
       stateMappings: const {
         'center': ButtonStateOutputMapping(stateId: 'center'),
         'zone4': ButtonStateOutputMapping(
           stateId: 'zone4',
-          activeVariants: {PlcMapping.forward, PlcMapping.reverse},
+          activeVariants: {PlcOutputVariant.df8, PlcOutputVariant.df9},
         ),
         'zone5': ButtonStateOutputMapping(
           stateId: 'zone5',
-          activeVariants: {PlcMapping.up},
+          activeVariants: {PlcOutputVariant.df2},
         ),
       },
     );
 
-    Set<PlcMapping> resolve(ButtonConfig config, bool isLeft, ControlState state) {
+    Set<PlcOutputVariant> resolve(
+      ButtonConfig config,
+      bool isLeft,
+      ControlState state,
+    ) {
       final zoneId = crossTravelZoneId(
         isLeftButton: isLeft,
         state: state,
@@ -144,38 +142,56 @@ void main() {
       return config.stateMappings[zoneId]?.activeVariants ?? const {};
     }
 
-    test('zone1 (left, fast) activates exactly {fastFb} — not zone2\'s {down}', () {
-      expect(resolve(leftConfig, true, ControlState.fast), {PlcMapping.fastFb});
-    });
+    test(
+      'zone1 (left, fast) activates exactly {fastFb} — not zone2\'s {down}',
+      () {
+        expect(resolve(leftConfig, true, ControlState.fast), {
+          PlcOutputVariant.df10,
+        });
+      },
+    );
 
-    test('zone2 (left, slow) activates exactly {down} — not zone1\'s {fastFb}', () {
-      expect(resolve(leftConfig, true, ControlState.slow), {PlcMapping.down});
-    });
+    test(
+      'zone2 (left, slow) activates exactly {down} — not zone1\'s {fastFb}',
+      () {
+        expect(resolve(leftConfig, true, ControlState.slow), {
+          PlcOutputVariant.df3,
+        });
+      },
+    );
 
-    test('center (left, idle) is always empty regardless of configured data', () {
-      expect(resolve(leftConfig, true, ControlState.idle), isEmpty);
-    });
+    test(
+      'center (left, idle) is always empty regardless of configured data',
+      () {
+        expect(resolve(leftConfig, true, ControlState.idle), isEmpty);
+      },
+    );
 
     test('zone4 (right, slow) activates exactly {forward, reverse} — not '
         'zone5\'s {up}', () {
-      expect(
-        resolve(rightConfig, false, ControlState.slow),
-        {PlcMapping.forward, PlcMapping.reverse},
-      );
+      expect(resolve(rightConfig, false, ControlState.slow), {
+        PlcOutputVariant.df8,
+        PlcOutputVariant.df9,
+      });
     });
 
     test('zone5 (right, fast) activates exactly {up} — not zone4\'s '
         '{forward, reverse}', () {
-      expect(resolve(rightConfig, false, ControlState.fast), {PlcMapping.up});
+      expect(resolve(rightConfig, false, ControlState.fast), {
+        PlcOutputVariant.df2,
+      });
     });
 
-    test('center (right, idle) is always empty regardless of configured data', () {
-      expect(resolve(rightConfig, false, ControlState.idle), isEmpty);
-    });
+    test(
+      'center (right, idle) is always empty regardless of configured data',
+      () {
+        expect(resolve(rightConfig, false, ControlState.idle), isEmpty);
+      },
+    );
 
     test('no two non-idle zones share any variant across all 5 configured '
         'sets (proving true independence, not shared/OR-ed configuration)', () {
-      final allSets = <Set<PlcMapping>>[
+      final allSets = <Set<PlcOutputVariant>>[
         resolve(leftConfig, true, ControlState.fast), // zone1
         resolve(leftConfig, true, ControlState.slow), // zone2
         resolve(rightConfig, false, ControlState.slow), // zone4
@@ -196,32 +212,36 @@ void main() {
   group('3-zone slow-only: 2 independently mapped zones — no leakage', () {
     final leftConfig = ButtonConfig(
       id: ControlRole.traverseLeft.name,
-      type: ButtonType.crossTravelSlowOnly,
-      plcMapping: PlcMapping.left,
+      type: ButtonType.bidirectionalSlider3Step,
+      plcMapping: PlcOutputVariant.df5,
       role: ControlRole.traverseLeft,
       stateMappings: const {
         'zone1': ButtonStateOutputMapping(
           stateId: 'zone1',
-          activeVariants: {PlcMapping.fastUd, PlcMapping.forward},
+          activeVariants: {PlcOutputVariant.df4, PlcOutputVariant.df8},
         ),
         'center': ButtonStateOutputMapping(stateId: 'center'),
       },
     );
     final rightConfig = ButtonConfig(
       id: ControlRole.traverseRight.name,
-      type: ButtonType.crossTravelSlowOnly,
-      plcMapping: PlcMapping.right,
+      type: ButtonType.bidirectionalSlider3Step,
+      plcMapping: PlcOutputVariant.df6,
       role: ControlRole.traverseRight,
       stateMappings: const {
         'center': ButtonStateOutputMapping(stateId: 'center'),
         'zone3': ButtonStateOutputMapping(
           stateId: 'zone3',
-          activeVariants: {PlcMapping.reverse},
+          activeVariants: {PlcOutputVariant.df9},
         ),
       },
     );
 
-    Set<PlcMapping> resolve(ButtonConfig config, bool isLeft, ControlState state) {
+    Set<PlcOutputVariant> resolve(
+      ButtonConfig config,
+      bool isLeft,
+      ControlState state,
+    ) {
       final zoneId = crossTravelZoneId(
         isLeftButton: isLeft,
         state: state,
@@ -231,19 +251,22 @@ void main() {
     }
 
     test('zone1 activates exactly its configured set', () {
-      expect(
-        resolve(leftConfig, true, ControlState.slow),
-        {PlcMapping.fastUd, PlcMapping.forward},
-      );
+      expect(resolve(leftConfig, true, ControlState.slow), {
+        PlcOutputVariant.df4,
+        PlcOutputVariant.df8,
+      });
     });
 
-    test('zone3 activates exactly its configured set — disjoint from zone1', () {
-      final zone3 = resolve(rightConfig, false, ControlState.slow);
-      expect(zone3, {PlcMapping.reverse});
-      expect(
-        zone3.intersection(resolve(leftConfig, true, ControlState.slow)),
-        isEmpty,
-      );
-    });
+    test(
+      'zone3 activates exactly its configured set — disjoint from zone1',
+      () {
+        final zone3 = resolve(rightConfig, false, ControlState.slow);
+        expect(zone3, {PlcOutputVariant.df9});
+        expect(
+          zone3.intersection(resolve(leftConfig, true, ControlState.slow)),
+          isEmpty,
+        );
+      },
+    );
   });
 }

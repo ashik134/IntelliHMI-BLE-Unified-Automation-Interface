@@ -2436,8 +2436,8 @@ ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
   ButtonType.pushButton || ButtonType.horn => ControlWidgetType.pushButton,
   ButtonType.toggle => ControlWidgetType.toggle,
   ButtonType.sliderButton ||
-  ButtonType.crossTravel ||
-  ButtonType.crossTravelSlowOnly => ControlWidgetType.sliderButton,
+  ButtonType.bidirectionalSlider5Step ||
+  ButtonType.bidirectionalSlider3Step => ControlWidgetType.sliderButton,
   ButtonType.joystick => ControlWidgetType.joystick,
   ButtonType.potentiometer ||
   ButtonType.alarmIndicator => ControlWidgetType.rotary,
@@ -2514,8 +2514,8 @@ const _typeEntries = [
 ];
 
 const _crossTravelEntry = _TypeEntry(
-  ButtonType.crossTravel,
-  'Cross Travel 5-Zone',
+  ButtonType.bidirectionalSlider5Step,
+  'Bidirectional Slider 5-Step',
   Icons.compare_arrows_rounded,
   true,
   'Paired LEFT/RIGHT slider with slow and fast zones. Requires both '
@@ -2524,8 +2524,8 @@ const _crossTravelEntry = _TypeEntry(
 );
 
 const _crossTravelSlowOnlyEntry = _TypeEntry(
-  ButtonType.crossTravelSlowOnly,
-  'Cross Travel 3-Zone',
+  ButtonType.bidirectionalSlider3Step,
+  'Bidirectional Slider 3-Step',
   Icons.swap_horiz_rounded,
   true,
   'Single-box LEFT/RIGHT slider. Slow speed only.',
@@ -2654,16 +2654,19 @@ class _TypeTab extends StatelessWidget {
                             final isCombinedCrossTravelToThreeZone =
                                 editRole == null &&
                                 selectedType ==
-                                    ButtonType.crossTravelSlowOnly &&
-                                primaryType == ButtonType.crossTravel &&
-                                secondaryType == ButtonType.crossTravel;
+                                    ButtonType.bidirectionalSlider3Step &&
+                                primaryType ==
+                                    ButtonType.bidirectionalSlider5Step &&
+                                secondaryType ==
+                                    ButtonType.bidirectionalSlider5Step;
                             final combinedCrossTravelRole =
                                 primaryConfig?.visible == true
                                 ? primaryRole
                                 : secondaryRole;
                             final rolesToUpdate =
                                 editRole != null ||
-                                    selectedType == ButtonType.crossTravel ||
+                                    selectedType ==
+                                        ButtonType.bidirectionalSlider5Step ||
                                     isCombinedCrossTravelToThreeZone
                                 ? [
                                     editRole ??

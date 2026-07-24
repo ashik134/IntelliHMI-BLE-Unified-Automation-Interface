@@ -866,8 +866,8 @@ class _ControlGridSection extends StatelessWidget {
     // Cross-travel widgets manage both directions as a single unit; mutual
     // exclusion with the paired role would incorrectly disable the widget
     // mid-drag and leave it permanently stuck in the disabled state.
-    if (config.type == ButtonType.crossTravel ||
-        config.type == ButtonType.crossTravelSlowOnly) {
+    if (config.type == ButtonType.bidirectionalSlider5Step ||
+        config.type == ButtonType.bidirectionalSlider3Step) {
       return false;
     }
     for (final excludedId in config.mutualExclusion.excludedButtonIds) {

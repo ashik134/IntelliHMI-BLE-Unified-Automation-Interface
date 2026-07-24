@@ -54,14 +54,14 @@ extension ButtonTypeLogicalStates on ButtonType {
     // Each of the 5 zones is its own independently-configurable state.
     // zone1/zone2 = left side (far/near), center = idle,
     // zone4/zone5 = right side (near/far) — see crossTravelZoneId.
-    ButtonType.crossTravel => const [
+    ButtonType.bidirectionalSlider5Step => const [
       ButtonLogicalState(id: 'zone1', label: 'Zone 1', isIdle: false),
       ButtonLogicalState(id: 'zone2', label: 'Zone 2', isIdle: false),
       ButtonLogicalState(id: 'center', label: 'Center / Idle', isIdle: true),
       ButtonLogicalState(id: 'zone4', label: 'Zone 4', isIdle: false),
       ButtonLogicalState(id: 'zone5', label: 'Zone 5', isIdle: false),
     ],
-    ButtonType.crossTravelSlowOnly => const [
+    ButtonType.bidirectionalSlider3Step => const [
       ButtonLogicalState(id: 'zone1', label: 'Zone 1', isIdle: false),
       ButtonLogicalState(id: 'center', label: 'Center / Idle', isIdle: true),
       ButtonLogicalState(id: 'zone3', label: 'Zone 3', isIdle: false),
@@ -82,8 +82,9 @@ extension ButtonTypeLogicalStates on ButtonType {
     // against CraneController's live PlcOutputCommand (see
     // HornButtonStrategy/AlarmIndicatorStrategy) and never round-trips
     // through stateMappings.
-    ButtonType.potentiometer || ButtonType.horn || ButtonType.alarmIndicator =>
-      const [],
+    ButtonType.potentiometer ||
+    ButtonType.horn ||
+    ButtonType.alarmIndicator => const [],
   };
 }
 

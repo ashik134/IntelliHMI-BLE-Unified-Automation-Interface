@@ -1,31 +1,20 @@
 import 'package:flutter/material.dart' show IconData;
 
-import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
-import 'package:rev_crane_control_ops/models/button_rotation.dart';
-import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
-import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
-import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ButtonType
-//
-// Distinct from the legacy ControlWidgetType enum (kept for the axis path)
-// but intentionally identical in spirit/values so migration is a straight
-// mapping. `crossTravel` is new: the combined-slider "type", kept as an
-// optional selectable type, decomposed into two logical buttons under the
-// hood (see CrossTravelStrategy). joystick uses the same button-centric model;
-// analog PLC wire output can be added when the protocol exposes analog fields.
-// ─────────────────────────────────────────────────────────────────────────────
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
+import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
+import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 
 enum ButtonType {
   pushButton,
   toggle,
   sliderButton,
-  crossTravel,
-  crossTravelSlowOnly,
+  bidirectionalSlider5Step,
+  bidirectionalSlider3Step,
   joystick,
   potentiometer,
   horn,
@@ -210,8 +199,10 @@ class ButtonConfig {
 
   int get gridColumnSpan {
     if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
-    if (type == ButtonType.crossTravel) return 2;
-    if (type == ButtonType.crossTravelSlowOnly) return 2;
+    if (type == ButtonType.bidirectionalSlider5Step ||
+        type == ButtonType.bidirectionalSlider3Step) {
+      return 2;
+    }
     if (type == ButtonType.joystick &&
         JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
       return 2;
@@ -250,8 +241,8 @@ class ButtonConfig {
     ButtonType type, {
     Map<String, dynamic> customProperties = const <String, dynamic>{},
   }) {
-    if (type == ButtonType.crossTravel ||
-        type == ButtonType.crossTravelSlowOnly) {
+    if (type == ButtonType.bidirectionalSlider5Step ||
+        type == ButtonType.bidirectionalSlider3Step) {
       return (2, 1);
     }
     if (type == ButtonType.joystick &&
@@ -293,7 +284,7 @@ class ButtonConfig {
       // under the new per-button model rather than silently regressing
       // migrated layouts to two independent sliders.
       ControlWidgetType.sliderButton when role.axis == AxisKind.traverse =>
-        ButtonType.crossTravel,
+        ButtonType.bidirectionalSlider5Step,
       ControlWidgetType.sliderButton => ButtonType.sliderButton,
       ControlWidgetType.joystick => ButtonType.joystick,
       ControlWidgetType.rotary => ButtonType.potentiometer,
@@ -386,7 +377,7 @@ class ButtonConfig {
           ...entry('center', idleVariants),
           ...entry('right', fastVariants),
         };
-      case ButtonType.crossTravel:
+      case ButtonType.bidirectionalSlider5Step:
         // Only reachable for traverseLeft/traverseRight roles (the only
         // roles fromLegacyAxis ever resolves to ButtonType.crossTravel).
         // zone1/zone2 = left side far/near; zone4/zone5 = right side
@@ -413,7 +404,7 @@ class ButtonConfig {
           };
         }
         return const <String, ButtonStateOutputMapping>{};
-      case ButtonType.crossTravelSlowOnly:
+      case ButtonType.bidirectionalSlider3Step:
         // Not a fromLegacyAxis output type today (traverse sliders always
         // migrate to the combined crossTravel type), but handled for
         // completeness / future direct construction.

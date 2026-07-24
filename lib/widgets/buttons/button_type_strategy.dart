@@ -105,8 +105,8 @@ String logicalStateIdFor({
         'logicalStateIdFor does not handle $type; it is a PLC status-driven '
         'feedback widget, not gesture-derived.',
       );
-    case ButtonType.crossTravel:
-    case ButtonType.crossTravelSlowOnly:
+    case ButtonType.bidirectionalSlider5Step:
+    case ButtonType.bidirectionalSlider3Step:
       // Cross-travel needs an explicit side — callers must use
       // crossTravelZoneId instead. Reaching here is a programming error.
       throw UnsupportedError(

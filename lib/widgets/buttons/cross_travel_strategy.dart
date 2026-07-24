@@ -79,11 +79,11 @@ String crossTravelZoneId({
   };
 }
 
-class CrossTravelStrategy extends ButtonTypeStrategy {
-  const CrossTravelStrategy();
+class Bidirectional5StepStrategy extends ButtonTypeStrategy {
+  const Bidirectional5StepStrategy();
 
   @override
-  ButtonType get type => ButtonType.crossTravel;
+  ButtonType get type => ButtonType.bidirectionalSlider5Step;
 
   @override
   Widget build({
@@ -201,11 +201,11 @@ class CrossTravelStrategy extends ButtonTypeStrategy {
   }
 }
 
-class CrossTravelSlowOnlyStrategy extends ButtonTypeStrategy {
-  const CrossTravelSlowOnlyStrategy();
+class Bidirectional3StepStrategy extends ButtonTypeStrategy {
+  const Bidirectional3StepStrategy();
 
   @override
-  ButtonType get type => ButtonType.crossTravelSlowOnly;
+  ButtonType get type => ButtonType.bidirectionalSlider3Step;
 
   @override
   Widget build({
