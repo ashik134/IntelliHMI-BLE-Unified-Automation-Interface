@@ -105,6 +105,17 @@ class PotentiometerConfig {
     return suffix.isEmpty ? number : '$number$suffix';
   }
 
+  /// Builds the "min,max,value" wire payload for the BLE analog-output
+  /// protocol: bare numbers, no unit suffix, clamped to this config's range.
+  /// [value] is clamped/snapped the same way [formatValue] displays it, so
+  /// what the operator sees on screen is exactly what the PLC receives.
+  String wirePayload(double value) {
+    final config = normalized();
+    String fmt(double v) => v.toStringAsFixed(config.decimalPlaces);
+    return '${fmt(config.minValue)},${fmt(config.maxValue)},'
+        '${fmt(config.clampAndSnap(value))}';
+  }
+
   PotentiometerConfig copyWith({
     double? minValue,
     double? maxValue,

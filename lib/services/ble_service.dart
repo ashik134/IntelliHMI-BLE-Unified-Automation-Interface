@@ -42,6 +42,7 @@ class BleService {
   BluetoothCharacteristic? _authChar;
   BluetoothCharacteristic? _statusChar;
   BluetoothCharacteristic? _heartbeatChar;
+  BluetoothCharacteristic? _analogOutChar;
   // true when the digital characteristic supports WriteWithoutResponse
   // (lower-latency control writes; logged as a warning if absent).
   bool _digitalCharWriteNoResponse = false;
@@ -421,6 +422,21 @@ class BleService {
           );
           debugPrint('[BLE] MTU negotiation failed: $e');
         }
+
+        // Android caches a device's GATT table across connections keyed by
+        // its MAC address. If this phone ever connected to this PLC before
+        // its firmware's characteristic set last changed, discoverServices()
+        // below would otherwise silently replay that stale cached table
+        // (missing/extra characteristics) instead of querying the device —
+        // firmware under active development changes this table often, so
+        // this must run on every connect, not just once.
+        try {
+          await _device!.clearGattCache();
+          debugPrint('[BLE] GATT cache cleared.');
+        } catch (e) {
+          _logger.w('GATT cache clear skipped: $e');
+          debugPrint('[BLE] GATT cache clear failed: $e');
+        }
       }
 
       final services = await _device!.discoverServices();
@@ -435,21 +451,63 @@ class BleService {
       _analogChar = null;
       _statusChar = null;
       _heartbeatChar = null;
+      _analogOutChar = null;
       _digitalCharWriteNoResponse = false;
+      var analogOutSeen = false;
+      var analogOutFoundButNotWritable = false;
+      final plcServiceUuid = BLEConstants.serviceUuid.toLowerCase();
+      final analogOutUuid = BLEConstants.analogOutCharUuid.toLowerCase();
 
       for (final service in services) {
-        if (service.uuid.toString().toLowerCase() !=
-            BLEConstants.serviceUuid.toLowerCase()) {
-          continue;
-        }
+        final serviceUuid = service.uuid.toString().toLowerCase();
+        final isPlcService = serviceUuid == plcServiceUuid;
+        debugPrint(
+          '[BLE] Service discovered: $serviceUuid '
+          '| primary=${service.isPrimary} '
+          '| chars=${service.characteristics.length}',
+        );
+
         for (final char in service.characteristics) {
           final uuid = char.uuid.toString().toLowerCase();
           debugPrint(
-            '[BLE] Char discovered: $uuid '
+            '[BLE] Char discovered: service=$serviceUuid chr=$uuid '
             '| write=${char.properties.write} '
             '| writeNoResp=${char.properties.writeWithoutResponse} '
             '| notify=${char.properties.notify}',
           );
+
+          if (uuid == analogOutUuid) {
+            analogOutSeen = true;
+            final writable =
+                char.properties.write || char.properties.writeWithoutResponse;
+            if (writable) {
+              _analogOutChar = char;
+              debugPrint(
+                '[BLE] Analog-out characteristic found on service '
+                '$serviceUuid (write=${char.properties.write}, '
+                'writeNoResp=${char.properties.writeWithoutResponse})',
+              );
+              if (!isPlcService) {
+                _logger.w(
+                  'Analog-out characteristic was found outside the PLC '
+                  'service ($serviceUuid instead of '
+                  '${BLEConstants.serviceUuid}). The app will use it, but '
+                  'the firmware should expose it under the PLC service.',
+                );
+              }
+            } else {
+              analogOutFoundButNotWritable = true;
+              _logger.w(
+                'Analog-out characteristic found but it is not writable '
+                '(service=$serviceUuid, uuid=$uuid). Firmware must enable '
+                'PROPERTY_WRITE or PROPERTY_WRITE_NR.',
+              );
+            }
+          }
+
+          if (!isPlcService) {
+            continue;
+          }
 
           if (uuid == BLEConstants.digitalCharUuid.toLowerCase()) {
             digital = char;
@@ -499,6 +557,18 @@ class BleService {
           '[BLE] WARNING: Heartbeat characteristic NOT found '
           '(UUID: ${BLEConstants.heartbeatCharUuid}). '
           'Heartbeat will be disabled.',
+        );
+      }
+      if (_analogOutChar == null) {
+        final reason = analogOutFoundButNotWritable
+            ? 'it was found, but firmware did not mark it writable'
+            : analogOutSeen
+            ? 'it was found, but no usable writable instance was selected'
+            : 'Android did not report that UUID in the discovered GATT table';
+        debugPrint(
+          '[BLE] WARNING: Analog-out characteristic NOT found '
+          '(UUID: ${BLEConstants.analogOutCharUuid}). '
+          'Analog output will be disabled because $reason.',
         );
       }
 
@@ -579,6 +649,7 @@ class BleService {
     _authChar = null;
     _statusChar = null;
     _heartbeatChar = null;
+    _analogOutChar = null;
     _digitalCharWriteNoResponse = false;
   }
 
@@ -617,6 +688,13 @@ class BleService {
 
   Future<void> disconnect({bool emitState = true}) async {
     _stopRssiPolling();
+    _stopHeartbeat();
+    _cryptoSessionGeneration++;
+    _sessionAuthenticated = false;
+    _heartbeatWritePending = false;
+    _encryptedWriteLane = Future<void>.value();
+    BleCrypto.endSession();
+
     _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
     _pendingAuthCompleter = null;
     final pendingSafeState = _pendingSafeStateCompleter;
@@ -642,6 +720,7 @@ class BleService {
     _authChar = null;
     _statusChar = null;
     _heartbeatChar = null;
+    _analogOutChar = null;
     _digitalCharWriteNoResponse = false;
 
     if (device != null && device.isConnected) {
@@ -681,6 +760,7 @@ class BleService {
     _digitalChar = null;
     _statusChar = null;
     _heartbeatChar = null;
+    _analogOutChar = null;
     _digitalCharWriteNoResponse = false;
 
     _analogSubscription?.cancel();
@@ -703,31 +783,101 @@ class BleService {
   // ── Processes raw sensor bytes and sends the values to the analogStream ────
 
   void _handleAnalogNotification(List<int> bytes) {
-    final payload = utf8.decode(bytes).trim();
-    final parts = payload.split(',');
+    unawaited(_handleAnalogNotificationAsync(bytes));
+  }
+
+  Future<void> _handleAnalogNotificationAsync(List<int> bytes) async {
+    final plainPayload = _tryDecodeUtf8(bytes)?.trim();
+    if (plainPayload != null && plainPayload.contains(':')) {
+      if (_applyAnalogPayload(plainPayload, source: 'plain')) {
+        return;
+      }
+    }
+
+    if (!_sessionAuthenticated || !BleCrypto.sessionActive) {
+      _logUnexpectedAnalogPayload(plainPayload, bytes.length);
+      return;
+    }
+
+    try {
+      final decrypted = await BleCrypto.decrypt(bytes);
+      final encryptedPayload = _tryDecodeUtf8(decrypted)?.trim();
+      if (_applyAnalogPayload(encryptedPayload, source: 'encrypted')) {
+        return;
+      }
+      _logger.w('Unexpected encrypted analog payload: "$encryptedPayload"');
+    } on BleCryptoException catch (e) {
+      _logger.e('Encrypted analog notification rejected: $e');
+      await _cryptoSafeState('Analog notification decrypt failed: $e');
+    } on StateError catch (e) {
+      _logger.e('Encrypted analog notification session error: $e');
+      await _cryptoSafeState('Analog notification session error: $e');
+    } catch (e) {
+      _logger.e('Encrypted analog notification error: $e');
+      await _cryptoSafeState('Analog notification error: $e');
+    }
+  }
+
+  bool _applyAnalogPayload(String? payload, {required String source}) {
+    if (payload == null || payload.isEmpty) {
+      return false;
+    }
 
     try {
       final updated = Map<String, int>.from(_lastAnalog);
-      for (final part in parts) {
-        final kv = part.split(':');
-        if (kv.length != 2) {
-          _logger.w('Unexpected analog token: $part');
+      var handled = false;
+
+      for (final part in payload.split(',')) {
+        final token = part.trim();
+        if (token.isEmpty) {
           continue;
         }
+
+        final kv = token.split(':');
+        if (kv.length != 2) {
+          _logger.w('Unexpected analog token ($source): $token');
+          continue;
+        }
+
+        handled = true;
         final key = kv[0].trim();
-        final value = int.parse(kv[1].trim());
+        final value = int.tryParse(kv[1].trim());
+        if (value == null) {
+          _logger.w('Invalid analog value ($source): $token');
+          continue;
+        }
+
         if (updated.containsKey(key)) {
           updated[key] = value;
         } else {
-          _logger.w('Unknown analog key: $key');
+          _logger.w('Unknown analog key ($source): $key');
         }
       }
+
+      if (!handled) {
+        return false;
+      }
+
       _lastAnalog
         ..['A1'] = updated['A1']!
         ..['A2'] = updated['A2']!;
       _analogController.add(Map.unmodifiable(updated));
+      return true;
     } catch (error) {
-      _logger.e('Analog parse error', error: error);
+      _logger.e('Analog parse error ($source)', error: error);
+      return true;
+    }
+  }
+
+  void _logUnexpectedAnalogPayload(String? payload, int byteLength) {
+    if (payload == null) {
+      _logger.w(
+        'Analog notification: non-UTF8 data ($byteLength bytes) ignored.',
+      );
+      return;
+    }
+    if (payload.isNotEmpty) {
+      _logger.w('Unexpected analog payload: "$payload"');
     }
   }
 
@@ -849,40 +999,49 @@ class BleService {
       return true;
     }
 
-    // if (payload == BLEConstants.authUntrusted) {
-    //   _logger.w('Auth notification ($source): $payload');
-    //   _cryptoSessionGeneration++;
-    //   _sessionAuthenticated = false;
-    //   _heartbeatWritePending = false;
-    //   _encryptedWriteLane = Future<void>.value();
-    //   BleCrypto.endSession();
-    //   _pendingAuthCompleter?.complete(BleAuthOutcome.untrusted);
-    //   _pendingAuthCompleter = null;
-    //   _emit(BleConnectionStatus.error, message: payload);
-
-    //   unawaited(disconnect(emitState: false));
-    //   return true;
-    // }
-
-    if (payload == BLEConstants.authFailed ||
-        payload == BLEConstants.authTimeout) {
+    final failureOutcome = _authFailureOutcome(payload);
+    if (failureOutcome != null) {
       _logger.w('Auth notification ($source): $payload');
       _cryptoSessionGeneration++;
       _sessionAuthenticated = false;
       _heartbeatWritePending = false;
       _encryptedWriteLane = Future<void>.value();
       BleCrypto.endSession();
-      _pendingAuthCompleter?.complete(
-        payload == BLEConstants.authTimeout
-            ? BleAuthOutcome.timedOut
-            : BleAuthOutcome.failed,
-      );
+      _pendingAuthCompleter?.complete(failureOutcome);
       _pendingAuthCompleter = null;
       _emit(BleConnectionStatus.error, message: payload);
       return true;
     }
 
     return false;
+  }
+
+  BleAuthOutcome? _authFailureOutcome(String payload) {
+    if (payload == BLEConstants.authTimeout) {
+      return BleAuthOutcome.timedOut;
+    }
+
+    if (payload == BLEConstants.authUntrusted) {
+      return BleAuthOutcome.untrusted;
+    }
+
+    if (payload == BLEConstants.authFailed) {
+      return BleAuthOutcome.failed;
+    }
+
+    if (!payload.startsWith(BLEConstants.authFailedPrefix)) {
+      return null;
+    }
+
+    final reason = payload
+        .substring(BLEConstants.authFailedPrefix.length)
+        .trim()
+        .toUpperCase();
+    if (reason == BLEConstants.authUntrustedDeviceReason) {
+      return BleAuthOutcome.untrusted;
+    }
+
+    return BleAuthOutcome.failed;
   }
 
   String? _tryDecodeUtf8(List<int> bytes) {
@@ -1160,6 +1319,46 @@ class BleService {
     );
   }
 
+  /// Writes an encrypted "min,max,value" analog payload to the analog-out
+  /// characteristic. Unlike [writeDigital], there is no pre-auth plaintext
+  /// fallback — the firmware's AnalogOutputCallbacks::onWrite only ever
+  /// attempts decrypt+validate, so a write while unauthenticated is silently
+  /// dropped by [_writeEncryptedCharacteristic] rather than sent in the clear.
+  Future<void> writeAnalogOutput(List<int> bytes) async {
+    final char = _analogOutChar;
+    if (char == null) {
+      _logger.w(
+        'Analog output write skipped — analog-out characteristic was never '
+        'discovered (UUID: ${BLEConstants.analogOutCharUuid}). Check the '
+        '"[BLE] Service discovered" and "[BLE] Char discovered" lines logged '
+        'at connect time. If no chr=${BLEConstants.analogOutCharUuid} line '
+        'appears, the firmware is not exposing that UUID in Android\'s GATT '
+        'table. If it appears with write=false and writeNoResp=false, the '
+        'firmware created it without write support.',
+      );
+      return;
+    }
+    if (!_sessionAuthenticated) {
+      _logger.w('Analog output write skipped — session not authenticated yet.');
+      return;
+    }
+    debugPrint('[BLE] Analog-out write: ${utf8.decode(bytes)}');
+    try {
+      await _writeEncryptedCharacteristic(
+        characteristic: char,
+        plaintext: bytes,
+        withoutResponse: char.properties.writeWithoutResponse,
+        label: 'analog-out',
+      );
+    } on BleCryptoException catch (e) {
+      _logger.e('Encryption failure on analog-out write: $e');
+      unawaited(_cryptoSafeState('BleCryptoException during encrypt: $e'));
+    } on StateError catch (e) {
+      _logger.e('Crypto session state error on analog-out write: $e');
+      unawaited(_cryptoSafeState('StateError during encrypt: $e'));
+    }
+  }
+
   Future<void> writeAuth(List<int> bytes) async {
     if (_authChar == null) return;
     await _authChar!.write(bytes);
@@ -1188,6 +1387,7 @@ class BleService {
     _authChar = null;
     _statusChar = null;
     _heartbeatChar = null;
+    _analogOutChar = null;
 
     if (device != null && device.isConnected) {
       device.disconnect();

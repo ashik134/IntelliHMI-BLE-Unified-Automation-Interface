@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -42,6 +43,16 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _commandInFlight = false;
   List<int>? _pendingCommandBytes;
+
+  // ── Analog output throttle ────────────────────────────────────────────────
+  // Leading+trailing throttle: a value arriving inside the throttle window is
+  // remembered and (if nothing newer supersedes it first) flushed by
+  // _analogTrailingTimer once the window elapses — this is what guarantees
+  // the last value dragged to before release is never dropped, without the
+  // widget layer needing its own explicit "drag ended" signal.
+  DateTime? _analogLastSentAt;
+  Timer? _analogTrailingTimer;
+  List<int>? _pendingAnalogBytes;
 
   bool _initializing = true;
   Future<void>? _initializeFuture;
@@ -204,7 +215,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// Unlike the ledX getters, this does NOT suppress on estop — a feedback
   /// widget watching, say, `forward` should still reflect the PLC's actual
   /// reported field state even during an E-STOP condition.
-  bool isFieldActive(PlcOutputVariant mapping) => _activeCommand.fieldValue(mapping);
+  bool isFieldActive(PlcOutputVariant mapping) =>
+      _activeCommand.fieldValue(mapping);
 
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;
@@ -864,7 +876,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _fieldOwners.removeWhere((_, owner) => owner == buttonId);
       _p38ButtonFields.remove(buttonId);
     } else {
-      final previousFields = _p38ButtonFields[buttonId] ?? const <PlcOutputVariant>{};
+      final previousFields =
+          _p38ButtonFields[buttonId] ?? const <PlcOutputVariant>{};
 
       // Only check fields being NEWLY claimed (not already owned by this button).
       final addedFields = newFields.difference(previousFields);
@@ -890,20 +903,81 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     await _sendCommand(_composeFromButtonStates());
   }
 
-  /// Placeholder for future analog output transport. Potentiometer widgets
-  /// can report a scaled value through the normal-mode command path, but the
-  /// current BLE packet only carries boolean PLC fields. Until firmware
-  /// exposes an analog packet, this method intentionally sends nothing.
+  /// Button-centric analog output entry point — the analog counterpart of
+  /// [setButtonCommand]. [config] is normalized by the caller (see the
+  /// control screens' onAnalogCommand) and owns clamping/formatting via
+  /// [PotentiometerConfig.wirePayload]; this method never re-derives those
+  /// rules itself. No-ops if the widget's own "send to PLC" toggle
+  /// (outputEnabled) is off — the operator opts a control into transmitting
+  /// analog output the same way they configure everything else about it.
   Future<void> setAnalogButtonValue({
     required String buttonId,
     required double value,
     required PotentiometerConfig config,
   }) async {
-    if (_estopLatched || !isConnected) return;
-    _logger.d(
-      'Analog output pending for $buttonId: ${config.formatValue(value)} '
-      '(${config.outputVariantId ?? 'unmapped'})',
+    if (_estopLatched || !isConnected || !config.outputEnabled) {
+      _logger.w(
+        'Analog output BLOCKED for $buttonId '
+        '(estopLatched=$_estopLatched, isConnected=$isConnected, '
+        'outputEnabled=${config.outputEnabled}) — flip "Send to PLC" on in '
+        'the POTENTIOMETER/OUTPUT MAPPING editor and commit the layout if '
+        'outputEnabled is false.',
+      );
+      return;
+    }
+    final payload = config.wirePayload(value);
+    _logger.d('Analog output queued for $buttonId: $payload');
+    _queueAnalogWrite(utf8.encode(payload));
+  }
+
+  /// Leading+trailing throttle over [SafetyConstants.analogOutputThrottle]:
+  /// sends immediately if the window has elapsed, otherwise remembers [bytes]
+  /// as pending and arms a trailing timer (if one isn't already armed) so the
+  /// latest value is still flushed once the window closes.
+  void _queueAnalogWrite(List<int> bytes) {
+    final now = DateTime.now();
+    final lastSent = _analogLastSentAt;
+    final elapsed = lastSent == null
+        ? SafetyConstants.analogOutputThrottle
+        : now.difference(lastSent);
+
+    if (elapsed >= SafetyConstants.analogOutputThrottle) {
+      _analogTrailingTimer?.cancel();
+      _analogTrailingTimer = null;
+      _pendingAnalogBytes = null;
+      unawaited(_sendAnalogBytes(bytes));
+      return;
+    }
+
+    _pendingAnalogBytes = bytes;
+    _analogTrailingTimer ??= Timer(
+      SafetyConstants.analogOutputThrottle - elapsed,
+      () {
+        _analogTrailingTimer = null;
+        final pending = _pendingAnalogBytes;
+        _pendingAnalogBytes = null;
+        if (pending != null) unawaited(_sendAnalogBytes(pending));
+      },
     );
+  }
+
+  /// Re-checks the estop/connection gate at actual send time (not just at
+  /// queue time) so a trailing-timer flush can never deliver a stale analog
+  /// value across an estop or disconnect that happened while it was pending.
+  Future<void> _sendAnalogBytes(List<int> bytes) async {
+    if (_estopLatched || !isConnected) {
+      _logger.w(
+        'Analog output DROPPED at send time '
+        '(estopLatched=$_estopLatched, isConnected=$isConnected)',
+      );
+      return;
+    }
+    _analogLastSentAt = DateTime.now();
+    try {
+      await _bleService.writeAnalogOutput(bytes);
+    } catch (e) {
+      _logger.w('Analog output write failed: $e');
+    }
   }
 
   // ── Shared-field ownership helpers ────────────────────────────────────────
@@ -986,7 +1060,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       if (outcome == BleAuthOutcome.untrusted) {
         _deviceTrustRejected = true;
         _errorMessage =
-            'DEVICE NOT AUTHORIZED\nThis device is not registered with PLC 14. '
+            'DEVICE NOT AUTHORIZED\nThis device is not registered with the PLC. '
             'Provide your Device ID to an administrator for registration.';
         notifyListeners();
         return false;
@@ -1101,6 +1175,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _analogSubscription?.cancel();
     _statusSubscription?.cancel();
     _adapterSubscription?.cancel();
+    _analogTrailingTimer?.cancel();
     _bleService.dispose();
     super.dispose();
   }

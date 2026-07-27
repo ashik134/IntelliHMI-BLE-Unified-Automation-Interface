@@ -653,13 +653,31 @@ class _PotentiometerOutputEditor extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _InfoNote(
-          message:
-              'Analog output transport is pending. These values are saved '
-              'with the layout, but no PLC analog packet is sent yet.',
-          color: AppColors.fastColor,
+        _InfoNote(
+          message: potentiometer.outputEnabled
+              ? 'Analog output is on. Dragging this control streams an '
+                    'encrypted min,max,value packet to the PLC over BLE '
+                    '(never while Customization Mode is active).'
+              : 'Analog output is off. These values are saved with the '
+                    'layout, but nothing is sent to the PLC until you '
+                    'enable it below.',
+          color: potentiometer.outputEnabled
+              ? AppColors.darkInfo
+              : AppColors.fastColor,
         ),
         const SizedBox(height: 12),
+        SwitchListTile(
+          value: potentiometer.outputEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Send to PLC',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) =>
+              save(potentiometer.copyWith(outputEnabled: value)),
+        ),
+        const SizedBox(height: 6),
         const Text(
           'OUTPUT VARIANT',
           style: TextStyle(

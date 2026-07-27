@@ -5,4 +5,5 @@ class SafetyConstants {
   static const Duration authReplyTimeout = Duration(seconds: 6);
   static const Duration estopPulse = Duration(milliseconds: 300);
   static const Duration heartbeatInterval = Duration(milliseconds: 50);
+  static const Duration analogOutputThrottle = Duration(milliseconds: 100);
 }
