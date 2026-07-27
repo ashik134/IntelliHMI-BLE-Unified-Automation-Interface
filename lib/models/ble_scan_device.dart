@@ -21,8 +21,8 @@ class BleScanDevice {
   final DateTime lastSeenAt;
 
   DeviceStaleStatus? frozenStatus;
-  static const Duration staleThreshold = Duration(seconds: 13);
-  static const Duration expireThreshold = Duration(seconds: 20);
+  static const Duration staleThreshold = Duration(seconds: 10);
+  static const Duration expireThreshold = Duration(seconds: 15);
 
   Duration get silenceDuration => DateTime.now().difference(lastSeenAt);
   bool get isStale => staleStatus != DeviceStaleStatus.active;
@@ -47,7 +47,13 @@ class BleScanDevice {
       rssi: result.rssi,
       device: result.device,
 
-      lastSeenAt: result.timeStamp,
+      // Deliberately not result.timeStamp: that's the platform's own
+      // advertisement clock (and can replay a cached advertisement stamped
+      // well before this scan session started), while staleStatus below
+      // compares against DateTime.now(). Stamping with our own clock at the
+      // moment we actually process the result keeps both sides of that
+      // comparison in the same clock domain, so a genuinely fresh
+      // advertisement is never misread as stale.
       plcType: _parsePlcType(result),
     );
   }

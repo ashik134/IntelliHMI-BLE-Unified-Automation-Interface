@@ -10,7 +10,6 @@ import 'package:rev_crane_control_ops/services/ble_crypto.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
-import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
@@ -130,7 +129,12 @@ class BleService {
     _pruneTimer?.cancel();
     _pruneTimer = null;
 
-    _deviceCache.clear();
+    // Deliberately not clearing _deviceCache: previously-seen devices carry
+    // forward frozen (see _freezeCache), and _runScanSession's _unfreezeCache
+    // call below is what un-freezes them and gives them a fresh grace
+    // window — clearing here would discard that and force every card to be
+    // rebuilt from scratch off the next advertisement's timestamp, which is
+    // exactly the stale-then-active flash this is avoiding.
     _scanSessionActive = true;
     _scanPaused = false;
     await _runScanSession(generation);
@@ -283,7 +287,10 @@ class BleService {
     for (final id in _deviceCache.keys.toList()) {
       final d = _deviceCache[id]!;
       if (d.frozenStatus == null) {
-        _deviceCache[id] = d.copyWith(frozenStatus: DeviceStaleStatus.active);
+        // Freeze to whatever the card is actually showing right now, not
+        // unconditionally "active" — a device that had already gone stale
+        // before the user stopped scanning should stay stale while frozen.
+        _deviceCache[id] = d.copyWith(frozenStatus: d.staleStatus);
         changed = true;
       }
     }

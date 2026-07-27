@@ -61,7 +61,7 @@ class AvailableDeviceCard extends StatelessWidget {
               ),
               child: Image.asset(
                 'assets/icons/Connector.png',
-                color: isStale ? AppColors.connWarning : AppColors.connPrimary,
+                color: AppColors.connPrimary,
                 width: 20,
                 height: 20,
               ),
@@ -152,16 +152,14 @@ class _StaleIndicatorRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.brandWarningSoft,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.brandWarning.withAlpha(80)),
+        border: Border.all(
+          color: const Color.fromARGB(127, 248, 24, 16).withAlpha(80),
+        ),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.signal_wifi_statusbar_connected_no_internet_4_rounded,
-            size: 10,
-            color: AppColors.brandWarning,
-          ),
+          Icon(Icons.warning, size: 10, color: Color.fromARGB(255, 247, 57, 9)),
           SizedBox(width: 4),
           Flexible(
             child: Text(
@@ -169,7 +167,7 @@ class _StaleIndicatorRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 8,
                 fontWeight: FontWeight.w800,
-                color: AppColors.brandWarning,
+                color: Color.fromARGB(255, 247, 57, 9),
                 letterSpacing: 0.5,
               ),
             ),
