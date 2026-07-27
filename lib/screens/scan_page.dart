@@ -6,22 +6,36 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/devices_panel.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/heros_status_card.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/quick_status_row.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
-class ConnectionScreen extends StatefulWidget {
-  const ConnectionScreen({super.key});
+class ScanScreen extends StatefulWidget {
+  const ScanScreen({super.key});
 
   @override
-  State<ConnectionScreen> createState() => _ConnectionScreenState();
+  State<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ConnectionScreenState extends State<ConnectionScreen> {
+class _ScanScreenState extends State<ScanScreen> {
   CraneController? _controller;
   String? _lastShownError;
   bool _leavingToHome = false;
+
+  // This screen is never disposed while the app is running — it lives
+  // inside MainShell's IndexedStack (tab switches don't unmount it) and
+  // stays mounted underneath the auth/control sub-shell route pushed on
+  // top of it once a connection begins. So initState/dispose can't tell us
+  // when the user can and can't actually see this page; only the
+  // combination of "Control tab selected" and "controller hasn't moved past
+  // the connection screen" (computed in build()) can. This tracks the last
+  // value seen so scanning starts/stops only on a genuine visibility edge,
+  // never re-fires on unrelated rebuilds, and — since a manual STOP doesn't
+  // itself change tab index or currentScreen — a manual stop naturally
+  // holds until the user actually leaves and returns to this page.
+  bool _scanPageWasVisible = false;
 
   @override
   void didChangeDependencies() {
@@ -134,6 +148,24 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  /// Starts/stops BLE scanning as this screen's actual visibility changes.
+  /// Deferred to a post-frame callback because provider mutations must not
+  /// happen synchronously inside build().
+  void _syncScanWithVisibility(bool isVisible) {
+    if (isVisible == _scanPageWasVisible) return;
+    _scanPageWasVisible = isVisible;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = context.read<CraneController>();
+      if (isVisible) {
+        controller.scanForDevices();
+      } else {
+        controller.stopScan();
+      }
+    });
+  }
+
   Future<void> _leaveToHome() async {
     if (_leavingToHome) return;
     _leavingToHome = true;
@@ -171,6 +203,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
     final isActiveTab = context.watch<NavigationController>().currentIndex == 1;
+    final isScanPageVisible =
+        isActiveTab && controller.currentScreen == AppScreen.connection;
+    _syncScanWithVisibility(isScanPageVisible);
 
     return PopScope(
       canPop: !isActiveTab,
@@ -186,10 +221,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             : SafeArea(
                 child: Column(
                   children: [
-                    _ScanAppBar(
-                      controller: controller,
-                      onBack: _leaveToHome,
-                    ),
+                    _ScanAppBar(controller: controller, onBack: _leaveToHome),
                     Expanded(
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
@@ -374,11 +406,18 @@ class _ScanButton extends StatelessWidget {
           icon: const Icon(Icons.stop_rounded, size: 16),
           label: const Text(
             'STOP',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.8),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
           ),
           style: OutlinedButton.styleFrom(
             foregroundColor: AppColors.brandDanger,
-            side: BorderSide(color: AppColors.brandDanger.withAlpha(150), width: 1.4),
+            side: BorderSide(
+              color: AppColors.brandDanger.withAlpha(150),
+              width: 1.4,
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
             ),
@@ -396,7 +435,11 @@ class _ScanButton extends StatelessWidget {
         icon: const Icon(Icons.bluetooth_searching_rounded, size: 16),
         label: const Text(
           'SCAN',
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.8),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+          ),
         ),
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brandViolet,

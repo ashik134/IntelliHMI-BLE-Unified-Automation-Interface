@@ -57,10 +57,19 @@ class BleService {
   bool _scanContinue = false;
   bool _scanPaused = false;
 
+  // True from startScan() until stopScan() — i.e. "a scan session is the
+  // user's current intent," independent of whether the burst loop is
+  // literally running right now (it may be mid-pause, see pauseScan()).
+  bool _scanSessionActive = false;
+
+  // Bumped on every startScan()/resumeScan()/stopScan(). Lets a scan loop
+  // that's mid-burst notice it's been superseded by a newer call and return
+  // without touching shared state — see _runScanSession().
+  int _scanGeneration = 0;
+
   final Map<String, BleScanDevice> _deviceCache = {};
   final Map<String, int> _lastAnalog = {'A1': 0, 'A2': 0};
 
-  DateTime? _scanDeadline;
   Timer? _pruneTimer;
   Timer? _rssiTimer;
   static const Duration _deviceExpireTimeout = Duration(seconds: 20);
@@ -74,7 +83,6 @@ class BleService {
 
   static const Duration _scanBurstDuration = Duration(seconds: 6);
   static const Duration _scanPauseDuration = Duration(milliseconds: 1500);
-  static const Duration _maxScanDuration = Duration(minutes: 3);
 
   Completer<BleAuthOutcome>? _pendingAuthCompleter;
   Completer<void>? _pendingSafeStateCompleter;
@@ -111,25 +119,27 @@ class BleService {
   // ── Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> startScan() async {
+    final generation = ++_scanGeneration;
     _scanContinue = false;
-    _scanPaused = false;
-    _pruneTimer?.cancel;
-    _pruneTimer = null;
+
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
     await _scanResultsSub?.cancel();
     _scanResultsSub = null;
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
+
     _deviceCache.clear();
-    _scanDeadline = DateTime.now().add(_maxScanDuration);
-    await _runScanSession();
+    _scanSessionActive = true;
+    _scanPaused = false;
+    await _runScanSession(generation);
   }
 
   // ── Pause Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> pauseScan() async {
-    if (_scanDeadline == null) return;
-    if (_scanPaused) return;
+    if (!_scanSessionActive || _scanPaused) return;
     _scanPaused = true;
     _scanContinue = false;
     if (FlutterBluePlus.isScanningNow) {
@@ -144,30 +154,25 @@ class BleService {
   // ── Resume Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> resumeScan() async {
-    if (_scanContinue) return;
-    final deadline = _scanDeadline;
-    if (deadline == null) return;
+    if (!_scanSessionActive || !_scanPaused) return;
 
-    if (deadline.difference(DateTime.now()).inSeconds < 1) {
-      _scanPaused = false;
-      _scanDeadline = null;
-      _pruneTimer?.cancel();
-      _pruneTimer = null;
-      if (_snapshot.status == BleConnectionStatus.scanning) {
-        _emit(BleConnectionStatus.disconnected);
-      }
-      return;
-    }
-
+    final generation = ++_scanGeneration;
     _scanPaused = false;
     await _scanResultsSub?.cancel();
     _scanResultsSub = null;
-    await _runScanSession();
+    await _runScanSession(generation);
   }
 
   // ── Run Scan Burst Section ───────────────────────────────────────────────────────────────
-
-  Future<void> _runScanSession() async {
+  //
+  // Runs scan bursts (6s scan / 1.5s pause) back-to-back with no overall
+  // time limit. The loop only ends when stopScan()/pauseScan() flips
+  // _scanContinue to false, or when a newer startScan()/resumeScan() call
+  // bumps `generation` past the value this call captured — that check is
+  // what prevents two sessions from ever running concurrently: a superseded
+  // call notices it's been replaced and returns quietly instead of racing
+  // the newer session's scan-result subscription and cache/state teardown.
+  Future<void> _runScanSession(int generation) async {
     _unfreezeCache();
     _emit(BleConnectionStatus.scanning);
     _scanContinue = true;
@@ -217,26 +222,25 @@ class BleService {
       },
     );
 
-    while (_scanContinue && !_isDisposing) {
-      final remaining = _scanDeadline!.difference(DateTime.now());
-      if (remaining.inSeconds < 1) break;
-
-      final burst = remaining < _scanBurstDuration
-          ? remaining
-          : _scanBurstDuration;
-
+    while (_scanContinue && !_isDisposing && generation == _scanGeneration) {
       try {
         await FlutterBluePlus.startScan(
-          timeout: burst,
+          timeout: _scanBurstDuration,
           androidScanMode: AndroidScanMode.balanced,
         );
         await FlutterBluePlus.isScanning.where((s) => !s).first;
       } catch (_) {
         break;
       }
-      if (!_scanContinue || _isDisposing) break;
+      if (!_scanContinue || _isDisposing || generation != _scanGeneration) {
+        break;
+      }
       await Future.delayed(_scanPauseDuration);
     }
+
+    // A newer startScan()/resumeScan() call already owns this scan lane's
+    // subscription and state — let its own teardown run instead of racing it.
+    if (generation != _scanGeneration) return;
 
     await _scanResultsSub?.cancel();
     _scanResultsSub = null;
@@ -244,7 +248,7 @@ class BleService {
     _freezeCache();
 
     if (!_scanPaused) {
-      _scanDeadline = null;
+      _scanSessionActive = false;
       if (_snapshot.status == BleConnectionStatus.scanning) {
         _emit(BleConnectionStatus.disconnected);
       }
@@ -254,15 +258,15 @@ class BleService {
   // ── Stop Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> stopScan() async {
-    _scanContinue = false;
+    _scanGeneration++;
+    _scanSessionActive = false;
     _scanPaused = false;
-    _scanDeadline = null;
+    _scanContinue = false;
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
     await FlutterBluePlus.stopScan();
     await _scanResultsSub?.cancel();
     _scanResultsSub = null;
-    if (FlutterBluePlus.isScanningNow) {
-      await FlutterBluePlus.stopScan();
-    }
     _freezeCache();
     if (_snapshot.status == BleConnectionStatus.scanning) {
       _emit(BleConnectionStatus.disconnected);
@@ -1367,7 +1371,8 @@ class BleService {
   void dispose() {
     _isDisposing = true;
     _scanPaused = false;
-    _scanDeadline = null;
+    _scanSessionActive = false;
+    _scanGeneration++;
     _stopRssiPolling();
     _stopHeartbeat();
     _scanResultsSub?.cancel();

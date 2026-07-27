@@ -12,7 +12,7 @@ import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
 import 'package:rev_crane_control_ops/screens/splash_screen.dart';
 import 'package:rev_crane_control_ops/screens/plc14_control_screen.dart';
-import 'package:rev_crane_control_ops/screens/connection_screen.dart';
+import 'package:rev_crane_control_ops/screens/scan_page.dart';
 import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
@@ -210,7 +210,7 @@ class _ControlTabState extends State<_ControlTab> {
   }
 
   @override
-  Widget build(BuildContext context) => const ConnectionScreen();
+  Widget build(BuildContext context) => const ScanScreen();
 }
 
 // ═══════════════════════════════════════════════════════════════
