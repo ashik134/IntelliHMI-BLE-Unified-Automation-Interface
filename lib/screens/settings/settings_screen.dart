@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/widgets/settings/plc_webserver_sheet.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
@@ -232,8 +233,75 @@ class _DeviceIdentityCardState extends State<_DeviceIdentityCard> {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: 14),
+          _PlcWebserverRegistrationLink(
+            deviceId: id,
+            controller: widget.controller,
+          ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLC Webserver Registration Link
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PlcWebserverRegistrationLink extends StatelessWidget {
+  const _PlcWebserverRegistrationLink({
+    required this.deviceId,
+    required this.controller,
+  });
+
+  final String deviceId;
+  final CraneController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    // Wi-Fi and BLE are independent radios, but starting a Wi-Fi-connect
+    // flow while the operator is mid-session is still an unwanted
+    // distraction — keep this helper to idle moments only.
+    final blockedByActiveOperation =
+        controller.isConnected || controller.isConnectionActive;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Not registered?',
+          style: TextStyle(
+            color: AppColors.connTextMuted,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (blockedByActiveOperation)
+          const Text(
+            'Disconnect from the PLC to open the webserver registration '
+            'helper.',
+            style: TextStyle(
+              color: AppColors.connTextMuted,
+              fontSize: 11.5,
+              height: 1.4,
+            ),
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: _ActionButton(
+              icon: Icons.public_rounded,
+              label: 'Open PLC Webserver',
+              color: AppColors.connPrimary,
+              onTap: deviceId.isEmpty
+                  ? null
+                  : () => showPlcWebserverSheet(context, deviceId: deviceId),
+            ),
+          ),
+      ],
     );
   }
 }

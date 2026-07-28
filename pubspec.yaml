@@ -46,10 +46,13 @@ dependencies:
   cryptography: ^2.9.0
   flutter_secure_storage: ^10.3.1
   uuid: ^4.5.3
-  local_auth: ^2.3.0
+  local_auth: ^3.0.2
   device_info_plus: ^13.2.0
   package_info_plus: ^10.2.0
   wakelock_plus: ^1.7.0
+  wifi_iot: ^0.3.19+2
+  app_settings: ^8.0.3
+  webview_flutter: ^4.14.1
   
   
 
