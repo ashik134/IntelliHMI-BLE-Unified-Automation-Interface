@@ -25,7 +25,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/cross_travel_strategy.dart';
 
 void main() {
   group('crossTravelZoneId — exhaustive truth table (5-zone)', () {

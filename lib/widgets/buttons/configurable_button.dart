@@ -5,15 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/alarm_indicator_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/horn_button_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/joystick_button_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/potentiometer_button_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/push_button_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/slider_button_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/toggle_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/alarm_indicator_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/cross_travel_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/horn_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/joystick_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/potentiometer_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/push_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/slider_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/toggle_button_strategy.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Strategy registry

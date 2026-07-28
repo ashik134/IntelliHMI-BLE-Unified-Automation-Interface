@@ -4,8 +4,8 @@ import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/potentiometer_control.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/potentiometer_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 class PotentiometerButtonStrategy extends ButtonTypeStrategy {

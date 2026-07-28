@@ -7,8 +7,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart'
     show PushButtonWiringConfig;
 import 'package:rev_crane_control_ops/models/control_role.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/industrial_spring_button.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/push_button_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/industrial_spring_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/push_button_strategy.dart';
 
 // Regression coverage for: push buttons visually activate but never dispatch
 // a PLC command. Root cause was PushButtonStrategy never wiring

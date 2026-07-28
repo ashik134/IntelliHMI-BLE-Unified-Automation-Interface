@@ -7,8 +7,8 @@ import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/alarm_indicator_control.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/alarm_indicator_control.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AlarmIndicatorStrategy
@@ -61,9 +61,7 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
       config.customProperties,
     );
     final craneController = context.watch<CraneController>();
-    final isCustomizing = context
-        .watch<CustomizationModeController>()
-        .isActive;
+    final isCustomizing = context.watch<CustomizationModeController>().isActive;
     // Customization Mode never escalates/animates, even if the underlying
     // live PLC condition happens to be true — editing a layout must not
     // visually alarm the operator over a preview tile.

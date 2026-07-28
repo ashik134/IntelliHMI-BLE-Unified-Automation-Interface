@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/joystick_control.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/joystick_control.dart';
 
 void main() {
   testWidgets(

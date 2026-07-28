@@ -4,9 +4,9 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart'
     show PushButtonWiringConfig;
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/toggle_switch_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/toggle_switch_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleButtonStrategy

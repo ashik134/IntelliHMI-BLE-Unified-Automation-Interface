@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/industrial_spring_button.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/industrial_spring_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/3-step_slider.dart';
 
 // Regression coverage for the shared release-flicker bug: a spring-return
 // control must not visually reactivate after the user releases it, even if

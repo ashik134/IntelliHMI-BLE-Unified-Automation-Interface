@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/crane_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/3-step_slider.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,7 +25,9 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
   /// direction (up/left/forward vs down/right/reverse), mirroring how each
   /// axis is oriented on the control screens today.
   bool _isUp(PlcOutputVariant mapping) => switch (mapping) {
-    PlcOutputVariant.df2 || PlcOutputVariant.df5 || PlcOutputVariant.df8 => true,
+    PlcOutputVariant.df2 ||
+    PlcOutputVariant.df5 ||
+    PlcOutputVariant.df8 => true,
     _ => false,
   };
 

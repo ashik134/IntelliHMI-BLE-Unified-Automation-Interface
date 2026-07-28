@@ -3,8 +3,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/cross_travel_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/cross_travel_strategy.dart';
 
 const String kCrossTravelSpanMessage =
     '5-Zone Cross Travel requires two adjacent cells. Clear or replace the neighboring control first.';

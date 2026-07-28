@@ -7,8 +7,8 @@ import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/horn_control.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/horn_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,9 +53,7 @@ class HornButtonStrategy extends ButtonTypeStrategy {
     final hornConfig = HornConfig.fromCustomProperties(config.customProperties);
 
     final craneController = context.watch<CraneController>();
-    final isCustomizing = context
-        .watch<CustomizationModeController>()
-        .isActive;
+    final isCustomizing = context.watch<CustomizationModeController>().isActive;
 
     final conditionTrue = hornConfig.trigger.isActive(
       craneController.isFieldActive,

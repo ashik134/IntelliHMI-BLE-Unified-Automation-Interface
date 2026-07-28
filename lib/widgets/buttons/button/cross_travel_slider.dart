@@ -18,43 +18,16 @@ enum CrossTravelSliderVariant { fiveZone, threeZoneSlowOnly }
 // CrossTravelSlider
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Horizontal spring-return cross-travel slider for the PLC38 HMI.
-///
-/// The thumb rests at centre (value = 0.0 → idle).  Dragging left or right
-/// enters SLOW then FAST zones.  On release the thumb springs back to centre
-/// and an IDLE command is emitted immediately — no motion remains active after
-/// the operator lets go.
-///
-/// Output mapping
-/// ──────────────
-///   Centre idle zone (±[_deadZone]):  LEFT=0, RIGHT=0, FAST_LR=0
-///   Left slow zone:  LEFT=1, FAST_LR=0
-///   Left fast zone:  LEFT=1, FAST_LR=1
-///   Right slow zone: RIGHT=1, FAST_LR=0
-///   Right fast zone: RIGHT=1, FAST_LR=1
 class CrossTravelSlider extends StatefulWidget {
-  /// Disables interaction and snaps the thumb to centre (e.g. when e-stop
-  /// is latched or the BLE link is down).
   final bool isDisabled;
-
-  /// Custom labels for the left/right direction text.
   final String leftLabel;
   final String rightLabel;
 
-  /// Fired on every zone transition.  [isLeft] selects the output direction;
-  /// [state] encodes speed (idle / slow / fast).
   final void Function({required bool isLeft, required ControlState state})
   onCommandChanged;
 
-  /// Five-zone emits slow and fast. Three-zone emits idle/left-slow/right-slow
-  /// only, even at the far end of the track.
   final CrossTravelSliderVariant variant;
 
-  /// When true, the drag is physically clamped at the dead-zone boundary in
-  /// the corresponding direction. The thumb cannot enter that zone — it feels
-  /// "stuck" — because the PLC field it would assert is currently owned by
-  /// another button. No visual change to the button is made; only the gesture
-  /// is constrained.
   final bool isLeftZoneBlocked;
   final bool isRightZoneBlocked;
 

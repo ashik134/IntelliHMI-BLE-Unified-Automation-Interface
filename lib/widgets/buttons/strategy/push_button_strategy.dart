@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/industrial_spring_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/industrial_spring_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
