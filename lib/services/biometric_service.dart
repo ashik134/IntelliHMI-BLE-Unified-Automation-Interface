@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:local_auth/error_codes.dart' as auth_error;
 
 enum BiometricAvailability {
   available,
@@ -49,24 +48,23 @@ class BiometricAuthResult {
 class BiometricService {
   BiometricService._();
 
-  static final LocalAuthentication _auth = LocalAuthentication();
+  static final LocalAuthentication _localauth = LocalAuthentication();
 
   static Future<BiometricAvailability> checkAvailability() async {
     try {
-      final isSupported = await _auth.isDeviceSupported();
+      final isSupported = await _localauth.isDeviceSupported();
       if (!isSupported) return BiometricAvailability.notAvailable;
 
-      final canCheck = await _auth.canCheckBiometrics;
+      final canCheck = await _localauth.canCheckBiometrics;
       if (!canCheck) return BiometricAvailability.notEnrolled;
 
-      final enrolled = await _auth.getAvailableBiometrics();
+      final enrolled = await _localauth.getAvailableBiometrics();
       if (enrolled.isEmpty) return BiometricAvailability.notEnrolled;
 
       return BiometricAvailability.available;
     } on PlatformException catch (e) {
       final code = e.code;
-      if (code == auth_error.lockedOut ||
-          code == auth_error.permanentlyLockedOut) {
+      if (code == 'locked_out' || code == 'permanently_locked_out') {
         return BiometricAvailability.lockedOut;
       }
       return BiometricAvailability.unknown;
@@ -80,7 +78,7 @@ class BiometricService {
 
   static Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
-      return await _auth.getAvailableBiometrics();
+      return await _localauth.getAvailableBiometrics();
     } catch (_) {
       return const [];
     }
@@ -90,15 +88,13 @@ class BiometricService {
 
   static Future<BiometricAuthResult> authenticate() async {
     try {
-      final authenticated = await _auth.authenticate(
-        localizedReason:
-            'Authenticate to access the Tusker crane control session.',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-          sensitiveTransaction: true,
-          useErrorDialogs: true,
-        ),
+      final authenticated = await _localauth.authenticate(
+        localizedReason: 'Please authenticate to continue',
+        biometricOnly: true,
+        sensitiveTransaction: true,
+        persistAcrossBackgrounding: true,
+
+        // Don't use 'options' parameter
       );
 
       if (authenticated) {
@@ -122,27 +118,27 @@ class BiometricService {
   static BiometricAuthResult _fromPlatformException(PlatformException e) {
     final code = e.code;
 
-    if (code == auth_error.notAvailable) {
+    if (code == "notAvailable") {
       return const BiometricAuthResult(
         status: BiometricAuthStatus.notAvailable,
         message: 'Biometric hardware not available on this device.',
       );
     }
-    if (code == auth_error.notEnrolled || code == auth_error.passcodeNotSet) {
+    if (code == "notEnrolled" || code == "passcodeNotSet") {
       return const BiometricAuthResult(
         status: BiometricAuthStatus.notEnrolled,
         message:
             'No biometrics enrolled. Add a fingerprint in device security settings.',
       );
     }
-    if (code == auth_error.lockedOut) {
+    if (code == "lockedOut") {
       return const BiometricAuthResult(
         status: BiometricAuthStatus.lockedOut,
         message:
             'Biometric authentication is temporarily locked. Please wait before retrying.',
       );
     }
-    if (code == auth_error.permanentlyLockedOut) {
+    if (code == "permanentlyLockedOut") {
       return const BiometricAuthResult(
         status: BiometricAuthStatus.permanentlyLockedOut,
         message:
@@ -158,7 +154,7 @@ class BiometricService {
 
   static Future<void> stopAuthentication() async {
     try {
-      await _auth.stopAuthentication();
+      await _localauth.stopAuthentication();
     } catch (_) {}
   }
 }
