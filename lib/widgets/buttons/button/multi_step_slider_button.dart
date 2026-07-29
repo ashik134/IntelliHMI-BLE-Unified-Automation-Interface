@@ -2,207 +2,257 @@ import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
-class CraneSliderButton extends StatefulWidget {
-  final String label;
-  final IconData icon;
-  final bool isUp;
-  final bool isDisabled;
-  final ControlState externalState;
-  final Color? axisColor;
-  final ButtonStyleConfig? style;
-  final ValueChanged<ControlState> onCommandChanged;
+abstract final class MultiStepSliderStateId {
+  static const String idle = 'idle';
+  static const String step1 = 'step1';
+  static const String step2 = 'step2';
 
-  const CraneSliderButton({
+  static const Set<String> values = {idle, step1, step2};
+
+  static String normalize(String stateId) =>
+      values.contains(stateId) ? stateId : idle;
+}
+
+class MultiStepSliderButton extends StatelessWidget {
+  const MultiStepSliderButton({
     super.key,
     required this.label,
     required this.icon,
-    required this.isUp,
     this.isDisabled = false,
-    this.externalState = ControlState.idle,
-    this.axisColor,
+    this.externalStateId = MultiStepSliderStateId.idle,
+    this.activeColor,
+    this.step2Color,
     this.style,
-    required this.onCommandChanged,
+    required this.onStateChanged,
   });
 
+  final String label;
+  final IconData icon;
+  final bool isDisabled;
+  final String externalStateId;
+  final Color? activeColor;
+  final Color? step2Color;
+  final ButtonStyleConfig? style;
+  final ValueChanged<String> onStateChanged;
+
   @override
-  State<CraneSliderButton> createState() => _CraneSliderButtonState();
+  Widget build(BuildContext context) {
+    return IndustrialMultiStepSlider(
+      label: label,
+      icon: icon,
+      enabled: !isDisabled,
+      stateId: MultiStepSliderStateId.normalize(externalStateId),
+      activeColor: activeColor,
+      step2Color: step2Color,
+      style: style,
+      onStateChanged: onStateChanged,
+    );
+  }
 }
 
-class _CraneSliderButtonState extends State<CraneSliderButton> {
-  static const double _fastThreshold = 0.55;
+/// Reusable industrial slider surface with three neutral state IDs.
+///
+/// It owns presentation, drag behavior, haptics, and local visual state only.
+/// PLC outputs and packet composition stay outside it.
+class IndustrialMultiStepSlider extends StatefulWidget {
+  const IndustrialMultiStepSlider({
+    super.key,
+    required this.label,
+    required this.icon,
+    this.enabled = true,
+    this.activeColor,
+    this.step2Color,
+    this.stateId = MultiStepSliderStateId.idle,
+    this.style,
+    required this.onStateChanged,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool enabled;
+  final String stateId;
+  final Color? activeColor;
+  final Color? step2Color;
+  final ButtonStyleConfig? style;
+  final ValueChanged<String> onStateChanged;
+
+  @override
+  State<IndustrialMultiStepSlider> createState() =>
+      _IndustrialMultiStepSliderState();
+}
+
+class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
+  static const double _step2Threshold = 0.55;
   static const double _idleDeadZone = 0.01;
 
-  ControlState _state = ControlState.idle;
+  String _stateId = MultiStepSliderStateId.idle;
   double _sliderValue = 0.0;
   bool _isTouching = false;
 
-  // Set the instant a local release returns this slider to idle, cleared on
-  // the next fresh touch. While true, external state updates (which may be a
-  // stale/delayed PLC status echo of the drag just released) must not resync
-  // this slider active again; only a new physical touch may do that.
   bool _suppressExternalReactivation = false;
 
   @override
   void initState() {
     super.initState();
-    _syncFromExternalState(widget.externalState);
+    _syncFromExternalStateId(widget.stateId);
   }
 
   @override
-  void didUpdateWidget(covariant CraneSliderButton oldWidget) {
+  void didUpdateWidget(covariant IndustrialMultiStepSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (widget.isDisabled && !oldWidget.isDisabled) {
+    if (!widget.enabled && oldWidget.enabled) {
       _resetLocalState();
       return;
     }
 
-    if (_isTouching || widget.externalState == oldWidget.externalState) {
+    if (_isTouching || widget.stateId == oldWidget.stateId) {
       return;
     }
 
     if (_suppressExternalReactivation &&
-        widget.externalState != ControlState.idle) {
+        MultiStepSliderStateId.normalize(widget.stateId) !=
+            MultiStepSliderStateId.idle) {
       ButtonStateLog.log(
-        'PLC_STATUS_ACTIVE ignored (stale, post-release) [${widget.label}]',
+        'EXTERNAL_STATE_ACTIVE ignored (stale, post-release) '
+        '[${widget.label}]',
       );
       return;
     }
 
-    _syncFromExternalState(widget.externalState);
+    _syncFromExternalStateId(widget.stateId);
   }
 
-  void _syncFromExternalState(ControlState state) {
-    if (state != _state) {
+  void _syncFromExternalStateId(String externalStateId) {
+    final stateId = MultiStepSliderStateId.normalize(externalStateId);
+    if (stateId != _stateId) {
       ButtonStateLog.log(
-        '${state == ControlState.idle ? 'VISUAL_IDLE' : 'VISUAL_ACTIVE'} '
-        '[${widget.label}] (external) -> ${state.name}',
+        '${stateId == MultiStepSliderStateId.idle ? 'VISUAL_IDLE' : 'VISUAL_ACTIVE'} '
+        '[${widget.label}] (external) -> $stateId',
       );
     }
-    _state = state;
-    _sliderValue = _sliderValueForState(state);
+    _stateId = stateId;
+    _sliderValue = _sliderValueForStateId(stateId);
   }
 
   void _resetLocalState() {
     setState(() {
       _isTouching = false;
-      _state = ControlState.idle;
+      _stateId = MultiStepSliderStateId.idle;
       _sliderValue = 0.0;
     });
   }
 
-  double _sliderValueForState(ControlState state) {
-    switch (state) {
-      case ControlState.idle:
-        return 0.0;
-      case ControlState.slow:
-        return 0.5;
-      case ControlState.fast:
-        return 1.0;
-    }
-  }
+  double _sliderValueForStateId(String stateId) => switch (stateId) {
+    MultiStepSliderStateId.step1 => 0.5,
+    MultiStepSliderStateId.step2 => 1.0,
+    _ => 0.0,
+  };
 
-  ControlState _stateFromSlider(double value) {
-    if (value <= _idleDeadZone) return ControlState.idle;
-    if (value < _fastThreshold) return ControlState.slow;
-    return ControlState.fast;
+  String _stateIdFromSlider(double value) {
+    if (value <= _idleDeadZone) return MultiStepSliderStateId.idle;
+    if (value < _step2Threshold) return MultiStepSliderStateId.step1;
+    return MultiStepSliderStateId.step2;
   }
 
   void _onSliderChanged(double value) {
-    if (widget.isDisabled) return;
+    if (!widget.enabled) return;
 
-    final nextState = _stateFromSlider(value);
-    final hasStateChanged = nextState != _state;
+    final nextStateId = _stateIdFromSlider(value);
+    final hasStateChanged = nextStateId != _stateId;
 
     setState(() {
       _sliderValue = value;
       _isTouching = true;
-      _state = nextState;
+      _stateId = nextStateId;
     });
 
     if (hasStateChanged) {
-      _notifyState(nextState);
+      _notifyStateId(nextStateId);
     }
   }
 
   void _onSliderChangeStart(double _) {
-    if (widget.isDisabled) return;
-    ButtonStateLog.log('USER_DOWN [${widget.label}]');
+    if (!widget.enabled) return;
+    ButtonStateLog.log('POINTER_START [${widget.label}]');
     _isTouching = true;
     _suppressExternalReactivation = false;
   }
 
   void _onSliderChangeEnd(double _) {
-    if (widget.isDisabled) return;
-    ButtonStateLog.log('USER_UP [${widget.label}]');
+    if (!widget.enabled) return;
+    ButtonStateLog.log('POINTER_END [${widget.label}]');
 
-    final shouldNotifyIdle = _state != ControlState.idle;
+    final shouldNotifyIdle = _stateId != MultiStepSliderStateId.idle;
 
     setState(() {
       _isTouching = false;
       _sliderValue = 0.0;
-      _state = ControlState.idle;
+      _stateId = MultiStepSliderStateId.idle;
     });
-    // Arm the guard: a stale PLC_STATUS echo for the drag just released must
-    // not resync this slider active again until a fresh USER_DOWN.
+    // Arm the guard so a stale external update cannot reactivate the slider
+    // until the next fresh pointer interaction.
     _suppressExternalReactivation = true;
 
     if (shouldNotifyIdle) {
-      _notifyState(ControlState.idle);
+      _notifyStateId(MultiStepSliderStateId.idle);
     }
   }
 
-  void _notifyState(ControlState state) {
-    widget.onCommandChanged(state);
-    _vibrateForState(state);
+  void _notifyStateId(String stateId) {
+    widget.onStateChanged(stateId);
+    _vibrateForStateId(stateId);
 
     assert(() {
-      debugPrint('${widget.label} command: ${state.name.toUpperCase()}');
+      debugPrint('${widget.label} slider state: $stateId');
       return true;
     }());
   }
 
-  void _vibrateForState(ControlState state) {
-    switch (state) {
-      case ControlState.idle:
+  void _vibrateForStateId(String stateId) {
+    switch (stateId) {
+      case MultiStepSliderStateId.idle:
         Vibration.vibrate(duration: 15);
         break;
-      case ControlState.slow:
+      case MultiStepSliderStateId.step1:
         Vibration.vibrate(duration: 25, amplitude: 100);
         break;
-      case ControlState.fast:
+      case MultiStepSliderStateId.step2:
         Vibration.vibrate(duration: 55, amplitude: 255);
         break;
     }
   }
 
-  Color get _axisColor =>
-      widget.axisColor ??
-      (widget.isUp ? AppColors.upColor : AppColors.downColor);
+  Color get _activeColor => widget.activeColor ?? AppColors.accent;
+  Color get _step2Color =>
+      widget.step2Color ?? Color.lerp(_activeColor, Colors.white, 0.18)!;
 
   Color get _activeSliderColor {
-    if (widget.isDisabled) return AppColors.idleColor;
-    return _sliderValue >= _fastThreshold ? AppColors.fastColor : _axisColor;
+    if (!widget.enabled) return AppColors.idleColor;
+    return _stateId == MultiStepSliderStateId.step2
+        ? _step2Color
+        : _activeColor;
   }
 
   Color get _overlayColor {
-    if (widget.isDisabled) return Colors.transparent;
+    if (!widget.enabled) return Colors.transparent;
 
-    switch (_state) {
-      case ControlState.idle:
+    switch (_stateId) {
+      case MultiStepSliderStateId.idle:
         return AppColors.idleColor.withAlpha(35);
-      case ControlState.slow:
-        return _axisColor.withAlpha(50);
-      case ControlState.fast:
-        return AppColors.fastColor.withAlpha(55);
+      case MultiStepSliderStateId.step1:
+        return _activeColor.withAlpha(50);
+      case MultiStepSliderStateId.step2:
+        return _step2Color.withAlpha(55);
     }
+    return AppColors.idleColor.withAlpha(35);
   }
 
-  bool get _isIdle => _state == ControlState.idle;
+  bool get _isIdle => _stateId == MultiStepSliderStateId.idle;
 
   @override
   Widget build(BuildContext context) {
@@ -223,10 +273,6 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
         final footerHeight = showFooter ? 28.0 : 0.0;
         final bodyHeight = (height - footerHeight).clamp(0.0, height);
 
-        // const showScale = false;
-        // const scaleWidth =  0.0;
-        // const gap = 0.0;
-
         final sliderLaneWidth = width.clamp(56.0, 72.0).toDouble();
         final trackLength = bodyHeight.clamp(90.0, 360.0).toDouble();
 
@@ -235,7 +281,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
         final trackH = (sliderLaneWidth * 0.28).clamp(0.0, 16.0).toDouble();
 
         return Opacity(
-          opacity: widget.isDisabled ? 0.55 : 1.0,
+          opacity: widget.enabled ? 1.0 : 0.55,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -245,25 +291,12 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    // if (showScale)
-                    //   SizedBox(
-                    //     width: scaleWidth,
-                    //     child: _SliderScale(
-                    //       value: _sliderValue,
-                    //       isUp: widget.isUp,
-                    //       fastThreshold: _fastThreshold,
-                    //       activeColor: _activeSliderColor,
-                    //       axisColor: _axisColor,
-                    //       isDisabled: widget.isDisabled,
-                    //     ),
-                    //   ),
-                    // if (showScale) const SizedBox(width: gap),
                     SizedBox(
                       width: sliderLaneWidth,
                       height: bodyHeight,
                       child: Center(
                         child: RotatedBox(
-                          quarterTurns: widget.isUp ? -1 : 1,
+                          quarterTurns: -1,
                           child: SizedBox(
                             width: trackLength,
                             height: sliderLaneWidth,
@@ -289,7 +322,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
                     label: widget.label,
                     isActive: !_isIdle,
                     activeColor: _activeSliderColor,
-                    isDisabled: widget.isDisabled,
+                    isDisabled: !widget.enabled,
                     maxWidth: width,
                     style: widget.style,
                   ),
@@ -318,16 +351,16 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
         IgnorePointer(
           child: CustomPaint(
             size: Size(trackLength, laneWidth),
-            painter: _CraneTrackPainter(
+            painter: _MultiStepTrackPainter(
               value: _sliderValue,
               thumbWidth: thumbW,
               trackHeight: trackH,
               deadZone: _idleDeadZone,
-              fastThreshold: _fastThreshold,
+              step2Threshold: _step2Threshold,
               fillColor: _activeSliderColor.withAlpha(
-                widget.isDisabled ? 70 : 200,
+                widget.enabled ? 200 : 70,
               ),
-              isActive: !widget.isDisabled,
+              isActive: widget.enabled,
             ),
           ),
         ),
@@ -341,6 +374,7 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
             thumbColor: _activeSliderColor,
             disabledThumbColor: AppColors.idleColor,
             overlayColor: _overlayColor,
+            tickMarkShape: SliderTickMarkShape.noTickMark,
             overlayShape: RoundSliderOverlayShape(
               overlayRadius: (laneWidth * 0.24).clamp(0.0, 14.0).toDouble(),
             ),
@@ -350,14 +384,17 @@ class _CraneSliderButtonState extends State<CraneSliderButton> {
               borderRadius: 6,
               color: _activeSliderColor,
               isDragging: _isTouching,
-              isDisabled: widget.isDisabled,
+              isDisabled: !widget.enabled,
             ),
           ),
           child: Slider(
             value: _sliderValue,
-            onChanged: widget.isDisabled ? null : _onSliderChanged,
-            onChangeStart: widget.isDisabled ? null : _onSliderChangeStart,
-            onChangeEnd: widget.isDisabled ? null : _onSliderChangeEnd,
+            min: 0.0,
+            max: 1.0,
+            divisions: 2,
+            onChanged: widget.enabled ? _onSliderChanged : null,
+            onChangeStart: widget.enabled ? _onSliderChangeStart : null,
+            onChangeEnd: widget.enabled ? _onSliderChangeEnd : null,
           ),
         ),
       ],
@@ -410,103 +447,6 @@ class _SliderFooter extends StatelessWidget {
   }
 }
 
-// class _SliderScale extends StatelessWidget {
-//   final double value;
-//   final bool isUp;
-//   final double fastThreshold;
-//   final Color activeColor;
-//   final Color axisColor;
-//   final bool isDisabled;
-
-//   const _SliderScale({
-//     required this.value,
-//     required this.isUp,
-//     required this.fastThreshold,
-//     required this.activeColor,
-//     required this.axisColor,
-//     required this.isDisabled,
-//   });
-
-//   bool get _isIdle => value <= 0.01;
-//   bool get _isSlow => value > 0.01 && value < fastThreshold;
-//   bool get _isFast => value >= fastThreshold;
-
-//   @override
-//   Widget build(BuildContext context) {
-//     final labels = isUp
-//         ? <Widget>[
-//             _ScaleLabel(
-//               text: 'IDLE',
-//               active: _isIdle,
-//               activeColor: AppColors.darkTextSub,
-//             ),
-//             _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
-//             _ScaleLabel(
-//               text: 'FAST',
-//               active: _isFast,
-//               activeColor: AppColors.fastColor,
-//             ),
-//           ]
-//         : <Widget>[
-//             _ScaleLabel(
-//               text: 'FAST',
-//               active: _isFast,
-//               activeColor: AppColors.fastColor,
-//             ),
-//             _ScaleLabel(text: 'SLOW', active: _isSlow, activeColor: axisColor),
-//             _ScaleLabel(
-//               text: 'IDLE',
-//               active: _isIdle,
-//               activeColor: AppColors.darkTextSub,
-//             ),
-//           ];
-
-//     return Column(
-//       mainAxisAlignment: MainAxisAlignment.center,
-//       children: [
-//         ...labels,
-//         const SizedBox(height: 5),
-//         _StatusDot(
-//           isDisabled: isDisabled,
-//           isIdle: _isIdle,
-//           activeColor: activeColor,
-//         ),
-//       ],
-//     );
-//   }
-// }
-
-// class _ScaleLabel extends StatelessWidget {
-//   final String text;
-//   final bool active;
-//   final Color activeColor;
-
-//   const _ScaleLabel({
-//     required this.text,
-//     required this.active,
-//     required this.activeColor,
-//   });
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Padding(
-//       padding: const EdgeInsets.symmetric(vertical: 3),
-//       child: Text(
-//         text,
-//         maxLines: 1,
-//         overflow: TextOverflow.clip,
-//         textAlign: TextAlign.center,
-//         style: TextStyle(
-//           fontSize: 7.5,
-//           fontWeight: active ? FontWeight.bold : FontWeight.normal,
-//           color: active ? activeColor : AppColors.darkTextMuted.withAlpha(90),
-//           letterSpacing: 0.3,
-//         ),
-//       ),
-//     );
-//   }
-// }
-
 // class _StatusDot extends StatelessWidget {
 //   final bool isDisabled;
 //   final bool isIdle;
@@ -541,21 +481,21 @@ class _SliderFooter extends StatelessWidget {
 //   }
 // }
 
-class _CraneTrackPainter extends CustomPainter {
+class _MultiStepTrackPainter extends CustomPainter {
   final double value;
   final double thumbWidth;
   final double trackHeight;
   final double deadZone;
-  final double fastThreshold;
+  final double step2Threshold;
   final Color fillColor;
   final bool isActive;
 
-  const _CraneTrackPainter({
+  const _MultiStepTrackPainter({
     required this.value,
     required this.thumbWidth,
     required this.trackHeight,
     required this.deadZone,
-    required this.fastThreshold,
+    required this.step2Threshold,
     required this.fillColor,
     required this.isActive,
   });
@@ -603,7 +543,7 @@ class _CraneTrackPainter extends CustomPainter {
     }
 
     final markerPaint = Paint()
-      ..color = const Color.fromARGB(255, 192, 25, 25)
+      ..color = AppColors.darkBorder.withAlpha(180)
       ..strokeWidth = 1.0;
 
     void drawMarker(double fraction) {
@@ -616,16 +556,16 @@ class _CraneTrackPainter extends CustomPainter {
     }
 
     drawMarker(deadZone);
-    drawMarker(fastThreshold);
+    drawMarker(step2Threshold);
   }
 
   @override
-  bool shouldRepaint(_CraneTrackPainter oldDelegate) =>
+  bool shouldRepaint(_MultiStepTrackPainter oldDelegate) =>
       oldDelegate.value != value ||
       oldDelegate.thumbWidth != thumbWidth ||
       oldDelegate.trackHeight != trackHeight ||
       oldDelegate.deadZone != deadZone ||
-      oldDelegate.fastThreshold != fastThreshold ||
+      oldDelegate.step2Threshold != step2Threshold ||
       oldDelegate.fillColor != fillColor ||
       oldDelegate.isActive != isActive;
 }

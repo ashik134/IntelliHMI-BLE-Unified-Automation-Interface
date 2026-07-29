@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/multi_step_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button/3-step_slider.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SliderButtonStrategy
 //
-// Wraps CraneSliderButton (reused verbatim, zero changes). One ButtonConfig
-// = one direction, matching today's per-direction instantiation.
+// Renders MultiStepSliderButton through its generic state-id contract. PLC
+// output resolution remains outside both layers in ButtonConfig.stateMappings.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SliderButtonStrategy extends ButtonTypeStrategy {
@@ -20,17 +19,6 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
   @override
   ButtonType get type => ButtonType.sliderButton;
 
-  /// CraneSliderButton's `isUp` is purely cosmetic (drag-gesture orientation
-  /// default) — derived here from PlcOutputVariant's "primary" vs "secondary"
-  /// direction (up/left/forward vs down/right/reverse), mirroring how each
-  /// axis is oriented on the control screens today.
-  bool _isUp(PlcOutputVariant mapping) => switch (mapping) {
-    PlcOutputVariant.df2 ||
-    PlcOutputVariant.df5 ||
-    PlcOutputVariant.df8 => true,
-    _ => false,
-  };
-
   @override
   Widget build({
     required BuildContext context,
@@ -38,22 +26,42 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final role = config.role;
     final icon =
         config.icon ??
         (role != null ? iconForRole(role) : Icons.radio_button_checked);
+    final activeColor = config.style.resolvePrimary(AppColors.accent);
 
-    return CraneSliderButton(
+    void dispatchStateId(String stateId) {
+      final dispatch = onStateIdCommand;
+      if (dispatch == null) {
+        assert(() {
+          debugPrint(
+            'SliderButtonStrategy missing onStateIdCommand for ${config.id}; '
+            'ignored $stateId.',
+          );
+          return true;
+        }());
+        return;
+      }
+      dispatch(config.id, stateId);
+    }
+
+    return MultiStepSliderButton(
       label: config.label,
       icon: icon,
-      isUp: _isUp(config.plcMapping),
       isDisabled: isDisabled,
-      externalState: activeState,
-      axisColor: config.style.primaryColor,
+      externalStateId: logicalStateIdFor(
+        type: type,
+        physicalState: activeState,
+      ),
+      activeColor: activeColor,
+      step2Color: config.style.activeColor,
       style: config.style,
-      onCommandChanged: (state) => onCommand(config.id, state),
+      onStateChanged: dispatchStateId,
     );
   }
 }

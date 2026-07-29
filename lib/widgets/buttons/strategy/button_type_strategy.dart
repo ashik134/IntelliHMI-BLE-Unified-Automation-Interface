@@ -19,6 +19,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 /// combined/multi-field callback.
 typedef ButtonCommandCallback =
     void Function(String buttonId, ControlState state);
+typedef ButtonStateIdCommandCallback =
+    void Function(String buttonId, String stateId);
 typedef AnalogButtonCommandCallback =
     void Function(ButtonConfig config, double value);
 
@@ -38,6 +40,7 @@ abstract class ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   });
 }

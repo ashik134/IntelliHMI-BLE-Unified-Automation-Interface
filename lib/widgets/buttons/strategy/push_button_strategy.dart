@@ -4,15 +4,16 @@ import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button/industrial_spring_button.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/push_control_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PushButtonStrategy
 //
-// Wraps IndustrialSpringButton (reused verbatim, zero changes), the same way
-// DirectionalPushControlButton does today — this is that adapter,
-// parameterized by ButtonConfig instead of hardcoded per-role wrapper widgets.
+// Adapts PushControlButton's generic state-id contract (idle/pressed for
+// spring-return, off/on for latching) to the legacy ControlState contract
+// still shared by the other button strategies. PLC output resolution
+// remains outside both layers in ButtonConfig.stateMappings.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PushButtonStrategy extends ButtonTypeStrategy {
@@ -21,6 +22,19 @@ class PushButtonStrategy extends ButtonTypeStrategy {
   @override
   ButtonType get type => ButtonType.pushButton;
 
+  String _stateIdFor(ControlState state, bool isSpringReturn) {
+    final isActive = state != ControlState.idle;
+    if (isSpringReturn) {
+      return isActive ? PushControlStateId.pressed : PushControlStateId.idle;
+    }
+    return isActive ? PushControlStateId.on : PushControlStateId.off;
+  }
+
+  ControlState _controlStateFor(String stateId) => switch (stateId) {
+    PushControlStateId.pressed || PushControlStateId.on => ControlState.slow,
+    _ => ControlState.idle,
+  };
+
   @override
   Widget build({
     required BuildContext context,
@@ -28,6 +42,7 @@ class PushButtonStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final role = config.role;
@@ -39,40 +54,19 @@ class PushButtonStrategy extends ButtonTypeStrategy {
     final icon =
         config.icon ??
         (role != null ? iconForRole(role) : Icons.radio_button_checked);
-
-    final enabled = !isDisabled;
-    final isActive = activeState != ControlState.idle;
     final isSpringReturn = config.behavior.isSpringReturn;
-    final latched = !isSpringReturn && isActive;
 
     return SizedBox.expand(
-      child: IndustrialSpringButton(
+      child: PushControlButton(
         label: config.label,
         icon: icon,
+        isDisabled: isDisabled,
+        isSpringReturn: isSpringReturn,
+        externalStateId: _stateIdFor(activeState, isSpringReturn),
         activeColor: activeColor,
         activeColorLight: activeColorLight,
-        isActive: isActive && enabled,
-        isSpringReturn: isSpringReturn,
-        isLatched: latched,
-        enabled: enabled,
-        onPressed: isSpringReturn
-            ? () => onCommand(config.id, ControlState.slow)
-            : null,
-        onReleased: isSpringReturn
-            ? () => onCommand(config.id, ControlState.idle)
-            : null,
-        // Latching mode toggles and reports its new value exclusively through
-        // onChanged (see IndustrialSpringButton._handlePointerUp) — onPressed/
-        // onReleased are wired to null above since they're the spring-return
-        // path. Without this, a latching push button flips its own visual
-        // state locally but never calls onCommand, so no PLC output is sent
-        // and the LED/status indicator never reflects the tap.
-        onChanged: isSpringReturn
-            ? null
-            : (value) => onCommand(
-                config.id,
-                value ? ControlState.slow : ControlState.idle,
-              ),
+        onStateChanged: (stateId) =>
+            onCommand(config.id, _controlStateFor(stateId)),
       ),
     );
   }

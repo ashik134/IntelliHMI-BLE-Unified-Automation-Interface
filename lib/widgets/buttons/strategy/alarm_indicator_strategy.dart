@@ -55,6 +55,7 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final alarmConfig = AlarmIndicatorConfig.fromCustomProperties(

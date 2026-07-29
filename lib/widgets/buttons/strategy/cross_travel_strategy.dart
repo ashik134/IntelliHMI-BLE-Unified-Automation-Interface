@@ -92,6 +92,7 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     // No sibling config available through the uniform interface — renders
@@ -214,6 +215,7 @@ class Bidirectional3StepStrategy extends ButtonTypeStrategy {
     required ControlState activeState,
     required bool isDisabled,
     required ButtonCommandCallback onCommand,
+    ButtonStateIdCommandCallback? onStateIdCommand,
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final endpoints = traverseEndpointsFor(config);
