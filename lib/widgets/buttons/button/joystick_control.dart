@@ -549,7 +549,6 @@ class _AnalogRail extends StatelessWidget {
             activeColor: activeColor,
             activeColorLight: activeColorLight,
             label: label,
-            modeText: config.mode.shortLabel,
             icon: icon,
           ),
           child: const SizedBox.expand(),
@@ -568,7 +567,6 @@ class _AnalogRailPainter extends CustomPainter {
     required this.activeColor,
     required this.activeColorLight,
     required this.label,
-    required this.modeText,
     required this.icon,
   });
 
@@ -579,7 +577,6 @@ class _AnalogRailPainter extends CustomPainter {
   final Color activeColor;
   final Color activeColorLight;
   final String label;
-  final String modeText;
   final IconData? icon;
 
   @override
@@ -759,9 +756,6 @@ class _AnalogRailPainter extends CustomPainter {
       }
     }
 
-    // ANALOG mode tag near one end.
-    _paintTag(canvas, size, 'ANALOG', horizontal);
-
     // Label at the opposite end.
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
@@ -785,22 +779,6 @@ class _AnalogRailPainter extends CustomPainter {
           ? Offset(w / 2 - labelPainter.width / 2, h - labelPainter.height - 4)
           : Offset(w / 2 - labelPainter.width / 2, h - labelPainter.height - 6),
     );
-  }
-
-  void _paintTag(Canvas canvas, Size size, String text, bool horizontal) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          color: AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-          fontSize: 7.5,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.8,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(size.width / 2 - tp.width / 2, 5));
   }
 
   @override
@@ -888,7 +866,6 @@ class _DigitalLadder extends StatelessWidget {
                 activeStep: _stepFromDisplay(),
                 isActive: isActive,
                 enabled: enabled,
-                springReturn: config.springReturn,
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
                 label: label,
@@ -910,7 +887,6 @@ class _DigitalLadderPainter extends CustomPainter {
     required this.activeStep,
     required this.isActive,
     required this.enabled,
-    required this.springReturn,
     required this.activeColor,
     required this.activeColorLight,
     required this.label,
@@ -922,7 +898,6 @@ class _DigitalLadderPainter extends CustomPainter {
   final int activeStep;
   final bool isActive;
   final bool enabled;
-  final bool springReturn;
   final Color activeColor;
   final Color activeColorLight;
   final String label;
@@ -1161,22 +1136,6 @@ class _DigitalLadderPainter extends CustomPainter {
         );
       }
     }
-
-    // DIGITAL tag + spring-return glyph.
-    final tagText = springReturn ? 'DIGITAL · SPRING' : 'DIGITAL';
-    final tp = TextPainter(
-      text: TextSpan(
-        text: tagText,
-        style: TextStyle(
-          color: AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-          fontSize: 7.5,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.6,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: w - 8);
-    tp.paint(canvas, Offset(w / 2 - tp.width / 2, 5));
 
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
@@ -1601,24 +1560,6 @@ class _GimbalPainter extends CustomPainter {
             : const Color(0xFF263748),
     );
 
-    // ANALOG tag.
-    final tagPainter = TextPainter(
-      text: TextSpan(
-        text: config.springReturn ? '2-AXIS ANALOG' : '2-AXIS ANALOG',
-        style: TextStyle(
-          color: AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-          fontSize: (side * 0.042).clamp(7.0, 10.0),
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.6,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tagPainter.paint(
-      canvas,
-      Offset(center.dx - tagPainter.width / 2, side * 0.08),
-    );
-
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
         label: label,
@@ -1925,24 +1866,6 @@ class _CrossGatePainter extends CustomPainter {
           ..color = activeColorLight.withAlpha(110),
       );
     }
-
-    // DIGITAL FRICTION tag.
-    final tagPainter = TextPainter(
-      text: TextSpan(
-        text: 'GATED · FRICTION',
-        style: TextStyle(
-          color: AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-          fontSize: (side * 0.04).clamp(7.0, 10.0),
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.5,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: side * 0.9);
-    tagPainter.paint(
-      canvas,
-      Offset(center.dx - tagPainter.width / 2, side * 0.045),
-    );
 
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
