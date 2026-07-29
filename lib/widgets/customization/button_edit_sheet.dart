@@ -26,7 +26,7 @@ import 'package:rev_crane_control_ops/widgets/customization/confirm_dialog.dart'
 //
 // Per-control editing surface, opened via the pencil badge on an
 // EditableControlTile. Two entry points because sliders render a whole axis
-// as one combined widget (CrossTravelSlider / the hoist slider pair) while
+// as one combined widget (MultiZoneSliderButton / the hoist slider pair) while
 // push/toggle buttons are per-role individual widgets:
 //   - .forRole(role)  → editing a single push/toggle button
 //   - .forAxis(axis)  → editing a slider pair (both directions at once)

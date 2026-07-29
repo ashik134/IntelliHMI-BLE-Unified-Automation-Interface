@@ -7,21 +7,27 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/button/cross_travel_slider.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CrossTravelStrategy
 //
-// Wraps CrossTravelSlider (reused verbatim, zero changes) — the combined-
-// slider "type" kept as an optional selectable button type. CrossTravelSlider
-// intrinsically needs both LEFT and RIGHT ButtonConfig (two labels), which a
-// single ButtonTypeStrategy.build() call can't express without leaking this
-// one type's oddity into the shared interface every other strategy would
-// have to ignore. So build() (below) supports only the "single side" case
-// with a same-value fallback label, and [buildPaired] — an escape hatch
-// OUTSIDE the ButtonTypeStrategy interface, directly analogous to how
+// Wraps the generic MultiZoneSliderButton — the combined-slider "type" kept
+// as an optional selectable button type. MultiZoneSliderButton only ever
+// reports a generic zone id (zone1/zone2/center/zone4/zone5, or zone1/
+// center/zone3) — it has no notion of "left"/"right" ButtonConfig or two
+// PLC-mapped halves. This combined traverse type intrinsically needs both
+// LEFT and RIGHT ButtonConfig (two labels), which a single
+// ButtonTypeStrategy.build() call can't express without leaking this one
+// type's oddity into the shared interface every other strategy would have
+// to ignore. So build() (below) supports only the "single side" case with a
+// same-value fallback label, and [buildPaired] — an escape hatch OUTSIDE the
+// ButtonTypeStrategy interface, directly analogous to how
 // ButtonEditSheet.forAxis already special-cases this one axis today — is the
-// real entry point screens should use for cross-travel.
+// real entry point screens should use for cross-travel. Translating the
+// widget's generic zone id into which side's ButtonConfig it belongs to (and
+// the legacy ControlState the rest of the pipeline still expects) happens
+// entirely HERE, in the strategy — never inside the widget.
 //
 // Whichever entry point is used, the invariant is preserved: exactly two
 // onCommand(buttonId, state) calls happen over a drag's lifetime (one per
@@ -30,18 +36,19 @@ import 'package:rev_crane_control_ops/widgets/buttons/button/cross_travel_slider
 //
 // ── Zone-id resolution (crossTravelZoneId) ─────────────────────────────────
 //
-// CrossTravelSlider only ever reports a (isLeft: bool, state: ControlState)
-// pair per zone crossing — it is not rewritten by this refactor. The 5-zone
-// (or 3-zone) control's REAL logical state ids (zone1/zone2/center/zone4/
-// zone5, or zone1/center/zone3) are resolved from that pair by
-// crossTravelZoneId below: a pure, exhaustive relabeling with no default/
+// crossTravelZoneId below is the pure, exhaustive relabeling used by
+// resolveButtonCommand (see control_grid_utils.dart) to recover a button's
+// logical state id from its (side, ControlState) pair with no default/
 // fallback case, so a future ControlState value would be a compile error
 // here rather than silently misrouting a drag into the wrong zone's
-// configured output variants. This is the highest-risk part of the whole
-// generic-output-variant refactor: a bug here wouldn't look like
-// auto-derivation (adding an unconfigured variant) — it would look like one
-// zone silently reading a DIFFERENT zone's user-configured variants, which
-// is why every arm is written out explicitly instead of collapsed via `_`.
+// configured output variants. [_zoneIdToSideAndState] below is its exact
+// inverse, used to translate MultiZoneSliderButton's own zone id back into
+// the (side, ControlState) pair this file's onCommand callers still expect.
+// This is the highest-risk part of the whole generic-output-variant
+// refactor: a bug here wouldn't look like auto-derivation (adding an
+// unconfigured variant) — it would look like one zone silently reading a
+// DIFFERENT zone's user-configured variants, which is why every arm is
+// written out explicitly instead of collapsed via `_`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Exhaustive truth table (5-zone):
@@ -52,8 +59,8 @@ import 'package:rev_crane_control_ops/widgets/buttons/button/cross_travel_slider
 ///   isLeftButton=false, slow -> zone4
 ///   isLeftButton=false, fast -> zone5
 ///
-/// Exhaustive truth table (3-zone, [fiveZone]=false — CrossTravelSlider never
-/// emits ControlState.fast in this variant, but the arm is still written out
+/// Exhaustive truth table (3-zone, [fiveZone]=false — MultiZoneSliderButton
+/// never emits ControlState.fast in this variant, but the arm is still written out
 /// explicitly rather than defaulted, so a future widget change can't silently
 /// misroute a fast zone through an untested path):
 ///   isLeftButton=true,  idle -> center
@@ -76,6 +83,35 @@ String crossTravelZoneId({
     ControlState.idle => 'center',
     ControlState.slow => isLeftButton ? 'zone2' : 'zone4',
     ControlState.fast => isLeftButton ? 'zone1' : 'zone5',
+  };
+}
+
+/// Exact inverse of [crossTravelZoneId]: translates a zone id reported by
+/// [MultiZoneSliderButton.onZoneChanged] into which side it belongs to and
+/// the legacy [ControlState] the rest of the pipeline (onCommand ->
+/// resolveButtonCommand -> crossTravelZoneId) still expects to see. Written
+/// out exhaustively for the same reason as crossTravelZoneId itself: a zone
+/// id this table doesn't recognize is a programming error, never silently
+/// coerced to centre/idle.
+({bool isLeftButton, ControlState state}) zoneIdToSideAndState({
+  required String zoneId,
+  required bool fiveZone,
+}) {
+  if (!fiveZone) {
+    return switch (zoneId) {
+      kZoneCenter => (isLeftButton: true, state: ControlState.idle),
+      kZone1 => (isLeftButton: true, state: ControlState.slow),
+      kZone3 => (isLeftButton: false, state: ControlState.slow),
+      _ => throw ArgumentError.value(zoneId, 'zoneId', 'Unknown 3-zone id'),
+    };
+  }
+  return switch (zoneId) {
+    kZoneCenter => (isLeftButton: true, state: ControlState.idle),
+    kZone1 => (isLeftButton: true, state: ControlState.fast),
+    kZone2 => (isLeftButton: true, state: ControlState.slow),
+    kZone4 => (isLeftButton: false, state: ControlState.slow),
+    kZone5 => (isLeftButton: false, state: ControlState.fast),
+    _ => throw ArgumentError.value(zoneId, 'zoneId', 'Unknown 5-zone id'),
   };
 }
 
@@ -147,9 +183,9 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
   }
 
   /// The real entry point for cross-travel: takes both LEFT and RIGHT
-  /// button ids/labels explicitly and adapts CrossTravelSlider's combined
-  /// `{isLeft, state}` callback into two independent
-  /// `onCommand(buttonId, state)` calls.
+  /// button ids/labels explicitly and adapts MultiZoneSliderButton's generic
+  /// `onZoneChanged(zoneId)` callback into two independent
+  /// `onCommand(buttonId, state)` calls via [zoneIdToSideAndState].
   Widget buildPaired({
     required String leftId,
     required String rightId,
@@ -160,19 +196,20 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
     bool isLeftZoneBlocked = false,
     bool isRightZoneBlocked = false,
   }) {
-    return CrossTravelSlider(
-      leftLabel: leftLabel,
-      rightLabel: rightLabel,
+    return MultiZoneSliderButton(
+      startLabel: leftLabel,
+      endLabel: rightLabel,
       isDisabled: isDisabled,
-      isLeftZoneBlocked: isLeftZoneBlocked,
-      isRightZoneBlocked: isRightZoneBlocked,
-      onCommandChanged: ({required bool isLeft, required ControlState state}) {
-        if (state == ControlState.idle) {
+      isStartZoneBlocked: isLeftZoneBlocked,
+      isEndZoneBlocked: isRightZoneBlocked,
+      onZoneChanged: (zoneId) {
+        final resolved = zoneIdToSideAndState(zoneId: zoneId, fiveZone: true);
+        if (resolved.state == ControlState.idle) {
           onCommand(leftId, ControlState.idle);
           if (rightId != leftId) onCommand(rightId, ControlState.idle);
           return;
         }
-        onCommand(isLeft ? leftId : rightId, state);
+        onCommand(resolved.isLeftButton ? leftId : rightId, resolved.state);
       },
     );
   }
@@ -238,22 +275,26 @@ class Bidirectional3StepStrategy extends ButtonTypeStrategy {
       }
     }
 
-    return CrossTravelSlider(
-      leftLabel: endpoints.leftLabel,
-      rightLabel: endpoints.rightLabel,
+    return MultiZoneSliderButton(
+      startLabel: endpoints.leftLabel,
+      endLabel: endpoints.rightLabel,
       isDisabled: isDisabled,
-      isLeftZoneBlocked: isLeftZoneBlocked,
-      isRightZoneBlocked: isRightZoneBlocked,
-      variant: CrossTravelSliderVariant.threeZoneSlowOnly,
-      onCommandChanged: ({required bool isLeft, required ControlState state}) {
-        if (state == ControlState.idle) {
+      isStartZoneBlocked: isLeftZoneBlocked,
+      isEndZoneBlocked: isRightZoneBlocked,
+      variant: MultiZoneSliderVariant.threeZone,
+      onZoneChanged: (zoneId) {
+        final resolved = zoneIdToSideAndState(zoneId: zoneId, fiveZone: false);
+        if (resolved.state == ControlState.idle) {
           onCommand(endpoints.leftId, ControlState.idle);
           if (endpoints.rightId != endpoints.leftId) {
             onCommand(endpoints.rightId, ControlState.idle);
           }
           return;
         }
-        onCommand(isLeft ? endpoints.leftId : endpoints.rightId, state);
+        onCommand(
+          resolved.isLeftButton ? endpoints.leftId : endpoints.rightId,
+          resolved.state,
+        );
       },
     );
   }

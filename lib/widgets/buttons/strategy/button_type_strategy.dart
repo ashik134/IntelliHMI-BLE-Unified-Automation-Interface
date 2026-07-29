@@ -14,9 +14,9 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// One uniform command signature every strategy emits, resolving
-/// CrossTravelSlider's {isLeft, state} inconsistency: every strategy —
-/// including cross-travel — reports state per logical button id, never a
-/// combined/multi-field callback.
+/// MultiZoneSliderButton's combined-widget/two-ButtonConfig oddity: every
+/// strategy — including cross-travel — reports state per logical button id,
+/// never a combined/multi-field callback.
 typedef ButtonCommandCallback =
     void Function(String buttonId, ControlState state);
 typedef ButtonStateIdCommandCallback =
@@ -49,8 +49,8 @@ abstract class ButtonTypeStrategy {
 // Gesture-state -> logical-state-id relabeling
 //
 // Every gesture-handling widget (push button, ToggleSwitchButton,
-// CraneSliderButton, CrossTravelSlider, joystick control) only ever reports
-// a plain ControlState (idle/slow/fast) — none of them are rewritten by this
+// CraneSliderButton, joystick control) only ever reports a plain
+// ControlState (idle/slow/fast) — none of them are rewritten by this
 // refactor. These functions translate that physical gesture signal into the
 // LOGICAL state id used to key ButtonConfig.stateMappings (see
 // ButtonTypeLogicalStates.logicalStates). This is a PURE RELABELING: it never

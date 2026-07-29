@@ -279,7 +279,7 @@ class ButtonConfig {
       ControlWidgetType.pushButton => ButtonType.pushButton,
       ControlWidgetType.toggle => ButtonType.toggle,
       // Traverse's slider type has always rendered as the COMBINED
-      // CrossTravelSlider (both directions in one widget) whenever both
+      // MultiZoneSliderButton (both directions in one widget) whenever both
       // resolved to slider type — preserve that default visual behavior
       // under the new per-button model rather than silently regressing
       // migrated layouts to two independent sliders.

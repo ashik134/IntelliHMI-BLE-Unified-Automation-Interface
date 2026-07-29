@@ -1035,7 +1035,19 @@ class _ControlGridSection extends StatelessWidget {
       onEditButton: (config) {
         final role = config.role;
         if (role != null) {
-          ButtonEditSheet.showForRole(context, role);
+          // Combined-axis slider types (5-zone/3-zone traverse) render both
+          // directions as ONE widget from a single visible ButtonConfig, but
+          // the hidden sibling role still owns its own label/output mapping —
+          // .forAxis surfaces both roles' fields; .forRole would only ever
+          // show the visible side's.
+          final isCombinedAxisSlider =
+              config.type == ButtonType.bidirectionalSlider5Step ||
+              config.type == ButtonType.bidirectionalSlider3Step;
+          if (isCombinedAxisSlider && role.axis != null) {
+            ButtonEditSheet.showForAxis(context, role.axis!);
+          } else {
+            ButtonEditSheet.showForRole(context, role);
+          }
         } else {
           ButtonEditSheet.showForButton(context, config.id);
         }

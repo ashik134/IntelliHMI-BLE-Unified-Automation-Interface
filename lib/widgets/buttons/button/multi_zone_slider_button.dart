@@ -8,59 +8,93 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
-// ── Internal zone ─────────────────────────────────────────────────────────────
+// ── Generic zone ids ─────────────────────────────────────────────────────────
+//
+// These are the ONLY values this widget ever emits. They are plain logical
+// state ids — exactly the same shape as any other button type's stateId
+// (see ButtonTypeLogicalStates) — with no notion of direction (left/right),
+// speed (slow/fast), or any crane-specific concept baked in. A caller wires
+// [MultiZoneSliderButton.onZoneChanged] to whatever it wants (typically
+// ButtonConfig.stateMappings lookups performed by a ButtonTypeStrategy) —
+// this widget never resolves or asserts a PLC output itself.
 
-enum _TravZone { idle, leftSlow, leftFast, rightSlow, rightFast }
+/// Zone id for the resting/dead-zone position, in both variants.
+const String kZoneCenter = 'center';
 
-enum CrossTravelSliderVariant { fiveZone, threeZoneSlowOnly }
+/// Zone ids for [MultiZoneSliderVariant.threeZone] (one zone per side) and
+/// the near/inner zones of [MultiZoneSliderVariant.fiveZone].
+const String kZone1 = 'zone1';
+const String kZone2 = 'zone2';
+const String kZone3 = 'zone3';
+const String kZone4 = 'zone4';
+const String kZone5 = 'zone5';
+
+enum MultiZoneSliderVariant { fiveZone, threeZone }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CrossTravelSlider
+// MultiZoneSliderButton
+//
+// A generic drag-to-zone slider: the operator drags a thumb along a
+// horizontal track and this widget reports which discrete zone the thumb
+// currently sits in via [onZoneChanged]. It owns UI, gesture handling, zone
+// math, and its own visual state only — it never decides what a zone means
+// (that is entirely up to the caller, via ButtonConfig.stateMappings) and
+// never composes or sends any PLC/BLE output itself.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class CrossTravelSlider extends StatefulWidget {
+class MultiZoneSliderButton extends StatefulWidget {
   final bool isDisabled;
-  final String leftLabel;
-  final String rightLabel;
 
-  final void Function({required bool isLeft, required ControlState state})
-  onCommandChanged;
+  /// Label for the negative-drag end of the track (drawn on the left).
+  final String startLabel;
 
-  final CrossTravelSliderVariant variant;
+  /// Label for the positive-drag end of the track (drawn on the right).
+  final String endLabel;
 
-  final bool isLeftZoneBlocked;
-  final bool isRightZoneBlocked;
+  /// Fires whenever the reported zone changes: one of [kZoneCenter],
+  /// [kZone1]/[kZone2]/[kZone4]/[kZone5] (five-zone) or [kZoneCenter]/
+  /// [kZone1]/[kZone3] (three-zone).
+  final void Function(String zoneId) onZoneChanged;
 
-  const CrossTravelSlider({
+  final MultiZoneSliderVariant variant;
+
+  /// True blocks the thumb from entering the negative (start-side) zone(s) —
+  /// used when an external owner already claims that zone's output.
+  final bool isStartZoneBlocked;
+
+  /// True blocks the thumb from entering the positive (end-side) zone(s).
+  final bool isEndZoneBlocked;
+
+  const MultiZoneSliderButton({
     super.key,
     this.isDisabled = false,
-    this.leftLabel = 'LEFT',
-    this.rightLabel = 'RIGHT',
-    this.variant = CrossTravelSliderVariant.fiveZone,
-    this.isLeftZoneBlocked = false,
-    this.isRightZoneBlocked = false,
-    required this.onCommandChanged,
+    this.startLabel = 'LEFT',
+    this.endLabel = 'RIGHT',
+    this.variant = MultiZoneSliderVariant.fiveZone,
+    this.isStartZoneBlocked = false,
+    this.isEndZoneBlocked = false,
+    required this.onZoneChanged,
   });
 
   @override
-  State<CrossTravelSlider> createState() => _CrossTravelSliderState();
+  State<MultiZoneSliderButton> createState() => _MultiZoneSliderButtonState();
 }
 
-class _CrossTravelSliderState extends State<CrossTravelSlider>
+class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
     with SingleTickerProviderStateMixin {
-  /// Normalised thumb position: -1.0 = full left · 0.0 = centre · +1.0 = full right
+  /// Normalised thumb position: -1.0 = full negative · 0.0 = centre · +1.0 = full positive
   double _value = 0.0;
   bool _isDragging = false;
-  _TravZone _lastEmitted = _TravZone.idle;
+  String _lastEmitted = kZoneCenter;
 
   late final AnimationController _springCtrl;
 
   // ── Thresholds (fraction of half-track from centre) ──────────────────────
-  static const double _deadZone = 0.12; // ±12 % → idle dead band
-  static const double _fastZone = 0.62; // beyond ±62 % → fast
+  static const double _deadZone = 0.12; // ±12 % → centre dead band
+  static const double _farZone = 0.62; // beyond ±62 % → outer zone
 
   // Margin applied when clamping to the dead-zone boundary so the value stays
-  // strictly INSIDE the idle region (abs < _deadZone), preventing the zone
+  // strictly INSIDE the centre region (abs < _deadZone), preventing the zone
   // check from firing at the exact boundary value.
   static const double _zoneClampMargin = 0.001;
 
@@ -81,41 +115,41 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   }
 
   @override
-  void didUpdateWidget(CrossTravelSlider old) {
+  void didUpdateWidget(MultiZoneSliderButton old) {
     super.didUpdateWidget(old);
     // Snap to centre whenever the widget becomes disabled (e-stop / disconnect).
     if (widget.isDisabled && !old.isDisabled) {
       _springCtrl.stop();
-      // If disabled mid-drag, emit idle before clearing _isDragging.
+      // If disabled mid-drag, emit centre before clearing _isDragging.
       // Without this, _release() will bail on `if (!_isDragging) return`
-      // and the parent's _localActive entry stays permanently true, which
-      // keeps isDisabled=true even after the operator releases the slider.
-      if (_isDragging && _lastEmitted != _TravZone.idle) {
-        widget.onCommandChanged(isLeft: true, state: ControlState.idle);
+      // and the caller's ownership bookkeeping stays permanently claimed,
+      // which keeps isDisabled=true even after the operator releases.
+      if (_isDragging && _lastEmitted != kZoneCenter) {
+        widget.onZoneChanged(kZoneCenter);
       }
       setState(() {
         _value = 0.0;
         _isDragging = false;
-        _lastEmitted = _TravZone.idle;
+        _lastEmitted = kZoneCenter;
       });
       return;
     }
 
     // Push the thumb back inside the dead zone if a zone just became blocked
-    // mid-drag (e.g. the other traverse slider claimed ownership of fast_lr).
+    // mid-drag (e.g. a sibling slider claimed ownership of a shared output).
     // The ownership system prevents two sliders from both being in their
     // blocked zones simultaneously, so this path is a defensive safeguard.
     if (_isDragging) {
       var clamped = _value;
-      if (widget.isRightZoneBlocked && _value >= _deadZone) {
+      if (widget.isEndZoneBlocked && _value >= _deadZone) {
         clamped = _deadZone - _zoneClampMargin;
       }
-      if (widget.isLeftZoneBlocked && _value <= -_deadZone) {
+      if (widget.isStartZoneBlocked && _value <= -_deadZone) {
         clamped = -_deadZone + _zoneClampMargin;
       }
       if (clamped != _value) {
         setState(() => _value = clamped);
-        _emitZone(_zoneFor(clamped)); // emits idle since clamped < _deadZone
+        _emitZone(_zoneIdFor(clamped)); // emits centre since clamped < _deadZone
       }
     }
   }
@@ -130,45 +164,34 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   // Zone logic
   // ─────────────────────────────────────────────────────────────────────────
 
-  _TravZone _zoneFor(double v) {
-    if (widget.isDisabled) return _TravZone.idle;
+  String _zoneIdFor(double v) {
+    if (widget.isDisabled) return kZoneCenter;
     final abs = v.abs();
-    if (abs < _deadZone) return _TravZone.idle;
-    if (v < 0) {
-      if (widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly) {
-        return _TravZone.leftSlow;
-      }
-      return abs >= _fastZone ? _TravZone.leftFast : _TravZone.leftSlow;
+    if (abs < _deadZone) return kZoneCenter;
+    final isNegativeSide = v < 0;
+    if (widget.variant == MultiZoneSliderVariant.threeZone) {
+      return isNegativeSide ? kZone1 : kZone3;
     }
-    if (widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly) {
-      return _TravZone.rightSlow;
-    }
-    return v >= _fastZone ? _TravZone.rightFast : _TravZone.rightSlow;
+    final isFarZone = abs >= _farZone;
+    if (isNegativeSide) return isFarZone ? kZone1 : kZone2;
+    return isFarZone ? kZone5 : kZone4;
   }
 
-  void _emitZone(_TravZone zone) {
-    if (zone == _lastEmitted) return;
-    _lastEmitted = zone;
+  void _emitZone(String zoneId) {
+    if (zoneId == _lastEmitted) return;
+    _lastEmitted = zoneId;
     ButtonStateLog.log(
-      '${zone == _TravZone.idle ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
-      '[${widget.leftLabel}/${widget.rightLabel}] -> ${zone.name}',
+      '${zoneId == kZoneCenter ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
+      '[${widget.startLabel}/${widget.endLabel}] -> $zoneId',
     );
-    switch (zone) {
-      case _TravZone.idle:
-        widget.onCommandChanged(isLeft: true, state: ControlState.idle);
-      case _TravZone.leftSlow:
-        Vibration.vibrate(duration: 18, amplitude: 80);
-        widget.onCommandChanged(isLeft: true, state: ControlState.slow);
-      case _TravZone.leftFast:
-        Vibration.vibrate(duration: 28, amplitude: 180);
-        widget.onCommandChanged(isLeft: true, state: ControlState.fast);
-      case _TravZone.rightSlow:
-        Vibration.vibrate(duration: 18, amplitude: 80);
-        widget.onCommandChanged(isLeft: false, state: ControlState.slow);
-      case _TravZone.rightFast:
-        Vibration.vibrate(duration: 28, amplitude: 180);
-        widget.onCommandChanged(isLeft: false, state: ControlState.fast);
+    if (zoneId != kZoneCenter) {
+      final isFarZone = zoneId == kZone1 || zoneId == kZone5;
+      Vibration.vibrate(
+        duration: isFarZone ? 28 : 18,
+        amplitude: isFarZone ? 180 : 80,
+      );
     }
+    widget.onZoneChanged(zoneId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -178,7 +201,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
   void _onSpringTick() {
     if (_isDragging) return;
     setState(() => _value = _springCtrl.value.clamp(-1.0, 1.0));
-    // No commands during visual return — IDLE was already sent on release.
+    // No zone emissions during visual return — centre was already emitted on release.
   }
 
   void _springReturn() {
@@ -198,7 +221,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
 
   void _dragStart(DragStartDetails _, double halfTrack) {
     if (widget.isDisabled) return;
-    ButtonStateLog.log('USER_DOWN [${widget.leftLabel}/${widget.rightLabel}]');
+    ButtonStateLog.log('USER_DOWN [${widget.startLabel}/${widget.endLabel}]');
     _springCtrl.stop();
     setState(() => _isDragging = true);
   }
@@ -209,36 +232,34 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     var newValue = (_value + delta).clamp(-1.0, 1.0);
 
     // Clamp at the dead-zone boundary when the zone is locked by another
-    // button's ownership of the same PLC field. Keeping the value strictly
-    // inside the dead zone (abs < _deadZone) ensures the zone check returns
-    // idle so no command is emitted in the blocked direction.
-    if (widget.isRightZoneBlocked && newValue >= _deadZone) {
+    // owner claiming the same output. Keeping the value strictly inside the
+    // dead zone (abs < _deadZone) ensures the zone check returns centre so
+    // no zone change is emitted in the blocked direction.
+    if (widget.isEndZoneBlocked && newValue >= _deadZone) {
       newValue = _deadZone - _zoneClampMargin;
     }
-    if (widget.isLeftZoneBlocked && newValue <= -_deadZone) {
+    if (widget.isStartZoneBlocked && newValue <= -_deadZone) {
       newValue = -_deadZone + _zoneClampMargin;
     }
 
     setState(() => _value = newValue);
-    _emitZone(_zoneFor(_value));
+    _emitZone(_zoneIdFor(_value));
   }
 
   void _dragEnd(DragEndDetails _) {
-    ButtonStateLog.log('USER_UP [${widget.leftLabel}/${widget.rightLabel}]');
+    ButtonStateLog.log('USER_UP [${widget.startLabel}/${widget.endLabel}]');
     _release();
   }
 
   void _dragCancel() {
-    ButtonStateLog.log(
-      'USER_CANCEL [${widget.leftLabel}/${widget.rightLabel}]',
-    );
+    ButtonStateLog.log('USER_CANCEL [${widget.startLabel}/${widget.endLabel}]');
     _release();
   }
 
   void _release() {
     if (!_isDragging) return;
     setState(() => _isDragging = false);
-    _emitZone(_TravZone.idle); // Safety: send IDLE immediately on release.
+    _emitZone(kZoneCenter); // Safety: emit centre immediately on release.
     _springReturn();
   }
 
@@ -254,18 +275,15 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
         final halfTrack = (w - _thumbW) / 2.0;
         final thumbCX = w / 2.0 + _value * halfTrack;
 
-        final zone = _zoneFor(_value);
-        final isFast =
-            zone == _TravZone.leftFast || zone == _TravZone.rightFast;
-        final isLeft = zone == _TravZone.leftSlow || zone == _TravZone.leftFast;
-        final isRight =
-            zone == _TravZone.rightSlow || zone == _TravZone.rightFast;
-        final slowOnly =
-            widget.variant == CrossTravelSliderVariant.threeZoneSlowOnly;
+        final zoneId = _zoneIdFor(_value);
+        final isFarZone = zoneId == kZone1 || zoneId == kZone5;
+        final isStartActive = zoneId == kZone1 || zoneId == kZone2;
+        final isEndActive = zoneId == kZone4 || zoneId == kZone5;
+        final isThreeZone = widget.variant == MultiZoneSliderVariant.threeZone;
 
         final Color trackColor = widget.isDisabled
             ? AppColors.idleColor
-            : isFast
+            : isFarZone
             ? AppColors.fastColor
             : AppColors.traverseColor;
 
@@ -284,24 +302,24 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                 // ── Zone labels (top row) ─────────────────────────────────────
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: slowOnly
+                  child: isThreeZone
                       ? Row(
                           children: [
                             _zoneLabel(
-                              '< ${widget.leftLabel}',
-                              zone == _TravZone.leftSlow,
+                              '< ${widget.startLabel}',
+                              zoneId == kZone1,
                               AppColors.traverseColor,
                             ),
                             const Spacer(),
                             _zoneLabel(
-                              'SLOW ONLY',
-                              isLeft || isRight,
+                              'ACTIVE',
+                              isStartActive || isEndActive,
                               AppColors.traverseColor,
                             ),
                             const Spacer(),
                             _zoneLabel(
-                              '${widget.rightLabel} >',
-                              zone == _TravZone.rightSlow,
+                              '${widget.endLabel} >',
+                              zoneId == kZone3,
                               AppColors.traverseColor,
                             ),
                           ],
@@ -309,26 +327,26 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                       : Row(
                           children: [
                             _zoneLabel(
-                              '< ${widget.leftLabel} FAST',
-                              zone == _TravZone.leftFast,
+                              '< ${widget.startLabel}',
+                              zoneId == kZone1,
                               AppColors.fastColor,
                             ),
                             const Spacer(),
                             _zoneLabel(
-                              'SLOW',
-                              zone == _TravZone.leftSlow,
+                              'ZONE 2',
+                              zoneId == kZone2,
                               AppColors.traverseColor,
                             ),
                             const SizedBox(width: 10),
                             _zoneLabel(
-                              'SLOW',
-                              zone == _TravZone.rightSlow,
+                              'ZONE 4',
+                              zoneId == kZone4,
                               AppColors.traverseColor,
                             ),
                             const Spacer(),
                             _zoneLabel(
-                              'FAST ${widget.rightLabel} >',
-                              zone == _TravZone.rightFast,
+                              '${widget.endLabel} >',
+                              zoneId == kZone5,
                               AppColors.fastColor,
                             ),
                           ],
@@ -351,8 +369,8 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                           value: _value,
                           halfTrack: halfTrack,
                           deadZone: _deadZone,
-                          fastZone: _fastZone,
-                          showFastMarkers: !slowOnly,
+                          farZone: _farZone,
+                          showFarMarkers: !isThreeZone,
                           fillColor: widget.isDisabled
                               ? AppColors.idleColor.withAlpha(70)
                               : trackColor.withAlpha(200),
@@ -375,23 +393,23 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
                 ),
                 const SizedBox(height: 5),
 
-                // ── Direction labels (bottom row) ─────────────────────────────
+                // ── Endpoint labels (bottom row) ────────────────────────────
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Row(
                     children: [
-                      _dirLabel(
-                        widget.leftLabel,
+                      _endpointLabel(
+                        widget.startLabel,
                         Icons.arrow_back_rounded,
-                        isLeft,
+                        isStartActive || zoneId == kZone1,
                       ),
                       const SizedBox(width: 8),
-                      _statusDot(zone, trackColor),
+                      _statusDot(zoneId, trackColor),
                       const SizedBox(width: 8),
-                      _dirLabel(
-                        widget.rightLabel,
+                      _endpointLabel(
+                        widget.endLabel,
                         Icons.arrow_forward_rounded,
-                        isRight,
+                        isEndActive || zoneId == kZone3,
                       ),
                     ],
                   ),
@@ -423,7 +441,7 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     );
   }
 
-  Widget _dirLabel(String text, IconData icon, bool active) {
+  Widget _endpointLabel(String text, IconData icon, bool active) {
     return Expanded(
       child: SizedBox(
         height: ControlButtonVisualMetrics.rowHeight,
@@ -439,14 +457,14 @@ class _CrossTravelSliderState extends State<CrossTravelSlider>
     );
   }
 
-  Widget _statusDot(_TravZone zone, Color activeColor) {
+  Widget _statusDot(String zoneId, Color activeColor) {
     if (widget.isDisabled) {
       return const Text(
         '— DISABLED —',
         style: TextStyle(fontSize: 7, color: AppColors.darkTextMuted),
       );
     }
-    final isIdle = zone == _TravZone.idle;
+    final isIdle = zoneId == kZoneCenter;
     return Text(
       '●',
       style: TextStyle(
@@ -466,8 +484,8 @@ class _TrackPainter extends CustomPainter {
     required this.value,
     required this.halfTrack,
     required this.deadZone,
-    required this.fastZone,
-    required this.showFastMarkers,
+    required this.farZone,
+    required this.showFarMarkers,
     required this.fillColor,
     required this.isActive,
   });
@@ -475,8 +493,8 @@ class _TrackPainter extends CustomPainter {
   final double value;
   final double halfTrack;
   final double deadZone;
-  final double fastZone;
-  final bool showFastMarkers;
+  final double farZone;
+  final bool showFarMarkers;
   final Color fillColor;
   final bool isActive;
 
@@ -516,9 +534,9 @@ class _TrackPainter extends CustomPainter {
       // Dead zone edge
       final dx = cx + sign * deadZone * halfTrack;
       canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), markerPaint);
-      if (showFastMarkers) {
-        // Fast zone edge
-        final fx = cx + sign * fastZone * halfTrack;
+      if (showFarMarkers) {
+        // Far zone edge
+        final fx = cx + sign * farZone * halfTrack;
         canvas.drawLine(Offset(fx, 0), Offset(fx, size.height), markerPaint);
       }
     }
@@ -536,7 +554,7 @@ class _TrackPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TrackPainter old) =>
       old.value != value ||
-      old.showFastMarkers != showFastMarkers ||
+      old.showFarMarkers != showFarMarkers ||
       old.fillColor != fillColor ||
       old.isActive != isActive;
 }
