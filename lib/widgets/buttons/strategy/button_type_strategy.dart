@@ -62,9 +62,10 @@ abstract class ButtonTypeStrategy {
 
 /// Resolves the logical state id for push/toggle/slider/joystick — the
 /// button types where a single ButtonConfig's own id already carries all the
-/// context needed (no side/zone ambiguity). Cross-travel types use
-/// [crossTravelZoneId] instead (see cross_travel_strategy.dart) since they
-/// need an explicit side.
+/// context needed (no side/zone ambiguity). The multi-zone slider's LEGACY
+/// PAIRED path (see multi_zone_slider_strategy.dart) uses [crossTravelZoneId]
+/// instead since it needs an explicit side; the multi-zone slider's GENERIC
+/// path dispatches the widget's own zone id directly and never reaches here.
 String logicalStateIdFor({
   required ButtonType type,
   required ControlState physicalState,

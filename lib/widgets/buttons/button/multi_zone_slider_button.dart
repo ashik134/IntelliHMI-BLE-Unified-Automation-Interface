@@ -4,59 +4,96 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
 
-import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
-// ── Generic zone ids ─────────────────────────────────────────────────────────
+// ── Generic zone state ids ───────────────────────────────────────────────────
 //
-// These are the ONLY values this widget ever emits. They are plain logical
-// state ids — exactly the same shape as any other button type's stateId
-// (see ButtonTypeLogicalStates) — with no notion of direction (left/right),
-// speed (slow/fast), or any crane-specific concept baked in. A caller wires
-// [MultiZoneSliderButton.onZoneChanged] to whatever it wants (typically
-// ButtonConfig.stateMappings lookups performed by a ButtonTypeStrategy) —
-// this widget never resolves or asserts a PLC output itself.
+// These are the ONLY values this widget ever emits, in exactly the same
+// shape as MultiStepSliderStateId/PushControlStateId's static id tables —
+// plain logical state ids with no notion of direction (left/right), speed
+// (slow/fast), or any crane-specific concept baked in. A caller wires
+// [MultiZoneSliderButton.onStateChanged] to whatever it wants (typically a
+// ButtonConfig.stateMappings lookup performed by a ButtonTypeStrategy) — this
+// widget never resolves or asserts a PLC output itself.
+abstract final class MultiZoneSliderStateId {
+  static const String center = 'center';
+  static const String zone1 = 'zone1';
+  static const String zone2 = 'zone2';
+  static const String zone3 = 'zone3';
+  static const String zone4 = 'zone4';
+  static const String zone5 = 'zone5';
 
-/// Zone id for the resting/dead-zone position, in both variants.
-const String kZoneCenter = 'center';
+  static const Set<String> fiveZoneValues = {center, zone1, zone2, zone4, zone5};
+  static const Set<String> threeZoneValues = {center, zone1, zone3};
 
-/// Zone ids for [MultiZoneSliderVariant.threeZone] (one zone per side) and
-/// the near/inner zones of [MultiZoneSliderVariant.fiveZone].
-const String kZone1 = 'zone1';
-const String kZone2 = 'zone2';
-const String kZone3 = 'zone3';
-const String kZone4 = 'zone4';
-const String kZone5 = 'zone5';
+  static String normalize(String stateId, {required bool fiveZone}) {
+    final values = fiveZone ? fiveZoneValues : threeZoneValues;
+    return values.contains(stateId) ? stateId : center;
+  }
+}
 
 enum MultiZoneSliderVariant { fiveZone, threeZone }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiZoneSliderButton
 //
-// A generic drag-to-zone slider: the operator drags a thumb along a
-// horizontal track and this widget reports which discrete zone the thumb
-// currently sits in via [onZoneChanged]. It owns UI, gesture handling, zone
-// math, and its own visual state only — it never decides what a zone means
-// (that is entirely up to the caller, via ButtonConfig.stateMappings) and
-// never composes or sends any PLC/BLE output itself.
+// Lightweight public wrapper, architecturally consistent with
+// MultiStepSliderButton/PushControlButton: it accepts display inputs
+// (labels/icons/colors — typically resolved by the strategy layer from
+// ButtonConfig) plus an optional externally-reported state id, and forwards
+// everything to [IndustrialMultiZoneSlider], the reusable primitive that
+// actually owns gesture/visual/haptic behavior. It never resolves or sends a
+// PLC output itself — [onStateChanged] carries only a generic zone id.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class MultiZoneSliderButton extends StatefulWidget {
-  final bool isDisabled;
+class MultiZoneSliderButton extends StatelessWidget {
+  const MultiZoneSliderButton({
+    super.key,
+    required this.startLabel,
+    required this.endLabel,
+    required this.startIcon,
+    required this.endIcon,
+    this.isDisabled = false,
+    this.externalStateId = MultiZoneSliderStateId.center,
+    this.variant = MultiZoneSliderVariant.fiveZone,
+    this.nearColor,
+    this.farColor,
+    this.style,
+    this.isStartZoneBlocked = false,
+    this.isEndZoneBlocked = false,
+    required this.onStateChanged,
+  });
 
-  /// Label for the negative-drag end of the track (drawn on the left).
+  /// Label for the negative-drag end of the track.
   final String startLabel;
 
-  /// Label for the positive-drag end of the track (drawn on the right).
+  /// Label for the positive-drag end of the track.
   final String endLabel;
 
-  /// Fires whenever the reported zone changes: one of [kZoneCenter],
-  /// [kZone1]/[kZone2]/[kZone4]/[kZone5] (five-zone) or [kZoneCenter]/
-  /// [kZone1]/[kZone3] (three-zone).
-  final void Function(String zoneId) onZoneChanged;
+  final IconData startIcon;
+  final IconData endIcon;
+
+  final bool isDisabled;
+
+  /// Externally-reported zone id (e.g. PLC-confirmed state), applied only
+  /// while the operator isn't actively dragging — mirrors
+  /// IndustrialMultiStepSlider's externalStateId sync.
+  final String externalStateId;
 
   final MultiZoneSliderVariant variant;
+
+  /// Color for the near/center-adjacent zones (zone2/zone4, or zone1/zone3
+  /// in three-zone mode). Defaults to [AppColors.traverseColor].
+  final Color? nearColor;
+
+  /// Color for the far/outermost zones (zone1/zone5). Defaults to
+  /// [AppColors.fastColor]. Unused in three-zone mode.
+  final Color? farColor;
+
+  final ButtonStyleConfig? style;
 
   /// True blocks the thumb from entering the negative (start-side) zone(s) —
   /// used when an external owner already claims that zone's output.
@@ -65,43 +102,106 @@ class MultiZoneSliderButton extends StatefulWidget {
   /// True blocks the thumb from entering the positive (end-side) zone(s).
   final bool isEndZoneBlocked;
 
-  const MultiZoneSliderButton({
-    super.key,
-    this.isDisabled = false,
-    this.startLabel = 'LEFT',
-    this.endLabel = 'RIGHT',
-    this.variant = MultiZoneSliderVariant.fiveZone,
-    this.isStartZoneBlocked = false,
-    this.isEndZoneBlocked = false,
-    required this.onZoneChanged,
-  });
+  /// Fires whenever the reported zone changes: one of [MultiZoneSliderStateId]
+  /// values for [variant].
+  final ValueChanged<String> onStateChanged;
 
   @override
-  State<MultiZoneSliderButton> createState() => _MultiZoneSliderButtonState();
+  Widget build(BuildContext context) {
+    final fiveZone = variant == MultiZoneSliderVariant.fiveZone;
+    return IndustrialMultiZoneSlider(
+      startLabel: startLabel,
+      endLabel: endLabel,
+      startIcon: startIcon,
+      endIcon: endIcon,
+      enabled: !isDisabled,
+      stateId: MultiZoneSliderStateId.normalize(
+        externalStateId,
+        fiveZone: fiveZone,
+      ),
+      variant: variant,
+      nearColor: nearColor,
+      farColor: farColor,
+      style: style,
+      isStartZoneBlocked: isStartZoneBlocked,
+      isEndZoneBlocked: isEndZoneBlocked,
+      onStateChanged: onStateChanged,
+    );
+  }
 }
 
-class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
+// ─────────────────────────────────────────────────────────────────────────────
+// IndustrialMultiZoneSlider
+//
+// Reusable industrial multi-zone drag surface: the operator drags a thumb
+// along a track and this widget reports which discrete zone the thumb
+// currently sits in via [onStateChanged]. It owns presentation, drag
+// gesture handling, zone math, spring-return physics, haptics, and local
+// visual state only — it never decides what a zone MEANS (entirely up to
+// the caller, via ButtonConfig.stateMappings) and never composes or sends
+// any PLC/BLE output itself. Auto-orients horizontally or vertically to fit
+// whatever bounds it's given (see build()'s RotatedBox use, matching
+// MultiStepSliderButton's own technique for a vertical layout).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class IndustrialMultiZoneSlider extends StatefulWidget {
+  const IndustrialMultiZoneSlider({
+    super.key,
+    required this.startLabel,
+    required this.endLabel,
+    required this.startIcon,
+    required this.endIcon,
+    this.enabled = true,
+    this.stateId = MultiZoneSliderStateId.center,
+    this.variant = MultiZoneSliderVariant.fiveZone,
+    this.nearColor,
+    this.farColor,
+    this.style,
+    this.isStartZoneBlocked = false,
+    this.isEndZoneBlocked = false,
+    required this.onStateChanged,
+  });
+
+  final String startLabel;
+  final String endLabel;
+  final IconData startIcon;
+  final IconData endIcon;
+  final bool enabled;
+  final String stateId;
+  final MultiZoneSliderVariant variant;
+  final Color? nearColor;
+  final Color? farColor;
+  final ButtonStyleConfig? style;
+  final bool isStartZoneBlocked;
+  final bool isEndZoneBlocked;
+  final ValueChanged<String> onStateChanged;
+
+  bool get isFiveZone => variant == MultiZoneSliderVariant.fiveZone;
+
+  @override
+  State<IndustrialMultiZoneSlider> createState() =>
+      _IndustrialMultiZoneSliderState();
+}
+
+class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     with SingleTickerProviderStateMixin {
   /// Normalised thumb position: -1.0 = full negative · 0.0 = centre · +1.0 = full positive
   double _value = 0.0;
   bool _isDragging = false;
-  String _lastEmitted = kZoneCenter;
+  String _stateId = MultiZoneSliderStateId.center;
+
+  bool _suppressExternalReactivation = false;
 
   late final AnimationController _springCtrl;
 
   // ── Thresholds (fraction of half-track from centre) ──────────────────────
   static const double _deadZone = 0.12; // ±12 % → centre dead band
-  static const double _farZone = 0.62; // beyond ±62 % → outer zone
+  static const double _farZone = 0.62; // beyond ±62 % → far/outer zone
 
   // Margin applied when clamping to the dead-zone boundary so the value stays
   // strictly INSIDE the centre region (abs < _deadZone), preventing the zone
   // check from firing at the exact boundary value.
   static const double _zoneClampMargin = 0.001;
-
-  // ── Thumb / track geometry ────────────────────────────────────────────────
-  static const double _thumbW = 36.0;
-  static const double _thumbH = 52.0;
-  static const double _trackH = 16.0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -112,33 +212,33 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
     super.initState();
     _springCtrl = AnimationController.unbounded(vsync: this)
       ..addListener(_onSpringTick);
+    _syncFromExternalStateId(widget.stateId);
   }
 
   @override
-  void didUpdateWidget(MultiZoneSliderButton old) {
+  void didUpdateWidget(covariant IndustrialMultiZoneSlider old) {
     super.didUpdateWidget(old);
+
     // Snap to centre whenever the widget becomes disabled (e-stop / disconnect).
-    if (widget.isDisabled && !old.isDisabled) {
+    if (!widget.enabled && old.enabled) {
       _springCtrl.stop();
       // If disabled mid-drag, emit centre before clearing _isDragging.
       // Without this, _release() will bail on `if (!_isDragging) return`
       // and the caller's ownership bookkeeping stays permanently claimed,
       // which keeps isDisabled=true even after the operator releases.
-      if (_isDragging && _lastEmitted != kZoneCenter) {
-        widget.onZoneChanged(kZoneCenter);
+      if (_isDragging && _stateId != MultiZoneSliderStateId.center) {
+        widget.onStateChanged(MultiZoneSliderStateId.center);
       }
       setState(() {
         _value = 0.0;
         _isDragging = false;
-        _lastEmitted = kZoneCenter;
+        _stateId = MultiZoneSliderStateId.center;
       });
       return;
     }
 
     // Push the thumb back inside the dead zone if a zone just became blocked
-    // mid-drag (e.g. a sibling slider claimed ownership of a shared output).
-    // The ownership system prevents two sliders from both being in their
-    // blocked zones simultaneously, so this path is a defensive safeguard.
+    // mid-drag (e.g. a sibling control claimed ownership of a shared output).
     if (_isDragging) {
       var clamped = _value;
       if (widget.isEndZoneBlocked && _value >= _deadZone) {
@@ -151,7 +251,25 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
         setState(() => _value = clamped);
         _emitZone(_zoneIdFor(clamped)); // emits centre since clamped < _deadZone
       }
+      return;
     }
+
+    if (widget.stateId == old.stateId) return;
+
+    if (_suppressExternalReactivation &&
+        MultiZoneSliderStateId.normalize(
+              widget.stateId,
+              fiveZone: widget.isFiveZone,
+            ) !=
+            MultiZoneSliderStateId.center) {
+      ButtonStateLog.log(
+        'EXTERNAL_STATE_ACTIVE ignored (stale, post-release) '
+        '[${widget.startLabel}/${widget.endLabel}]',
+      );
+      return;
+    }
+
+    _syncFromExternalStateId(widget.stateId);
   }
 
   @override
@@ -160,38 +278,78 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
     super.dispose();
   }
 
+  void _syncFromExternalStateId(String externalStateId) {
+    final stateId = MultiZoneSliderStateId.normalize(
+      externalStateId,
+      fiveZone: widget.isFiveZone,
+    );
+    if (stateId != _stateId) {
+      ButtonStateLog.log(
+        '${stateId == MultiZoneSliderStateId.center ? 'VISUAL_IDLE' : 'VISUAL_ACTIVE'} '
+        '[${widget.startLabel}/${widget.endLabel}] (external) -> $stateId',
+      );
+    }
+    setState(() {
+      _stateId = stateId;
+      _value = _valueForStateId(stateId);
+    });
+  }
+
+  double _valueForStateId(String stateId) {
+    if (!widget.isFiveZone) {
+      return switch (stateId) {
+        MultiZoneSliderStateId.zone1 => -0.5,
+        MultiZoneSliderStateId.zone3 => 0.5,
+        _ => 0.0,
+      };
+    }
+    return switch (stateId) {
+      MultiZoneSliderStateId.zone1 => -0.85,
+      MultiZoneSliderStateId.zone2 => -0.35,
+      MultiZoneSliderStateId.zone4 => 0.35,
+      MultiZoneSliderStateId.zone5 => 0.85,
+      _ => 0.0,
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Zone logic
   // ─────────────────────────────────────────────────────────────────────────
 
   String _zoneIdFor(double v) {
-    if (widget.isDisabled) return kZoneCenter;
+    if (!widget.enabled) return MultiZoneSliderStateId.center;
     final abs = v.abs();
-    if (abs < _deadZone) return kZoneCenter;
+    if (abs < _deadZone) return MultiZoneSliderStateId.center;
     final isNegativeSide = v < 0;
-    if (widget.variant == MultiZoneSliderVariant.threeZone) {
-      return isNegativeSide ? kZone1 : kZone3;
+    if (!widget.isFiveZone) {
+      return isNegativeSide
+          ? MultiZoneSliderStateId.zone1
+          : MultiZoneSliderStateId.zone3;
     }
     final isFarZone = abs >= _farZone;
-    if (isNegativeSide) return isFarZone ? kZone1 : kZone2;
-    return isFarZone ? kZone5 : kZone4;
+    if (isNegativeSide) {
+      return isFarZone ? MultiZoneSliderStateId.zone1 : MultiZoneSliderStateId.zone2;
+    }
+    return isFarZone ? MultiZoneSliderStateId.zone5 : MultiZoneSliderStateId.zone4;
   }
 
   void _emitZone(String zoneId) {
-    if (zoneId == _lastEmitted) return;
-    _lastEmitted = zoneId;
+    if (zoneId == _stateId) return;
+    _stateId = zoneId;
     ButtonStateLog.log(
-      '${zoneId == kZoneCenter ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
+      '${zoneId == MultiZoneSliderStateId.center ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
       '[${widget.startLabel}/${widget.endLabel}] -> $zoneId',
     );
-    if (zoneId != kZoneCenter) {
-      final isFarZone = zoneId == kZone1 || zoneId == kZone5;
+    if (zoneId != MultiZoneSliderStateId.center) {
+      final isFarZone =
+          zoneId == MultiZoneSliderStateId.zone1 ||
+          zoneId == MultiZoneSliderStateId.zone5;
       Vibration.vibrate(
         duration: isFarZone ? 28 : 18,
         amplitude: isFarZone ? 180 : 80,
       );
     }
-    widget.onZoneChanged(zoneId);
+    widget.onStateChanged(zoneId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -220,14 +378,15 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
   // ─────────────────────────────────────────────────────────────────────────
 
   void _dragStart(DragStartDetails _, double halfTrack) {
-    if (widget.isDisabled) return;
+    if (!widget.enabled) return;
     ButtonStateLog.log('USER_DOWN [${widget.startLabel}/${widget.endLabel}]');
     _springCtrl.stop();
+    _suppressExternalReactivation = false;
     setState(() => _isDragging = true);
   }
 
   void _dragUpdate(DragUpdateDetails details, double halfTrack) {
-    if (!_isDragging || widget.isDisabled) return;
+    if (!_isDragging || !widget.enabled) return;
     final delta = halfTrack > 0 ? details.delta.dx / halfTrack : 0.0;
     var newValue = (_value + delta).clamp(-1.0, 1.0);
 
@@ -252,15 +411,42 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
   }
 
   void _dragCancel() {
-    ButtonStateLog.log('USER_CANCEL [${widget.startLabel}/${widget.endLabel}]');
+    ButtonStateLog.log(
+      'USER_CANCEL [${widget.startLabel}/${widget.endLabel}]',
+    );
     _release();
   }
 
   void _release() {
     if (!_isDragging) return;
     setState(() => _isDragging = false);
-    _emitZone(kZoneCenter); // Safety: emit centre immediately on release.
+    _emitZone(MultiZoneSliderStateId.center); // Safety: emit centre immediately.
+    // Arm the guard so a stale external update cannot reactivate the slider
+    // until the next fresh pointer interaction.
+    _suppressExternalReactivation = true;
     _springReturn();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Colors
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Color get _nearColor => widget.nearColor ?? AppColors.traverseColor;
+  Color get _farColor => widget.farColor ?? AppColors.fastColor;
+
+  bool get _isFarZone =>
+      _stateId == MultiZoneSliderStateId.zone1 ||
+      _stateId == MultiZoneSliderStateId.zone5;
+  bool get _isStartActive =>
+      _stateId == MultiZoneSliderStateId.zone1 ||
+      _stateId == MultiZoneSliderStateId.zone2;
+  bool get _isEndActive =>
+      _stateId == MultiZoneSliderStateId.zone4 ||
+      _stateId == MultiZoneSliderStateId.zone5;
+
+  Color get _trackColor {
+    if (!widget.enabled) return AppColors.idleColor;
+    return _isFarZone ? _farColor : _nearColor;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -271,171 +457,121 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (ctx, box) {
-        final w = box.maxWidth;
-        final halfTrack = (w - _thumbW) / 2.0;
-        final thumbCX = w / 2.0 + _value * halfTrack;
+        final boundedW = box.maxWidth.isFinite ? box.maxWidth : 220.0;
+        final boundedH = box.maxHeight.isFinite ? box.maxHeight : 96.0;
+        if (boundedW <= 0 || boundedH <= 0) return const SizedBox.shrink();
 
-        final zoneId = _zoneIdFor(_value);
-        final isFarZone = zoneId == kZone1 || zoneId == kZone5;
-        final isStartActive = zoneId == kZone1 || zoneId == kZone2;
-        final isEndActive = zoneId == kZone4 || zoneId == kZone5;
-        final isThreeZone = widget.variant == MultiZoneSliderVariant.threeZone;
+        // Auto-orient: a cell noticeably taller than it is wide (e.g. a 1x2
+        // vertical grid placement) renders as a vertical drag surface via the
+        // same RotatedBox technique MultiStepSliderButton uses for its own
+        // always-vertical layout — the inner content is authored exactly as
+        // if horizontal (trackLength=boundedH, thickness=boundedW) and
+        // rotated into place, so gesture hit-testing is transformed for free.
+        final isVertical = boundedH > boundedW * 1.15;
+        final trackLength = isVertical ? boundedH : boundedW;
+        final thickness = isVertical ? boundedW : boundedH;
 
-        final Color trackColor = widget.isDisabled
-            ? AppColors.idleColor
-            : isFarZone
-            ? AppColors.fastColor
-            : AppColors.traverseColor;
+        final core = SizedBox(
+          width: trackLength,
+          height: thickness,
+          child: _buildCore(trackLength, thickness),
+        );
 
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: (d) => _dragStart(d, halfTrack),
-          onHorizontalDragUpdate: (d) => _dragUpdate(d, halfTrack),
-          onHorizontalDragEnd: _dragEnd,
-          onHorizontalDragCancel: _dragCancel,
-          child: SizedBox(
-            width: w,
-            height: box.maxHeight,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // ── Zone labels (top row) ─────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: isThreeZone
-                      ? Row(
-                          children: [
-                            _zoneLabel(
-                              '< ${widget.startLabel}',
-                              zoneId == kZone1,
-                              AppColors.traverseColor,
-                            ),
-                            const Spacer(),
-                            _zoneLabel(
-                              'ACTIVE',
-                              isStartActive || isEndActive,
-                              AppColors.traverseColor,
-                            ),
-                            const Spacer(),
-                            _zoneLabel(
-                              '${widget.endLabel} >',
-                              zoneId == kZone3,
-                              AppColors.traverseColor,
-                            ),
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            _zoneLabel(
-                              '< ${widget.startLabel}',
-                              zoneId == kZone1,
-                              AppColors.fastColor,
-                            ),
-                            const Spacer(),
-                            _zoneLabel(
-                              'ZONE 2',
-                              zoneId == kZone2,
-                              AppColors.traverseColor,
-                            ),
-                            const SizedBox(width: 10),
-                            _zoneLabel(
-                              'ZONE 4',
-                              zoneId == kZone4,
-                              AppColors.traverseColor,
-                            ),
-                            const Spacer(),
-                            _zoneLabel(
-                              '${widget.endLabel} >',
-                              zoneId == kZone5,
-                              AppColors.fastColor,
-                            ),
-                          ],
-                        ),
-                ),
-                const SizedBox(height: 5),
-
-                // ── Track + thumb ─────────────────────────────────────────────
-                SizedBox(
-                  width: w,
-                  height: _thumbH,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.center,
-                    children: [
-                      // Track
-                      CustomPaint(
-                        size: Size(w, _trackH),
-                        painter: _TrackPainter(
-                          value: _value,
-                          halfTrack: halfTrack,
-                          deadZone: _deadZone,
-                          farZone: _farZone,
-                          showFarMarkers: !isThreeZone,
-                          fillColor: widget.isDisabled
-                              ? AppColors.idleColor.withAlpha(70)
-                              : trackColor.withAlpha(200),
-                          isActive: !widget.isDisabled,
-                        ),
-                      ),
-                      // Thumb
-                      Positioned(
-                        left: thumbCX - _thumbW / 2,
-                        child: _Thumb(
-                          width: _thumbW,
-                          height: _thumbH,
-                          color: trackColor,
-                          isDragging: _isDragging,
-                          isDisabled: widget.isDisabled,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 5),
-
-                // ── Endpoint labels (bottom row) ────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    children: [
-                      _endpointLabel(
-                        widget.startLabel,
-                        Icons.arrow_back_rounded,
-                        isStartActive || zoneId == kZone1,
-                      ),
-                      const SizedBox(width: 8),
-                      _statusDot(zoneId, trackColor),
-                      const SizedBox(width: 8),
-                      _endpointLabel(
-                        widget.endLabel,
-                        Icons.arrow_forward_rounded,
-                        isEndActive || zoneId == kZone3,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+        return SizedBox(
+          width: boundedW,
+          height: boundedH,
+          child: Center(
+            child: isVertical
+                ? RotatedBox(quarterTurns: -1, child: core)
+                : core,
           ),
         );
       },
     );
   }
 
-  // ── Label helpers ─────────────────────────────────────────────────────────
+  Widget _buildCore(double w, double h) {
+    final thumbH = h.clamp(60.0, 200.0) * 0.42;
+    final thumbW = (thumbH * 0.68).clamp(22.0, 36.0);
+    final trackH = (h * 0.14).clamp(8.0, 16.0);
+    final halfTrack = (w - thumbW) / 2.0;
+    final thumbCX = w / 2.0 + _value * halfTrack;
+    const footerHeight = ControlButtonVisualMetrics.rowHeight;
+    final bodyHeight = (h - footerHeight - 6).clamp(thumbH, h);
 
-  Widget _zoneLabel(String text, bool active, Color color) {
-    return Flexible(
-      fit: FlexFit.loose,
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        softWrap: false,
-        textAlign: TextAlign.center,
-        style: ControlButtonVisualMetrics.labelTextStyle(
-          color: active ? color : AppColors.darkTextMuted.withAlpha(90),
-          bounds: const Size(96, ControlButtonVisualMetrics.rowHeight),
+    return Opacity(
+      opacity: widget.enabled ? 1.0 : 0.6,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (d) => _dragStart(d, halfTrack),
+        onHorizontalDragUpdate: (d) => _dragUpdate(d, halfTrack),
+        onHorizontalDragEnd: _dragEnd,
+        onHorizontalDragCancel: _dragCancel,
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // ── Track + thumb ─────────────────────────────────────────────
+              SizedBox(
+                width: w,
+                height: bodyHeight,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: Size(w, trackH),
+                      painter: _TrackPainter(
+                        value: _value,
+                        halfTrack: halfTrack,
+                        deadZone: _deadZone,
+                        farZone: _farZone,
+                        showFarMarkers: widget.isFiveZone,
+                        fillColor: widget.enabled
+                            ? _trackColor.withAlpha(200)
+                            : AppColors.idleColor.withAlpha(70),
+                        isActive: widget.enabled,
+                      ),
+                    ),
+                    Positioned(
+                      left: thumbCX - thumbW / 2,
+                      child: _Thumb(
+                        width: thumbW,
+                        height: thumbH,
+                        color: _trackColor,
+                        isDragging: _isDragging,
+                        isDisabled: !widget.enabled,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              // ── Endpoint labels (configurable) ──────────────────────────
+              SizedBox(
+                height: footerHeight,
+                child: Row(
+                  children: [
+                    _endpointLabel(
+                      widget.startLabel,
+                      widget.startIcon,
+                      _isStartActive,
+                    ),
+                    const SizedBox(width: 6),
+                    _statusDot(),
+                    const SizedBox(width: 6),
+                    _endpointLabel(
+                      widget.endLabel,
+                      widget.endIcon,
+                      _isEndActive,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -443,33 +579,27 @@ class _MultiZoneSliderButtonState extends State<MultiZoneSliderButton>
 
   Widget _endpointLabel(String text, IconData icon, bool active) {
     return Expanded(
-      child: SizedBox(
-        height: ControlButtonVisualMetrics.rowHeight,
-        child: ControlButtonLabelIcon(
-          label: text,
-          icon: icon,
-          color: active ? AppColors.traverseColorLight : AppColors.darkText,
-          iconColor: active
-              ? AppColors.traverseColorLight
-              : AppColors.darkTextMuted,
-        ),
+      child: ControlButtonLabelIcon(
+        label: text,
+        icon: icon,
+        color: active ? AppColors.traverseColorLight : AppColors.darkText,
+        iconColor: active ? AppColors.traverseColorLight : AppColors.darkTextMuted,
+        style: widget.style,
       ),
     );
   }
 
-  Widget _statusDot(String zoneId, Color activeColor) {
-    if (widget.isDisabled) {
-      return const Text(
-        '— DISABLED —',
-        style: TextStyle(fontSize: 7, color: AppColors.darkTextMuted),
-      );
-    }
-    final isIdle = zoneId == kZoneCenter;
+  Widget _statusDot() {
+    final isCenter = _stateId == MultiZoneSliderStateId.center;
     return Text(
       '●',
       style: TextStyle(
         fontSize: 9,
-        color: isIdle ? AppColors.idleColor : activeColor,
+        color: !widget.enabled
+            ? AppColors.darkTextMuted
+            : isCenter
+            ? AppColors.idleColor
+            : _trackColor,
       ),
     );
   }
@@ -611,17 +741,17 @@ class _Thumb extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _grip(0),
-          const SizedBox(height: 5),
-          _grip(1),
-          const SizedBox(height: 5),
-          _grip(2),
+          _grip(),
+          const SizedBox(height: 4),
+          _grip(),
+          const SizedBox(height: 4),
+          _grip(),
         ],
       ),
     );
   }
 
-  Widget _grip(int _) => Container(
+  Widget _grip() => Container(
     width: width * 0.38,
     height: 2,
     decoration: BoxDecoration(

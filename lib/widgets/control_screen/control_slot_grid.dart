@@ -18,6 +18,8 @@ typedef ButtonActiveStateResolver = ControlState Function(ButtonConfig config);
 typedef ButtonDisabledResolver = bool Function(ButtonConfig config);
 typedef ButtonCommandDispatcher =
     void Function(String buttonId, ControlState state);
+typedef ButtonStateIdCommandDispatcher =
+    void Function(String buttonId, String stateId);
 typedef AnalogButtonCommandDispatcher =
     void Function(ButtonConfig config, double value);
 typedef ButtonEditorLauncher = void Function(ButtonConfig config);
@@ -50,6 +52,7 @@ class ControlSlotGrid extends StatefulWidget {
     required this.isDisabled,
     required this.onCommand,
     required this.onEditButton,
+    this.onStateIdCommand,
     this.onAnalogCommand,
     this.selectedRole,
     this.selectedButtonId,
@@ -72,6 +75,7 @@ class ControlSlotGrid extends StatefulWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final ButtonStateIdCommandDispatcher? onStateIdCommand;
   final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
@@ -191,6 +195,7 @@ class _ControlSlotGridState extends State<ControlSlotGrid> {
                   activeStateFor: widget.activeStateFor,
                   isDisabled: widget.isDisabled,
                   onCommand: widget.onCommand,
+                  onStateIdCommand: widget.onStateIdCommand,
                   onAnalogCommand: widget.onAnalogCommand,
                   onEditButton: widget.onEditButton,
                   selectedRole: widget.selectedRole,
@@ -241,6 +246,7 @@ class _SlotGridBody extends StatelessWidget {
     required this.activeStateFor,
     required this.isDisabled,
     required this.onCommand,
+    this.onStateIdCommand,
     required this.onAnalogCommand,
     required this.onEditButton,
     required this.selectedRole,
@@ -259,6 +265,7 @@ class _SlotGridBody extends StatelessWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final ButtonStateIdCommandDispatcher? onStateIdCommand;
   final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
@@ -332,6 +339,7 @@ class _SlotGridBody extends StatelessWidget {
                         activeStateFor: activeStateFor,
                         isDisabled: isDisabled,
                         onCommand: onCommand,
+                        onStateIdCommand: onStateIdCommand,
                         onAnalogCommand: onAnalogCommand,
                         onEditButton: onEditButton,
                         selectedRole: selectedRole,
@@ -358,6 +366,7 @@ class _SlotGridBody extends StatelessWidget {
                     activeStateFor: activeStateFor,
                     isDisabled: isDisabled,
                     onCommand: onCommand,
+                    onStateIdCommand: onStateIdCommand,
                     onAnalogCommand: onAnalogCommand,
                     onEditButton: onEditButton,
                     selectedRole: selectedRole,
@@ -412,10 +421,18 @@ class _SelectedItemOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final minSize = ButtonConfig.defaultGridSizeFor(
-      item.config.type,
-      customProperties: item.config.customProperties,
-    );
+    // The 5-zone slider supports two shapes — 2x1 or 1x2 — so the live drag
+    // preview must be free to shrink either axis down to 1 to reach either
+    // orientation; buildButtonResize snaps the final commit to whichever of
+    // the two valid shapes the drag was closer to (see its
+    // bidirectionalSlider5Step special case), so an intermediate 1x1
+    // preview frame is never actually persisted.
+    final minSize = item.config.type == ButtonType.bidirectionalSlider5Step
+        ? (1, 1)
+        : ButtonConfig.defaultGridSizeFor(
+            item.config.type,
+            customProperties: item.config.customProperties,
+          );
     return ControlSelectionOverlay(
       span: GridSpan(
         x: item.gridX,
@@ -462,6 +479,7 @@ class _SlotTarget extends StatefulWidget {
     required this.activeStateFor,
     required this.isDisabled,
     required this.onCommand,
+    this.onStateIdCommand,
     required this.onAnalogCommand,
     required this.onEditButton,
     required this.selectedRole,
@@ -479,6 +497,7 @@ class _SlotTarget extends StatefulWidget {
   final ButtonActiveStateResolver activeStateFor;
   final ButtonDisabledResolver isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final ButtonStateIdCommandDispatcher? onStateIdCommand;
   final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ControlRole? selectedRole;
@@ -510,6 +529,7 @@ class _SlotTargetState extends State<_SlotTarget> {
                   activeState: widget.activeStateFor(widget.item!.config),
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
+                  onStateIdCommand: widget.onStateIdCommand,
                   onAnalogCommand: widget.onAnalogCommand,
                 ),
               ),
@@ -567,6 +587,7 @@ class _SlotTargetState extends State<_SlotTarget> {
                   activeState: widget.activeStateFor(widget.item!.config),
                   isDisabled: widget.isDisabled(widget.item!.config),
                   onCommand: widget.onCommand,
+                  onStateIdCommand: widget.onStateIdCommand,
                   onAnalogCommand: widget.onAnalogCommand,
                   onEditButton: widget.onEditButton,
                   onResizeButton: widget.onResizeButton,
@@ -623,6 +644,7 @@ class _DraggableSlotContent extends StatelessWidget {
     required this.activeState,
     required this.isDisabled,
     required this.onCommand,
+    this.onStateIdCommand,
     required this.onAnalogCommand,
     required this.onEditButton,
     required this.onResizeButton,
@@ -634,6 +656,7 @@ class _DraggableSlotContent extends StatelessWidget {
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final ButtonStateIdCommandDispatcher? onStateIdCommand;
   final AnalogButtonCommandDispatcher? onAnalogCommand;
   final ButtonEditorLauncher onEditButton;
   final ButtonResizeHandler? onResizeButton;
@@ -660,6 +683,7 @@ class _DraggableSlotContent extends StatelessWidget {
                   activeState: activeState,
                   isDisabled: true,
                   onCommand: onCommand,
+                  onStateIdCommand: onStateIdCommand,
                   onAnalogCommand: onAnalogCommand,
                 ),
               ),
@@ -709,6 +733,7 @@ class _ButtonBody extends StatelessWidget {
     required this.activeState,
     required this.isDisabled,
     required this.onCommand,
+    this.onStateIdCommand,
     required this.onAnalogCommand,
   });
 
@@ -716,6 +741,7 @@ class _ButtonBody extends StatelessWidget {
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandDispatcher onCommand;
+  final ButtonStateIdCommandDispatcher? onStateIdCommand;
   final AnalogButtonCommandDispatcher? onAnalogCommand;
 
   @override
@@ -727,6 +753,7 @@ class _ButtonBody extends StatelessWidget {
           activeState: activeState,
           isDisabled: isDisabled,
           onCommand: onCommand,
+          onStateIdCommand: onStateIdCommand,
           onAnalogCommand: onAnalogCommand,
           height: constraints.maxHeight,
         );

@@ -7,7 +7,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/alarm_indicator_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/strategy/cross_travel_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/horn_button_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/joystick_button_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/potentiometer_button_strategy.dart';
@@ -60,6 +60,7 @@ class ConfigurableButton extends StatelessWidget {
     required this.activeState,
     required this.isDisabled,
     required this.onCommand,
+    this.onStateIdCommand,
     this.onAnalogCommand,
     this.height,
   });
@@ -68,6 +69,7 @@ class ConfigurableButton extends StatelessWidget {
   final ControlState activeState;
   final bool isDisabled;
   final ButtonCommandCallback onCommand;
+  final ButtonStateIdCommandCallback? onStateIdCommand;
   final AnalogButtonCommandCallback? onAnalogCommand;
   final double? height;
 
@@ -85,6 +87,7 @@ class ConfigurableButton extends StatelessWidget {
           activeState: activeState,
           isDisabled: isDisabled,
           onCommand: onCommand,
+          onStateIdCommand: onStateIdCommand,
           onAnalogCommand: onAnalogCommand,
         ),
       );

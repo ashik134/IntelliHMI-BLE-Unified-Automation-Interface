@@ -198,11 +198,18 @@ class ButtonConfig {
   double get resolvedHeight => AxisControlConfig.baseHeight * heightScale;
 
   int get gridColumnSpan {
-    if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
-    if (type == ButtonType.bidirectionalSlider5Step ||
-        type == ButtonType.bidirectionalSlider3Step) {
-      return 2;
+    // The 5-zone slider only ever occupies exactly two cells, in one of two
+    // fixed shapes: 2x1 (horizontal, default) or 1x2 (vertical). Vertical is
+    // signaled by an explicit gridRows > 1 (mirroring gridRowSpan's own
+    // check below) — an explicit gridColumns=1 alone can't signal it, since
+    // gridColumns=1 is indistinguishable from "not set".
+    if (type == ButtonType.bidirectionalSlider5Step) {
+      if (gridRows > 1) return 1;
+      return gridColumns > 1 ? gridColumns.clamp(1, controlGridColumns) : 2;
     }
+    if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
+    // The 3-zone slider fits a single cell (1x1) by default, honoring an
+    // explicit gridColumns override above like any other type.
     if (type == ButtonType.joystick &&
         JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
       return 2;
@@ -241,9 +248,14 @@ class ButtonConfig {
     ButtonType type, {
     Map<String, dynamic> customProperties = const <String, dynamic>{},
   }) {
-    if (type == ButtonType.bidirectionalSlider5Step ||
-        type == ButtonType.bidirectionalSlider3Step) {
+    // 3-zone: a single grid cell. 5-zone: two cells horizontally by default
+    // (a vertical 1x2 placement is also supported — see buildButtonResize's
+    // bidirectionalSlider5Step special case in control_grid_utils.dart).
+    if (type == ButtonType.bidirectionalSlider5Step) {
       return (2, 1);
+    }
+    if (type == ButtonType.bidirectionalSlider3Step) {
+      return (1, 1);
     }
     if (type == ButtonType.joystick &&
         JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {

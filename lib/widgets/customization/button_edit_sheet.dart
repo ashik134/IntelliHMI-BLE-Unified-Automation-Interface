@@ -1079,6 +1079,26 @@ const _customTypeEntries = [
     note: 'Drag for slow or fast output states.',
   ),
   _CustomTypeEntry(
+    type: ButtonType.bidirectionalSlider3Step,
+    label: 'Multi-Zone Slider (3-Zone)',
+    icon: Icons.swap_horiz_rounded,
+    available: true,
+    note:
+        'Drag toward either end across 3 zones (zone1 / center / zone3) — '
+        'each zone maps to its own configured outputs below. Fits a single '
+        'grid cell.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.bidirectionalSlider5Step,
+    label: 'Multi-Zone Slider (5-Zone)',
+    icon: Icons.compare_arrows_rounded,
+    available: true,
+    note:
+        'Drag toward either end across 5 zones (near/far each side) — each '
+        'zone maps to its own configured outputs below. Spans 2 grid cells '
+        '(resizable to a vertical 1x2 layout).',
+  ),
+  _CustomTypeEntry(
     type: ButtonType.potentiometer,
     label: 'Potentiometer',
     icon: Icons.tune_rounded,

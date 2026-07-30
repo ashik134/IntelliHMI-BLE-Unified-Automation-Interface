@@ -7,11 +7,13 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
@@ -931,6 +933,37 @@ class _ControlGridSection extends StatelessWidget {
           state: state,
           stateId: resolved.stateId,
           activeVariants: resolved.activeVariants,
+        );
+      },
+      // Generic zone-id path (see MultiZoneSliderStrategy's generic/
+      // role==null build): the widget already reports the REAL logical
+      // state id directly (e.g. 'zone1'..'zone5'), so — unlike onCommand
+      // above — there is no ControlState to translate it back from and no
+      // crossTravelZoneId re-resolution to run. [state] here is only a
+      // binary idle/non-idle bookkeeping marker for localActive/mutual-
+      // exclusion/field-ownership; CraneController.setButtonCommand's
+      // composition is driven entirely by [activeVariants], resolved
+      // directly from this exact (buttonId, stateId) pair's
+      // ButtonConfig.stateMappings entry — never derived.
+      onStateIdCommand: (id, stateId) {
+        final isIdle =
+            stateId == MultiZoneSliderStateId.center || stateId == 'idle';
+        final state = isIdle ? ControlState.idle : ControlState.slow;
+        ButtonStateLog.log(
+          isIdle
+              ? 'SEND_IDLE  [$id] (PLC14)'
+              : 'SEND_ACTIVE [$id] -> $stateId (PLC14)',
+        );
+        onLocalActiveChanged(id, state);
+        final activeVariants =
+            layoutCfg.resolvedButtons[id]?.stateMappings[stateId]
+                ?.activeVariants ??
+            const <PlcOutputVariant>{};
+        context.read<CraneController>().setButtonCommand(
+          buttonId: id,
+          state: state,
+          stateId: stateId,
+          activeVariants: activeVariants,
         );
       },
       onAnalogCommand: (config, value) {
