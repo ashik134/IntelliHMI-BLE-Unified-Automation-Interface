@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -85,19 +86,26 @@ class IndustrialMultiStepSlider extends StatefulWidget {
       _IndustrialMultiStepSliderState();
 }
 
-class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
+class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
+    with SingleTickerProviderStateMixin {
   static const double _step2Threshold = 0.55;
   static const double _idleDeadZone = 0.01;
+  static const double _thumbHitSlop = 12.0;
 
   String _stateId = MultiStepSliderStateId.idle;
   double _sliderValue = 0.0;
   bool _isTouching = false;
+  bool _pointerStartedOnThumb = false;
 
   bool _suppressExternalReactivation = false;
+
+  late final AnimationController _springCtrl;
 
   @override
   void initState() {
     super.initState();
+    _springCtrl = AnimationController.unbounded(vsync: this)
+      ..addListener(_onSpringTick);
     _syncFromExternalStateId(widget.stateId);
   }
 
@@ -106,6 +114,7 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
     super.didUpdateWidget(oldWidget);
 
     if (!widget.enabled && oldWidget.enabled) {
+      _springCtrl.stop();
       _resetLocalState();
       return;
     }
@@ -114,20 +123,33 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
       return;
     }
 
-    if (_suppressExternalReactivation &&
-        MultiStepSliderStateId.normalize(widget.stateId) !=
-            MultiStepSliderStateId.idle) {
-      ButtonStateLog.log(
-        'EXTERNAL_STATE_ACTIVE ignored (stale, post-release) '
-        '[${widget.label}]',
+    if (_suppressExternalReactivation) {
+      final normalizedStateId = MultiStepSliderStateId.normalize(
+        widget.stateId,
       );
-      return;
+      if (normalizedStateId != MultiStepSliderStateId.idle) {
+        ButtonStateLog.log(
+          'EXTERNAL_STATE_ACTIVE ignored (stale, post-release) '
+          '[${widget.label}]',
+        );
+        return;
+      }
+      if (_springCtrl.isAnimating) {
+        return;
+      }
     }
 
     _syncFromExternalStateId(widget.stateId);
   }
 
+  @override
+  void dispose() {
+    _springCtrl.dispose();
+    super.dispose();
+  }
+
   void _syncFromExternalStateId(String externalStateId) {
+    _springCtrl.stop();
     final stateId = MultiStepSliderStateId.normalize(externalStateId);
     if (stateId != _stateId) {
       ButtonStateLog.log(
@@ -140,8 +162,10 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
   }
 
   void _resetLocalState() {
+    _springCtrl.stop();
     setState(() {
       _isTouching = false;
+      _pointerStartedOnThumb = false;
       _stateId = MultiStepSliderStateId.idle;
       _sliderValue = 0.0;
     });
@@ -159,9 +183,59 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
     return MultiStepSliderStateId.step2;
   }
 
-  void _onSliderChanged(double value) {
-    if (!widget.enabled) return;
+  Rect _thumbHitRect({
+    required double trackLength,
+    required double laneWidth,
+    required double thumbW,
+    required double thumbH,
+  }) {
+    final trackWidth = (trackLength - thumbW)
+        .clamp(0.0, trackLength)
+        .toDouble();
+    final thumbCenterX =
+        thumbW / 2.0 + _sliderValue.clamp(0.0, 1.0).toDouble() * trackWidth;
+    final hitWidth = (thumbW + _thumbHitSlop * 2)
+        .clamp(48.0, trackLength)
+        .toDouble();
+    final hitHeight = (thumbH + _thumbHitSlop * 2)
+        .clamp(48.0, laneWidth)
+        .toDouble();
 
+    return Rect.fromCenter(
+      center: Offset(thumbCenterX, laneWidth / 2.0),
+      width: hitWidth,
+      height: hitHeight,
+    );
+  }
+
+  void _onPointerDown(
+    PointerDownEvent event, {
+    required double trackLength,
+    required double laneWidth,
+    required double thumbW,
+    required double thumbH,
+  }) {
+    _pointerStartedOnThumb =
+        widget.enabled &&
+        _thumbHitRect(
+          trackLength: trackLength,
+          laneWidth: laneWidth,
+          thumbW: thumbW,
+          thumbH: thumbH,
+        ).contains(event.localPosition);
+  }
+
+  void _onPointerUp(PointerUpEvent _) {
+    if (!_isTouching) {
+      _pointerStartedOnThumb = false;
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent _) {
+    _pointerStartedOnThumb = false;
+  }
+
+  void _setSliderValueFromDrag(double value) {
     final nextStateId = _stateIdFromSlider(value);
     final hasStateChanged = nextStateId != _stateId;
 
@@ -176,24 +250,55 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
     }
   }
 
-  void _onSliderChangeStart(double _) {
-    if (!widget.enabled) return;
+  void _onDragStart(DragStartDetails _, double trackWidth) {
+    if (!widget.enabled || !_pointerStartedOnThumb || trackWidth <= 0) {
+      return;
+    }
+
     ButtonStateLog.log('POINTER_START [${widget.label}]');
-    _isTouching = true;
+    _springCtrl.stop();
     _suppressExternalReactivation = false;
+    setState(() => _isTouching = true);
   }
 
-  void _onSliderChangeEnd(double _) {
+  void _onDragUpdate(DragUpdateDetails details, double trackWidth) {
+    if (!_isTouching || !widget.enabled || trackWidth <= 0) return;
+
+    final nextValue = (_sliderValue + details.delta.dx / trackWidth)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    _setSliderValueFromDrag(nextValue);
+  }
+
+  void _onDragEnd(DragEndDetails _) {
+    if (!_isTouching) {
+      _pointerStartedOnThumb = false;
+      return;
+    }
+
     if (!widget.enabled) return;
     ButtonStateLog.log('POINTER_END [${widget.label}]');
+    _release();
+  }
 
+  void _onDragCancel() {
+    if (!_isTouching) {
+      _pointerStartedOnThumb = false;
+      return;
+    }
+
+    ButtonStateLog.log('POINTER_CANCEL [${widget.label}]');
+    _release();
+  }
+
+  void _release() {
     final shouldNotifyIdle = _stateId != MultiStepSliderStateId.idle;
 
     setState(() {
       _isTouching = false;
-      _sliderValue = 0.0;
       _stateId = MultiStepSliderStateId.idle;
     });
+    _pointerStartedOnThumb = false;
     // Arm the guard so a stale external update cannot reactivate the slider
     // until the next fresh pointer interaction.
     _suppressExternalReactivation = true;
@@ -201,6 +306,28 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
     if (shouldNotifyIdle) {
       _notifyStateId(MultiStepSliderStateId.idle);
     }
+    _springReturn();
+  }
+
+  void _onSpringTick() {
+    if (_isTouching) return;
+    setState(() => _sliderValue = _springCtrl.value.clamp(0.0, 1.0).toDouble());
+  }
+
+  void _springReturn() {
+    if (_sliderValue <= 0.0) {
+      _springCtrl.stop();
+      return;
+    }
+
+    _springCtrl.animateWith(
+      SpringSimulation(
+        const SpringDescription(mass: 0.5, stiffness: 280.0, damping: 20.0),
+        _sliderValue,
+        0.0,
+        0.0,
+      ),
+    );
   }
 
   void _notifyStateId(String stateId) {
@@ -345,59 +472,76 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider> {
       return const SizedBox.shrink();
     }
 
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        IgnorePointer(
-          child: CustomPaint(
-            size: Size(trackLength, laneWidth),
-            painter: _MultiStepTrackPainter(
-              value: _sliderValue,
-              thumbWidth: thumbW,
-              trackHeight: trackH,
-              deadZone: _idleDeadZone,
-              step2Threshold: _step2Threshold,
-              fillColor: _activeSliderColor.withAlpha(
-                widget.enabled ? 200 : 70,
+    final trackWidth = (trackLength - thumbW)
+        .clamp(0.0, trackLength)
+        .toDouble();
+    final thumbCenterX =
+        thumbW / 2.0 + _sliderValue.clamp(0.0, 1.0).toDouble() * trackWidth;
+    final hitWidth = (thumbW + _thumbHitSlop * 2)
+        .clamp(48.0, trackLength)
+        .toDouble();
+    final hitHeight = (thumbH + _thumbHitSlop * 2)
+        .clamp(48.0, laneWidth)
+        .toDouble();
+
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) => _onPointerDown(
+        event,
+        trackLength: trackLength,
+        laneWidth: laneWidth,
+        thumbW: thumbW,
+        thumbH: thumbH,
+      ),
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (details) => _onDragStart(details, trackWidth),
+        onHorizontalDragUpdate: (details) => _onDragUpdate(details, trackWidth),
+        onHorizontalDragEnd: _onDragEnd,
+        onHorizontalDragCancel: _onDragCancel,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            IgnorePointer(
+              child: CustomPaint(
+                size: Size(trackLength, laneWidth),
+                painter: _MultiStepTrackPainter(
+                  value: _sliderValue,
+                  thumbWidth: thumbW,
+                  trackHeight: trackH,
+                  deadZone: _idleDeadZone,
+                  step2Threshold: _step2Threshold,
+                  fillColor: _activeSliderColor.withAlpha(
+                    widget.enabled ? 200 : 70,
+                  ),
+                  isActive: widget.enabled,
+                ),
               ),
-              isActive: widget.enabled,
             ),
-          ),
+            Positioned(
+              left: thumbCenterX - hitWidth / 2.0,
+              top: (laneWidth - hitHeight) / 2.0,
+              width: hitWidth,
+              height: hitHeight,
+              child: Center(
+                child: _MultiStepThumb(
+                  key: const ValueKey('multi_step_slider_thumb'),
+                  width: thumbW,
+                  height: thumbH,
+                  borderRadius: 6,
+                  color: _activeSliderColor,
+                  overlayColor: _overlayColor,
+                  isDragging: _isTouching,
+                  isDisabled: !widget.enabled,
+                ),
+              ),
+            ),
+          ],
         ),
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: trackH,
-            activeTrackColor: Colors.transparent,
-            inactiveTrackColor: Colors.transparent,
-            disabledActiveTrackColor: Colors.transparent,
-            disabledInactiveTrackColor: Colors.transparent,
-            thumbColor: _activeSliderColor,
-            disabledThumbColor: AppColors.idleColor,
-            overlayColor: _overlayColor,
-            tickMarkShape: SliderTickMarkShape.noTickMark,
-            overlayShape: RoundSliderOverlayShape(
-              overlayRadius: (laneWidth * 0.24).clamp(0.0, 14.0).toDouble(),
-            ),
-            thumbShape: RectSliderThumbShape(
-              width: thumbW,
-              height: thumbH,
-              borderRadius: 6,
-              color: _activeSliderColor,
-              isDragging: _isTouching,
-              isDisabled: !widget.enabled,
-            ),
-          ),
-          child: Slider(
-            value: _sliderValue,
-            min: 0.0,
-            max: 1.0,
-            divisions: 2,
-            onChanged: widget.enabled ? _onSliderChanged : null,
-            onChangeStart: widget.enabled ? _onSliderChangeStart : null,
-            onChangeEnd: widget.enabled ? _onSliderChangeEnd : null,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -570,46 +714,69 @@ class _MultiStepTrackPainter extends CustomPainter {
       oldDelegate.isActive != isActive;
 }
 
-class RectSliderThumbShape extends SliderComponentShape {
+class _MultiStepThumb extends StatelessWidget {
   final double width;
   final double height;
   final double borderRadius;
-  final Color? color;
+  final Color color;
+  final Color overlayColor;
   final bool isDragging;
   final bool isDisabled;
 
-  const RectSliderThumbShape({
-    this.width = 12,
-    this.height = 24,
-    this.borderRadius = 5,
-    this.color,
-    this.isDragging = false,
-    this.isDisabled = false,
+  const _MultiStepThumb({
+    super.key,
+    required this.width,
+    required this.height,
+    required this.borderRadius,
+    required this.color,
+    required this.overlayColor,
+    required this.isDragging,
+    required this.isDisabled,
   });
 
   @override
-  Size getPreferredSize(bool isEnabled, bool isDiscrete) => Size(width, height);
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(width, height),
+      painter: _MultiStepThumbPainter(
+        width: width,
+        height: height,
+        borderRadius: borderRadius,
+        color: color,
+        overlayColor: overlayColor,
+        isDragging: isDragging,
+        isDisabled: isDisabled,
+      ),
+    );
+  }
+}
+
+class _MultiStepThumbPainter extends CustomPainter {
+  final double width;
+  final double height;
+  final double borderRadius;
+  final Color color;
+  final Color overlayColor;
+  final bool isDragging;
+  final bool isDisabled;
+
+  const _MultiStepThumbPainter({
+    required this.width,
+    required this.height,
+    required this.borderRadius,
+    required this.color,
+    required this.overlayColor,
+    required this.isDragging,
+    required this.isDisabled,
+  });
 
   @override
-  void paint(
-    PaintingContext context,
-    Offset center, {
-    required Animation<double> activationAnimation,
-    required Animation<double> enableAnimation,
-    required bool isDiscrete,
-    required TextPainter labelPainter,
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required TextDirection textDirection,
-    required double value,
-    required double textScaleFactor,
-    required Size sizeWithOverflow,
-  }) {
+  void paint(Canvas canvas, Size size) {
     if (width <= 0 || height <= 0) return;
 
-    final canvas = context.canvas;
-    final activeColor = color ?? sliderTheme.thumbColor ?? Colors.grey;
-    final visualDragging = isDragging || activationAnimation.value > 0.05;
+    final center = Offset(width / 2.0, height / 2.0);
+    final activeColor = color;
+    final visualDragging = isDragging;
 
     final borderColor = isDisabled
         ? AppColors.idleColor
@@ -632,7 +799,7 @@ class RectSliderThumbShape extends SliderComponentShape {
       canvas.drawRRect(
         rect.inflate(2),
         Paint()
-          ..color = activeColor.withAlpha(85)
+          ..color = overlayColor
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
       );
     }
@@ -672,4 +839,14 @@ class RectSliderThumbShape extends SliderComponentShape {
       canvas.drawRRect(gripRect, gripPaint);
     }
   }
+
+  @override
+  bool shouldRepaint(_MultiStepThumbPainter oldDelegate) =>
+      oldDelegate.width != width ||
+      oldDelegate.height != height ||
+      oldDelegate.borderRadius != borderRadius ||
+      oldDelegate.color != color ||
+      oldDelegate.overlayColor != overlayColor ||
+      oldDelegate.isDragging != isDragging ||
+      oldDelegate.isDisabled != isDisabled;
 }

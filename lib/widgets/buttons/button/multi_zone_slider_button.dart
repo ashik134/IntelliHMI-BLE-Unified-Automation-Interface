@@ -9,15 +9,6 @@ import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
-// ── Generic zone state ids ───────────────────────────────────────────────────
-//
-// These are the ONLY values this widget ever emits, in exactly the same
-// shape as MultiStepSliderStateId/PushControlStateId's static id tables —
-// plain logical state ids with no notion of direction (left/right), speed
-// (slow/fast), or any crane-specific concept baked in. A caller wires
-// [MultiZoneSliderButton.onStateChanged] to whatever it wants (typically a
-// ButtonConfig.stateMappings lookup performed by a ButtonTypeStrategy) — this
-// widget never resolves or asserts a PLC output itself.
 abstract final class MultiZoneSliderStateId {
   static const String center = 'center';
   static const String zone1 = 'zone1';
@@ -26,7 +17,13 @@ abstract final class MultiZoneSliderStateId {
   static const String zone4 = 'zone4';
   static const String zone5 = 'zone5';
 
-  static const Set<String> fiveZoneValues = {center, zone1, zone2, zone4, zone5};
+  static const Set<String> fiveZoneValues = {
+    center,
+    zone1,
+    zone2,
+    zone4,
+    zone5,
+  };
   static const Set<String> threeZoneValues = {center, zone1, zone3};
 
   static String normalize(String stateId, {required bool fiveZone}) {
@@ -39,15 +36,6 @@ enum MultiZoneSliderVariant { fiveZone, threeZone }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiZoneSliderButton
-//
-// Lightweight public wrapper, architecturally consistent with
-// MultiStepSliderButton/PushControlButton: it accepts display inputs
-// (labels/icons/colors — typically resolved by the strategy layer from
-// ButtonConfig) plus an optional externally-reported state id, and forwards
-// everything to [IndustrialMultiZoneSlider], the reusable primitive that
-// actually owns gesture/visual/haptic behavior. It never resolves or sends a
-// PLC output itself — [onStateChanged] carries only a generic zone id.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class MultiZoneSliderButton extends StatelessWidget {
   const MultiZoneSliderButton({
@@ -249,7 +237,9 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
       }
       if (clamped != _value) {
         setState(() => _value = clamped);
-        _emitZone(_zoneIdFor(clamped)); // emits centre since clamped < _deadZone
+        _emitZone(
+          _zoneIdFor(clamped),
+        ); // emits centre since clamped < _deadZone
       }
       return;
     }
@@ -328,9 +318,13 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     }
     final isFarZone = abs >= _farZone;
     if (isNegativeSide) {
-      return isFarZone ? MultiZoneSliderStateId.zone1 : MultiZoneSliderStateId.zone2;
+      return isFarZone
+          ? MultiZoneSliderStateId.zone1
+          : MultiZoneSliderStateId.zone2;
     }
-    return isFarZone ? MultiZoneSliderStateId.zone5 : MultiZoneSliderStateId.zone4;
+    return isFarZone
+        ? MultiZoneSliderStateId.zone5
+        : MultiZoneSliderStateId.zone4;
   }
 
   void _emitZone(String zoneId) {
@@ -411,16 +405,16 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   void _dragCancel() {
-    ButtonStateLog.log(
-      'USER_CANCEL [${widget.startLabel}/${widget.endLabel}]',
-    );
+    ButtonStateLog.log('USER_CANCEL [${widget.startLabel}/${widget.endLabel}]');
     _release();
   }
 
   void _release() {
     if (!_isDragging) return;
     setState(() => _isDragging = false);
-    _emitZone(MultiZoneSliderStateId.center); // Safety: emit centre immediately.
+    _emitZone(
+      MultiZoneSliderStateId.center,
+    ); // Safety: emit centre immediately.
     // Arm the guard so a stale external update cannot reactivate the slider
     // until the next fresh pointer interaction.
     _suppressExternalReactivation = true;
@@ -583,7 +577,9 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         label: text,
         icon: icon,
         color: active ? AppColors.traverseColorLight : AppColors.darkText,
-        iconColor: active ? AppColors.traverseColorLight : AppColors.darkTextMuted,
+        iconColor: active
+            ? AppColors.traverseColorLight
+            : AppColors.darkTextMuted,
         style: widget.style,
       ),
     );
