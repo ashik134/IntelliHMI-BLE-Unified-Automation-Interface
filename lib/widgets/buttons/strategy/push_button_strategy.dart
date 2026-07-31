@@ -11,9 +11,9 @@ import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 // PushButtonStrategy
 //
 // Adapts PushControlButton's generic state-id contract (idle/pressed for
-// spring-return, off/on for latching) to the legacy ControlState contract
-// still shared by the other button strategies. PLC output resolution
-// remains outside both layers in ButtonConfig.stateMappings.
+// spring-return, off/on for latching) to the ControlState contract shared by
+// the other button strategies. PLC output resolution remains outside both
+// layers in ButtonConfig.stateMappings.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PushButtonStrategy extends ButtonTypeStrategy {
@@ -31,7 +31,7 @@ class PushButtonStrategy extends ButtonTypeStrategy {
   }
 
   ControlState _controlStateFor(String stateId) => switch (stateId) {
-    PushControlStateId.pressed || PushControlStateId.on => ControlState.slow,
+    PushControlStateId.pressed || PushControlStateId.on => ControlState.level1,
     _ => ControlState.idle,
   };
 

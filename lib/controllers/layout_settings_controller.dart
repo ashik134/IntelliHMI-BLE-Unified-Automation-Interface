@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rev_crane_control_ops/core/constants/app_constants.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
-import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 
@@ -149,56 +148,8 @@ class LayoutSettingsController extends ChangeNotifier {
     _persist(bucket);
   }
 
-  /// Updates a single axis's control type / wiring / height scale, after
-  /// validation (touch-target + scale bounds).
-  ValidationResult updateAxisConfig(
-    LayoutBucket bucket,
-    AxisKind axis,
-    AxisControlConfig config,
-  ) {
-    final result = _validator.validateAxisConfig(axis, config);
-    if (!result.isValid) return result;
-    _configs[bucket] = _configs[bucket]!.copyWith(
-      axisConfigs: _configs[bucket]!.axisConfigs.withAxis(axis, config),
-    );
-    notifyListeners();
-    _persist(bucket);
-    return result;
-  }
-
-  /// Updates a single role's cosmetic style, after validation. Throws if
-  /// [role] is [ControlRole.estop] — E-Stop appearance is not customizable.
-  ValidationResult updateRoleStyle(
-    LayoutBucket bucket,
-    ControlRole role,
-    ButtonStyleConfig style,
-  ) {
-    final result = _validator.validateRoleStyle(role, style);
-    if (!result.isValid) return result;
-    _configs[bucket] = _configs[bucket]!.copyWith(
-      roleStyles: _configs[bucket]!.roleStyles.withRole(role, style),
-    );
-    notifyListeners();
-    _persist(bucket);
-    return result;
-  }
-
-  /// Updates the display order of the three motion axes (PLC38 only).
-  ValidationResult updateAxisOrder(
-    LayoutBucket bucket,
-    List<AxisKind> axisOrder,
-  ) {
-    final result = _validator.validateAxisOrder(axisOrder);
-    if (!result.isValid) return result;
-    _configs[bucket] = _configs[bucket]!.copyWith(axisOrder: axisOrder);
-    notifyListeners();
-    _persist(bucket);
-    return result;
-  }
-
-  /// Replaces a bucket's entire config after validation. Used by
-  /// CustomizationModeController.commit() to persist a fully-edited draft
-  /// in one atomic step.
+  /// Replaces a bucket's entire config after validation. Used to persist a
+  /// fully-edited draft in one atomic step (e.g. by a future layout editor).
   Future<ValidationResult> replaceConfig(
     LayoutBucket bucket,
     ControlLayoutConfig next,

@@ -327,13 +327,13 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   ControlState _commandFor(ToggleSwitchPosition pos) {
     if (!widget.isThreePosition) {
       return pos == ToggleSwitchPosition.right
-          ? ControlState.slow
+          ? ControlState.level1
           : ControlState.idle;
     }
     return switch (pos) {
-      ToggleSwitchPosition.left => ControlState.slow,
+      ToggleSwitchPosition.left => ControlState.level1,
       ToggleSwitchPosition.center => ControlState.idle,
-      ToggleSwitchPosition.right => ControlState.fast,
+      ToggleSwitchPosition.right => ControlState.level2,
     };
   }
 

@@ -904,7 +904,7 @@ class BleService {
       _pendingSafeStateCompleter = null;
     }
     _logger.i(
-      'PLC status: estop=${command.estop} dir=${command.direction} speed=${command.speed}',
+      'PLC status: estop=${command.estop} activeFields=${command.activeFields}',
     );
     _statusController.add(command);
   }

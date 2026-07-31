@@ -58,12 +58,12 @@ class LayoutValidationService {
   ValidationResult validateLabelConfig(ControlLabelConfig config) {
     final errors = <String>[];
 
-    _checkLabel('UP button label', config.upLabel, errors);
-    _checkLabel('DOWN button label', config.downLabel, errors);
-    _checkLabel('LEFT button label', config.leftLabel, errors);
-    _checkLabel('RIGHT button label', config.rightLabel, errors);
-    _checkLabel('FORWARD button label', config.forwardLabel, errors);
-    _checkLabel('REVERSE button label', config.reverseLabel, errors);
+    _checkLabel('Legacy slot 1 label', config.legacySlot1Label, errors);
+    _checkLabel('Legacy slot 2 label', config.legacySlot2Label, errors);
+    _checkLabel('Legacy slot 3 label', config.legacySlot3Label, errors);
+    _checkLabel('Legacy slot 4 label', config.legacySlot4Label, errors);
+    _checkLabel('Legacy slot 5 label', config.legacySlot5Label, errors);
+    _checkLabel('Legacy slot 6 label', config.legacySlot6Label, errors);
     _checkLabel(
       'E-Stop instruction',
       config.estopSwipeInstruction,
@@ -90,26 +90,6 @@ class LayoutValidationService {
     final labelResult = validateLabelConfig(config.labelConfig);
     if (!labelResult.isValid) errors.addAll(labelResult.errors);
 
-    for (final axis in AxisKind.values) {
-      final axisResult = validateAxisConfig(
-        axis,
-        config.axisConfigs.forAxis(axis),
-      );
-      if (!axisResult.isValid) errors.addAll(axisResult.errors);
-    }
-
-    for (final role in ControlRole.values) {
-      if (role == ControlRole.estop) continue; // no style exists for E-Stop
-      final styleResult = validateRoleStyle(
-        role,
-        config.roleStyles.forRole(role),
-      );
-      if (!styleResult.isValid) errors.addAll(styleResult.errors);
-    }
-
-    final orderResult = validateAxisOrder(config.axisOrder);
-    if (!orderResult.isValid) errors.addAll(orderResult.errors);
-
     final buttons = config.resolvedButtons;
     for (final entry in buttons.entries) {
       final buttonResult = validateButtonConfig(entry.value, buttons);
@@ -128,9 +108,9 @@ class LayoutValidationService {
     final errors = validateGridOccupancy(buttons);
 
     for (final button in buttons.values) {
-      final role = button.role;
-      if (role == null || !role.isMotionControl || !button.visible) continue;
-      if (isRedundantCrossTravelConfig(button, buttons)) continue;
+      // Safety-role buttons (estop/resetEstop) never occupy a grid slot;
+      // only generic (roleless) visible buttons need one.
+      if (button.role != null || !button.visible) continue;
 
       final slot = button.slotIndex;
       final name = button.label.isEmpty ? button.id : button.label;
@@ -193,14 +173,11 @@ class LayoutValidationService {
 
     final name = config.label.isEmpty ? config.id : config.label;
     // An invisible button occupies no grid cell — its stored gridX/gridY/
-    // slotIndex are stale placement data (e.g. a hoist-only layout's hidden
-    // traverseRight, still carrying its crossTravel-span-2 default position)
-    // rather than a live conflict, so placement geometry is never checked
-    // for it. Mirrors the same visible-only assumption validateGridOccupancy
-    // and buildControlGridPages already make via _isPageControl.
-    final skipPlacementValidation =
-        !config.visible ||
-        isRedundantCrossTravelConfig(config, allButtons);
+    // slotIndex are stale placement data rather than a live conflict, so
+    // placement geometry is never checked for it. Mirrors the same
+    // visible-only assumption validateGridOccupancy and
+    // buildControlGridPages already make via _isPageControl.
+    final skipPlacementValidation = !config.visible;
     _checkScaleBoundsGeneric(
       '$name height',
       config.heightScale,
@@ -245,8 +222,9 @@ class LayoutValidationService {
     _checkMinTouchTarget(name, config.resolvedHeight, errors);
     _checkUnitRange('$name canvasX', config.canvasX, errors);
     _checkUnitRange('$name canvasY', config.canvasY, errors);
-    final role = config.role;
-    if (!skipPlacementValidation && role != null && role.isMotionControl) {
+    // Safety-role buttons (estop/resetEstop) never occupy a grid slot; only
+    // generic (roleless) buttons need one.
+    if (!skipPlacementValidation && config.role == null) {
       final slot = config.slotIndex;
       if (slot == null) {
         errors.add('$name must have a control slot.');
@@ -270,28 +248,6 @@ class LayoutValidationService {
         '$name must be between 0.0 and 1.0 (got ${value.toStringAsFixed(2)}).',
       );
     }
-  }
-
-  /// Validates a single axis's control type / wiring / height scale.
-  ValidationResult validateAxisConfig(AxisKind axis, AxisControlConfig config) {
-    final errors = <String>[];
-
-    _checkScaleBoundsGeneric(
-      '${axis.displayName} button height',
-      config.heightScale,
-      AxisControlConfig.minHeightScale,
-      AxisControlConfig.maxHeightScale,
-      errors,
-    );
-    _checkMinTouchTarget(
-      '${axis.displayName} button',
-      config.resolvedHeight,
-      errors,
-    );
-
-    return errors.isEmpty
-        ? const ValidationResult.valid()
-        : ValidationResult.invalid(errors);
   }
 
   /// Validates a single role's cosmetic style overrides.
@@ -339,19 +295,6 @@ class LayoutValidationService {
       errors,
     );
 
-    return errors.isEmpty
-        ? const ValidationResult.valid()
-        : ValidationResult.invalid(errors);
-  }
-
-  /// Validates that [order] is a valid permutation of the three axis kinds.
-  ValidationResult validateAxisOrder(List<AxisKind> order) {
-    final errors = <String>[];
-    if (order.length != 3 || order.toSet().length != 3) {
-      errors.add(
-        'Axis order must contain HOIST, TRAVERSE, and TRAVEL exactly once each.',
-      );
-    }
     return errors.isEmpty
         ? const ValidationResult.valid()
         : ValidationResult.invalid(errors);

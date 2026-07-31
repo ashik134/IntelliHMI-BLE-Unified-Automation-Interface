@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/legacy_layout_migration.dart';
 import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
@@ -91,18 +92,17 @@ class ButtonConfig {
   static const int minSlotIndex = 0;
   static const int maxSlotIndex = controlSlotCount - 1;
 
-  /// Stable identity. For the 8 legacy roles this is exactly `ControlRole.name`
-  /// ('hoistUp', 'hoistDown', ..., 'estop', 'resetEstop') — chosen so
-  /// migration needs no id-generation/lookup table and undo/redo/JSON diffs
-  /// stay stable across a save/reload cycle. Future free-standing buttons
-  /// (not tied to a legacy role) would get a generated id — out of scope
-  /// this pass, since no such button exists yet.
+  /// Stable identity. For the two safety controls this is exactly
+  /// `ControlRole.name` ('estop'/'resetEstop'); for a button migrated from a
+  /// pre-v3 saved layout it's the fixed legacy string id (see
+  /// legacy_layout_migration.dart); any other button gets a generated id.
+  /// Stable ids keep undo/redo/JSON diffs stable across a save/reload cycle.
   final String id;
 
   final ButtonType type;
 
   /// Which PlcOutputCommand field this button ultimately drives. A single
-  /// ButtonConfig always has exactly one mapping — cross-travel's two
+  /// ButtonConfig always has exactly one mapping — a multi-zone slider's two
   /// logical halves each get their own ButtonConfig+mapping.
   final PlcOutputVariant plcMapping;
 
@@ -183,9 +183,8 @@ class ButtonConfig {
   /// here for that exact state (see CraneController._fieldsFor).
   ///
   /// [PlcOutputVariant]/[plcMappingEnabled] are kept as a cosmetic/orientation
-  /// hint (icon defaults, slider drag-orientation, cross-travel side
-  /// resolution) — they no longer drive composition once a button has real
-  /// stateMappings entries.
+  /// hint (icon defaults, slider drag-orientation) — they no longer drive
+  /// composition once a button has real stateMappings entries.
   final Map<String, ButtonStateOutputMapping> stateMappings;
 
   /// For [ButtonType.joystick] only: per-virtual-sub-button stateMappings,
@@ -236,22 +235,6 @@ class ButtonConfig {
 
   bool get occupiesMultipleGridCells => gridColumnSpan > 1 || gridRowSpan > 1;
 
-  static int? defaultSlotIndexFor(ControlRole role) => switch (role) {
-    ControlRole.hoistUp => 0,
-    ControlRole.hoistDown => 1,
-    ControlRole.traverseLeft => 2,
-    ControlRole.traverseRight => 3,
-    ControlRole.travelForward => 4,
-    ControlRole.travelReverse => 5,
-    ControlRole.estop || ControlRole.resetEstop => null,
-  };
-
-  static (int, int) defaultGridPositionFor(ControlRole role) {
-    final slot = defaultSlotIndexFor(role);
-    if (slot == null) return (0, 0);
-    return (slot % controlGridColumns, slot ~/ controlGridColumns);
-  }
-
   static (int, int) defaultGridSizeFor(
     ButtonType type, {
     Map<String, dynamic> customProperties = const <String, dynamic>{},
@@ -270,269 +253,9 @@ class ButtonConfig {
     return (1, 1);
   }
 
-  /// Builds a button-centric ButtonConfig from the legacy per-axis/per-role
-  /// config for a single ControlRole. Used both by
-  /// ControlLayoutConfig.fromJson's migration branch (old JSON with no
-  /// `buttons` key) and as the seed for a brand-new default config, so
-  /// "migrated" and "freshly defaulted" go through one code path.
-  factory ButtonConfig.fromLegacyAxis({
-    required ControlRole role,
-    required AxisControlConfig axisConfig,
-    required ButtonStyleConfig style,
-    required String label,
-  }) {
-    final (defaultX, defaultY) = defaultCanvasPositionFor(role);
-    final (gridX, gridY) = defaultGridPositionFor(role);
-    final isTraverseSlider =
-        axisConfig.widgetType == ControlWidgetType.sliderButton &&
-        role.axis == AxisKind.traverse;
-    final gridColumns =
-        isTraverseSlider || axisConfig.widgetType == ControlWidgetType.joystick
-        ? 2
-        : 1;
-    final gridRows = axisConfig.widgetType == ControlWidgetType.joystick
-        ? 2
-        : 1;
-    final migratedType = switch (axisConfig.widgetType) {
-      ControlWidgetType.pushButton => ButtonType.pushButton,
-      ControlWidgetType.toggle => ButtonType.toggle,
-      // Traverse's slider type has always rendered as the COMBINED
-      // MultiZoneSliderButton (both directions in one widget) whenever both
-      // resolved to slider type — preserve that default visual behavior
-      // under the new per-button model rather than silently regressing
-      // migrated layouts to two independent sliders.
-      ControlWidgetType.sliderButton when role.axis == AxisKind.traverse =>
-        ButtonType.bidirectionalSlider5Step,
-      ControlWidgetType.sliderButton => ButtonType.sliderButton,
-      ControlWidgetType.joystick => ButtonType.joystick,
-      ControlWidgetType.rotary => ButtonType.potentiometer,
-    };
-    return ButtonConfig(
-      id: role.name,
-      type: migratedType,
-      plcMapping: role.plcMapping!,
-      role: role,
-      label: label,
-      heightScale: axisConfig.heightScale,
-      rotation: ButtonRotation.none,
-      style: style,
-      behavior: ButtonBehaviorConfig(wiring: axisConfig.wiringConfig),
-      mutualExclusion: role.defaultMutualExclusion,
-      canvasX: defaultX,
-      canvasY: defaultY,
-      slotIndex: defaultSlotIndexFor(role),
-      gridX: gridX,
-      gridY: gridY,
-      gridColumns: gridColumns,
-      gridRows: gridRows,
-      stateMappings: migratedStateMappingsFor(role: role, type: migratedType),
-      joystickSubButtonMappings: migratedType == ButtonType.joystick
-          ? migratedJoystickSubButtonMappingsFor(
-              sourceButtonId: role.name,
-              role: role,
-              joystickConfig: const JoystickConfig(),
-            )
-          : const <String, Map<String, ButtonStateOutputMapping>>{},
-    );
-  }
-
-  /// Migration: reproduces the OLD ControlRole/AxisKind-derived composition
-  /// behavior as static baked data, one time, so the new stateMappings-only
-  /// composer (CraneController._fieldsFor) never needs to re-derive it live.
-  ///
-  /// Old derivation being preserved exactly:
-  ///   idle-equivalent state  -> {}
-  ///   slow-equivalent state  -> {role.plcMapping}
-  ///   fast-equivalent state  -> {role.plcMapping, role.axis.fastMapping}
-  ///
-  /// estop/resetEstop are NOT migrated through this path — they keep the
-  /// default empty stateMappings (their real behavior never goes through
-  /// the generic composer; see ButtonConfig.estopDefault/.resetEstopDefault
-  /// and CraneController.triggerEStop/.resetEStop).
-  static Map<String, ButtonStateOutputMapping> migratedStateMappingsFor({
-    required ControlRole role,
-    required ButtonType type,
-  }) {
-    final ownField = role.plcMapping;
-    if (ownField == null) return const <String, ButtonStateOutputMapping>{};
-    final fastField = role.axis?.fastMapping;
-
-    const Set<PlcOutputVariant> idleVariants = {};
-    final Set<PlcOutputVariant> slowVariants = {ownField};
-    final Set<PlcOutputVariant> fastVariants = {ownField, ?fastField};
-
-    Map<String, ButtonStateOutputMapping> entry(
-      String id,
-      Set<PlcOutputVariant> variants,
-    ) => {id: ButtonStateOutputMapping(stateId: id, activeVariants: variants)};
-
-    switch (type) {
-      case ButtonType.pushButton:
-        // Legacy push buttons never reached ControlState.fast — 'active'
-        // gets the slow-equivalent set only.
-        return {
-          ...entry('idle', idleVariants),
-          ...entry('active', slowVariants),
-        };
-      case ButtonType.sliderButton:
-      case ButtonType.joystick:
-        return {
-          ...entry('idle', idleVariants),
-          ...entry('step1', slowVariants),
-          ...entry('step2', fastVariants),
-        };
-      case ButtonType.potentiometer:
-      case ButtonType.horn:
-      case ButtonType.alarmIndicator:
-      case ButtonType.analogJoystick1D:
-      case ButtonType.analogJoystick2D:
-      case ButtonType.analogSliderOT:
-      case ButtonType.analogSliderTOT:
-        // horn/alarmIndicator are PLC status-driven FEEDBACK widgets, and
-        // the analog types are analog-output widgets — none of them are
-        // fromLegacyAxis migration targets or ever composed from
-        // stateMappings at all (see HornButtonStrategy/
-        // AlarmIndicatorStrategy/AnalogJoystickStrategy) — always
-        // empty/inert.
-        return const <String, ButtonStateOutputMapping>{};
-      case ButtonType.toggle:
-        return {
-          ...entry('left', slowVariants),
-          ...entry('center', idleVariants),
-          ...entry('right', fastVariants),
-        };
-      case ButtonType.bidirectionalSlider5Step:
-        // Only reachable for traverseLeft/traverseRight roles (the only
-        // roles fromLegacyAxis ever resolves to
-        // ButtonType.bidirectionalSlider5Step).
-        // zone1/zone2 = left side far/near; zone4/zone5 = right side
-        // near/far — matching Bidirectional5StepStrategy's crossTravelZoneId
-        // convention exactly. Each button config only owns its OWN side's
-        // two zones; the opposite side's zones stay {} on this config
-        // (they belong to the sibling ButtonConfig).
-        if (role == ControlRole.traverseLeft) {
-          return {
-            ...entry('zone1', fastVariants),
-            ...entry('zone2', slowVariants),
-            ...entry('center', idleVariants),
-            ...entry('zone4', const {}),
-            ...entry('zone5', const {}),
-          };
-        }
-        if (role == ControlRole.traverseRight) {
-          return {
-            ...entry('zone1', const {}),
-            ...entry('zone2', const {}),
-            ...entry('center', idleVariants),
-            ...entry('zone4', slowVariants),
-            ...entry('zone5', fastVariants),
-          };
-        }
-        return const <String, ButtonStateOutputMapping>{};
-      case ButtonType.bidirectionalSlider3Step:
-        // Not a fromLegacyAxis output type today (traverse sliders always
-        // migrate to the combined crossTravel type), but handled for
-        // completeness / future direct construction.
-        if (role == ControlRole.traverseLeft) {
-          return {
-            ...entry('zone1', slowVariants),
-            ...entry('center', idleVariants),
-            ...entry('zone3', const {}),
-          };
-        }
-        if (role == ControlRole.traverseRight) {
-          return {
-            ...entry('zone1', const {}),
-            ...entry('center', idleVariants),
-            ...entry('zone3', slowVariants),
-          };
-        }
-        return const <String, ButtonStateOutputMapping>{};
-    }
-  }
-
-  /// Migration for joystick's virtual per-direction sub-buttons: reproduces
-  /// the OLD derivation (own field for step1, own field + axis fast field
-  /// for step2) as static data, keyed by joystickVirtualButtonId — exactly
-  /// mirroring JoystickButtonStrategy's own role-pair resolution so a
-  /// migrated joystick behaves identically to before. NOT recomputed from
-  /// PlcOutputVariant/ControlRole at composition time — CraneController._fieldsFor
-  /// only ever reads this baked table.
-  static Map<String, Map<String, ButtonStateOutputMapping>>
-  migratedJoystickSubButtonMappingsFor({
-    required String sourceButtonId,
-    required ControlRole? role,
-    required JoystickConfig joystickConfig,
-  }) {
-    Map<String, ButtonStateOutputMapping> subMappingFor(
-      PlcOutputVariant field,
-    ) {
-      final fastField = field.correspondingRole?.axis?.fastMapping;
-      return {
-        'idle': const ButtonStateOutputMapping(stateId: 'idle'),
-        'step1': ButtonStateOutputMapping(
-          stateId: 'step1',
-          activeVariants: {field},
-        ),
-        'step2': ButtonStateOutputMapping(
-          stateId: 'step2',
-          activeVariants: {field, ?fastField},
-        ),
-      };
-    }
-
-    if (joystickConfig.isDualAxis) {
-      // Dual-axis always drives traverse (x) + travel (y), regardless of
-      // the parent button's own role — matching JoystickButtonStrategy's
-      // hardcoded traverseRight/traverseLeft + travelForward/travelReverse
-      // pairing exactly.
-      return {
-        for (final r in [
-          ControlRole.traverseRight,
-          ControlRole.traverseLeft,
-          ControlRole.travelForward,
-          ControlRole.travelReverse,
-        ])
-          joystickVirtualButtonId(sourceButtonId, r.plcMapping!): subMappingFor(
-            r.plcMapping!,
-          ),
-      };
-    }
-
-    final axis = role?.axis ?? AxisKind.hoist;
-    final (positive, negative) = switch (axis) {
-      AxisKind.hoist => (ControlRole.hoistUp, ControlRole.hoistDown),
-      AxisKind.traverse => (
-        ControlRole.traverseRight,
-        ControlRole.traverseLeft,
-      ),
-      AxisKind.travel => (ControlRole.travelForward, ControlRole.travelReverse),
-    };
-    return {
-      joystickVirtualButtonId(sourceButtonId, positive.plcMapping!):
-          subMappingFor(positive.plcMapping!),
-      joystickVirtualButtonId(sourceButtonId, negative.plcMapping!):
-          subMappingFor(negative.plcMapping!),
-    };
-  }
-
-  /// Default canvas placement for a role, mirroring today's actual visual
-  /// arrangement (hoist row, then traverse row, then travel row; safety
-  /// controls in their own band) so migrated/freshly-defaulted buttons start
-  /// in sensible, non-overlapping positions. Exposed publicly so the SIZE
-  /// tab's "reset position" control can reuse the same table.
-  static (double, double) defaultCanvasPositionFor(ControlRole role) =>
-      _kDefaultCanvasPosition[role] ?? (0.04, 0.04);
-
-  /// E-Stop has no AxisControlConfig/RoleStyleConfig entry (it's structurally
-  /// excluded from RoleStyleConfig by design) and is never wrapped in
-  /// EditableControlTile or placed on the customization canvas — this entry
-  /// exists mainly for id-space completeness in the `buttons` map; the
-  /// customization UI continues to hard-block editing it exactly as today.
-  /// `locked: true` for consistency now that a position/lock concept exists,
-  /// even though it's never reachable via the canvas either way.
+  /// E-STOP has no style entry (its appearance is not customizable) and is
+  /// always fixed to DF1. `locked: true` since it's never draggable/resizable.
   factory ButtonConfig.estopDefault() {
-    final (x, y) = defaultCanvasPositionFor(ControlRole.estop);
     return ButtonConfig(
       id: ControlRole.estop.name,
       type: ButtonType.pushButton,
@@ -541,9 +264,8 @@ class ButtonConfig {
       label: ControlRole.estop.defaultLabel,
       visible: true,
       locked: true,
-      canvasX: x,
-      canvasY: y,
-      slotIndex: defaultSlotIndexFor(ControlRole.estop),
+      canvasX: 0.04,
+      canvasY: 0.02,
     );
   }
 
@@ -556,7 +278,6 @@ class ButtonConfig {
     String label, {
     ButtonStyleConfig style = const ButtonStyleConfig(),
   }) {
-    final (x, y) = defaultCanvasPositionFor(ControlRole.resetEstop);
     return ButtonConfig(
       id: ControlRole.resetEstop.name,
       type: ButtonType.pushButton,
@@ -566,9 +287,8 @@ class ButtonConfig {
       style: style,
       visible: true,
       locked: true,
-      canvasX: x,
-      canvasY: y,
-      slotIndex: defaultSlotIndexFor(ControlRole.resetEstop),
+      canvasX: 0.52,
+      canvasY: 0.02,
     );
   }
 
@@ -679,17 +399,26 @@ class ButtonConfig {
   };
 
   factory ButtonConfig.fromJson(Map<String, dynamic> json) {
+    final id = json['id'] as String;
     final role = ControlRole.values.firstWhereOrNull(
       (e) => e.name == json['role'],
     );
-    final (defaultX, defaultY) = role != null
-        ? defaultCanvasPositionFor(role)
-        : (0.0, 0.0);
+    // Present only for one of the six legacy motion-control ids a pre-v6
+    // saved layout always used as both id and role name — see
+    // legacy_layout_migration.dart, the sole consumer of this.
+    final legacyMotionId = kLegacyMotionButtonIds.contains(id) ? id : null;
+    final (defaultX, defaultY) = switch (role) {
+      ControlRole.estop => (0.04, 0.02),
+      ControlRole.resetEstop => (0.52, 0.02),
+      null => legacyMotionId != null
+          ? legacyCanvasPositionFor(legacyMotionId)
+          : (0.0, 0.0),
+    };
     final slotIndex =
         (json['slotIndex'] as num?)?.toInt() ??
-        (role != null ? defaultSlotIndexFor(role) : null);
-    final (defaultGridX, defaultGridY) = role != null
-        ? defaultGridPositionFor(role)
+        (legacyMotionId != null ? legacySlotIndexFor(legacyMotionId) : null);
+    final (defaultGridX, defaultGridY) = legacyMotionId != null
+        ? legacyGridPositionFor(legacyMotionId)
         : (
             slotIndex == null ? 0 : slotIndex % controlGridColumns,
             slotIndex == null ? 0 : slotIndex ~/ controlGridColumns,
@@ -707,7 +436,7 @@ class ButtonConfig {
     );
 
     return ButtonConfig(
-      id: json['id'] as String,
+      id: id,
       type: type,
       plcMapping:
           PlcOutputVariant.fromStorageKey(
@@ -760,22 +489,22 @@ class ButtonConfig {
       ),
       plcMappingEnabled: json['plcMappingEnabled'] as bool? ?? (role != null),
       // Old JSON (pre-schema-v6) has no `stateMappings` key at all — fall
-      // back to migrating the legacy role/type-derived behavior into static
-      // data, exactly matching what fromLegacyAxis bakes in for a freshly
-      // migrated button. A present-but-empty map (e.g. a freshly-created
-      // custom button with no role) is left empty/inert, NOT migrated —
-      // only genuinely absent stateMappings triggers the legacy fallback.
+      // back to migrating the legacy id-derived behavior into static data,
+      // exactly matching what a freshly migrated legacy button bakes in. A
+      // present-but-empty map (e.g. a freshly-created custom button) is left
+      // empty/inert, NOT migrated — only a genuinely absent stateMappings key
+      // AND a recognized legacy motion id trigger the legacy fallback.
       stateMappings: json.containsKey('stateMappings')
           ? _parseStateMappings(json['stateMappings'])
-          : (role != null
-                ? migratedStateMappingsFor(role: role, type: type)
+          : (legacyMotionId != null
+                ? legacyMotionStateMappings(legacyId: legacyMotionId, type: type)
                 : const <String, ButtonStateOutputMapping>{}),
       joystickSubButtonMappings: json.containsKey('joystickSubButtonMappings')
           ? _parseJoystickSubButtonMappings(json['joystickSubButtonMappings'])
-          : (type == ButtonType.joystick
-                ? migratedJoystickSubButtonMappingsFor(
-                    sourceButtonId: json['id'] as String,
-                    role: role,
+          : (type == ButtonType.joystick && legacyMotionId != null
+                ? legacyJoystickSubButtonMappings(
+                    sourceButtonId: id,
+                    legacyId: legacyMotionId,
                     joystickConfig: JoystickConfig.fromCustomProperties(
                       customProperties,
                     ),
@@ -870,19 +599,6 @@ class ButtonConfig {
     ),
   );
 }
-
-/// Default canvas positions mirroring today's visual arrangement (hoist row,
-/// then traverse row, then travel row; safety controls in their own band).
-const Map<ControlRole, (double, double)> _kDefaultCanvasPosition = {
-  ControlRole.hoistUp: (0.04, 0.30),
-  ControlRole.hoistDown: (0.52, 0.30),
-  ControlRole.traverseLeft: (0.04, 0.56),
-  ControlRole.traverseRight: (0.52, 0.56),
-  ControlRole.travelForward: (0.04, 0.79),
-  ControlRole.travelReverse: (0.52, 0.79),
-  ControlRole.estop: (0.04, 0.02),
-  ControlRole.resetEstop: (0.52, 0.02),
-};
 
 bool _mapEquals(Map<String, dynamic> a, Map<String, dynamic> b) {
   if (a.length != b.length) return false;

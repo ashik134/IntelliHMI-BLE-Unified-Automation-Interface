@@ -1,14 +1,13 @@
 import 'package:rev_crane_control_ops/models/app_enums.dart' show LayoutBucket;
-import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LayoutTemplateService
 //
-// Built-in starting-point layouts an operator can load into the draft during
-// Customization Mode (still requires Apply to persist — loading a template
-// is just another draft mutation, fully undoable/discardable). Kept to a
-// small, curated set rather than a general template CRUD system.
+// Built-in starting-point layouts a future layout editor can load into a
+// draft (still requires an explicit save/apply step to persist — loading a
+// template is just another draft mutation, fully undoable/discardable).
+// Kept to a small, curated set rather than a general template CRUD system.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LayoutTemplate {
@@ -53,13 +52,13 @@ class LayoutTemplateService {
       wiringConfig: PushButtonWiringConfig.offMomentary,
     );
     const axisConfigs = AxisConfigSet(
-      hoist: axisCfg,
-      traverse: axisCfg,
-      travel: axisCfg,
+      primary: axisCfg,
+      secondary: axisCfg,
+      tertiary: axisCfg,
     );
     return ControlLayoutConfig.defaultForBucket(bucket).copyWith(
       axisConfigs: axisConfigs,
-      buttons: _buttonsForBucketTemplate(bucket, axisConfigs: axisConfigs),
+      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
     );
   }
 
@@ -70,40 +69,14 @@ class LayoutTemplateService {
       heightScale: 1.35,
     );
     const axisConfigs = AxisConfigSet(
-      hoist: axisCfg,
-      traverse: axisCfg,
-      travel: axisCfg,
+      primary: axisCfg,
+      secondary: axisCfg,
+      tertiary: axisCfg,
     );
     return ControlLayoutConfig.defaultForBucket(bucket).copyWith(
       axisConfigs: axisConfigs,
       sizeConfig: const ControlWidgetSizeConfig(estopButtonHeightScale: 1.25),
-      buttons: _buttonsForBucketTemplate(bucket, axisConfigs: axisConfigs),
+      buttons: ControlLayoutConfig.buttonsFromLegacy(axisConfigs: axisConfigs),
     );
-  }
-
-  static Map<String, ButtonConfig> _buttonsForBucketTemplate(
-    LayoutBucket bucket, {
-    required AxisConfigSet axisConfigs,
-  }) {
-    final bucketDefault = ControlLayoutConfig.defaultForBucket(bucket);
-    final templateButtons = ControlLayoutConfig.buttonsFromLegacy(
-      axisConfigs: axisConfigs,
-    );
-    if (bucket == LayoutBucket.plc38) {
-      return templateButtons;
-    }
-
-    return {
-      for (final entry in templateButtons.entries)
-        entry.key: entry.value.copyWith(
-          visible: bucketDefault.resolvedButtons[entry.key]?.visible,
-          pageIndex: bucketDefault.resolvedButtons[entry.key]?.pageIndex,
-          gridX: bucketDefault.resolvedButtons[entry.key]?.gridX,
-          gridY: bucketDefault.resolvedButtons[entry.key]?.gridY,
-          gridColumns: bucketDefault.resolvedButtons[entry.key]?.gridColumns,
-          gridRows: bucketDefault.resolvedButtons[entry.key]?.gridRows,
-          slotIndex: bucketDefault.resolvedButtons[entry.key]?.slotIndex,
-        ),
-    };
   }
 }

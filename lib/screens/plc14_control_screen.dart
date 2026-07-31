@@ -5,6 +5,7 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
@@ -197,7 +198,7 @@ class _ControlScreenState extends State<ControlScreen>
     // Narrow selector #1: the screen "shape" — recomputed only when the
     // committed layout changes or the PLC type changes. Deliberately
     // excludes every live-telemetry field on CraneController (LEDs, sensors,
-    // hoistState, RSSI, ...) so a BLE notification alone never retriggers
+    // activeCommand, RSSI, ...) so a BLE notification alone never retriggers
     // this selector or anything below it in the tree.
     return Selector<CraneController, PlcType>(
       selector: (_, controller) => controller.connectedPlcType,
@@ -426,25 +427,33 @@ class _SensorSection extends StatelessWidget {
   }
 }
 
+// PLC14/PLC21 expose the first 4 wire fields (DF1/E-STOP..DF4).
+const List<PlcOutputVariant> _ledVariants = [
+  PlcOutputVariant.df1,
+  PlcOutputVariant.df2,
+  PlcOutputVariant.df3,
+  PlcOutputVariant.df4,
+];
+
 class _LiveLedRowValues {
-  const _LiveLedRowValues(this.estop, this.up, this.down, this.fast);
+  const _LiveLedRowValues(this.states);
 
-  final bool estop;
-  final bool up;
-  final bool down;
-  final bool fast;
+  final List<bool> states;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _LiveLedRowValues &&
-          other.estop == estop &&
-          other.up == up &&
-          other.down == down &&
-          other.fast == fast;
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! _LiveLedRowValues || other.states.length != states.length) {
+      return false;
+    }
+    for (var i = 0; i < states.length; i++) {
+      if (other.states[i] != states[i]) return false;
+    }
+    return true;
+  }
 
   @override
-  int get hashCode => Object.hash(estop, up, down, fast);
+  int get hashCode => Object.hashAll(states);
 }
 
 class _LiveLedSection extends StatelessWidget {
@@ -453,37 +462,27 @@ class _LiveLedSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = context.select<CraneController, _LiveLedRowValues>(
-      (c) => _LiveLedRowValues(c.ledEstop, c.ledUp, c.ledDown, c.ledFast),
+      (c) => _LiveLedRowValues([
+        for (final variant in _ledVariants) c.ledStateFor(variant),
+      ]),
     );
     return RepaintBoundary(
       child: LiveLedRow(
         leds: [
-          LedSpec(
-            label: 'ESTOP',
-            active: values.estop,
-            color: AppColors.eStopColor,
-            inactiveColor: AppColors.darkSuccess,
-            pulseWhenInactive: true,
-            // pin: 'R0_0',
-          ),
-          LedSpec(
-            label: 'UP',
-            active: values.up,
-            color: AppColors.upColor,
-            // pin: 'Q0.1',
-          ),
-          LedSpec(
-            label: 'DOWN',
-            active: values.down,
-            color: AppColors.downColor,
-            // pin: 'Q0.2',
-          ),
-          LedSpec(
-            label: 'FAST',
-            active: values.fast,
-            color: AppColors.fastColor,
-            // pin: 'Q0.3',
-          ),
+          for (var i = 0; i < _ledVariants.length; i++)
+            LedSpec(
+              label: _ledVariants[i].isEmergencyStop
+                  ? 'ESTOP'
+                  : _ledVariants[i].storageKey,
+              active: values.states[i],
+              color: _ledVariants[i].isEmergencyStop
+                  ? AppColors.eStopColor
+                  : AppColors.accent,
+              inactiveColor: _ledVariants[i].isEmergencyStop
+                  ? AppColors.darkSuccess
+                  : null,
+              pulseWhenInactive: _ledVariants[i].isEmergencyStop,
+            ),
         ],
       ),
     );
@@ -500,13 +499,9 @@ class _StatusChipSection extends StatelessWidget {
       child: StatusBarChip(
         color: controller.estopLatched
             ? AppColors.eStopColor
-            : switch (controller.hoistState) {
-                HoistState.idle => AppColors.idleColor,
-                HoistState.upSlow => AppColors.upColor,
-                HoistState.upFast => AppColors.fastColor,
-                HoistState.downSlow => AppColors.downColor,
-                HoistState.downFast => AppColors.fastColor,
-              },
+            : controller.activeCommand.isIdle
+            ? AppColors.idleColor
+            : AppColors.accent,
         label: controller.statusLabel,
       ),
     );

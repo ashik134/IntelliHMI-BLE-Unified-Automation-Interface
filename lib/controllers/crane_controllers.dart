@@ -6,7 +6,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
@@ -75,24 +74,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _deviceTrustRejected = false;
 
-  // ── PLC38 independent axis states ─────────────────────────────────────────
-  bool _p38VertIsUp = true;
-  ControlState _p38VertState = ControlState.idle;
-  bool _p38TravIsLeft = true;
-  ControlState _p38TravState = ControlState.idle;
-  bool _p38TripIsForward = true;
-  ControlState _p38TripState = ControlState.idle;
-
-  // ── Button-centric PLC38 state ────────────────────────────────────────────
+  // ── Button-centric state ───────────────────────────────────────────────────
   // buttonId -> the set of PLC output variants that button is currently
   // asserting (already resolved by the caller from ButtonConfig.stateMappings
-  // — see setButtonCommand's doc comment). Independent of the legacy _p38*
-  // fields above — populated only when the button-centric screens call
-  // setButtonCommand. The two paths are mutually exclusive in practice (a
-  // screen either fully uses the legacy per-axis setters or fully uses
-  // setButtonCommand), but both compose into the same PlcOutputCommand shape
-  // so either can be live during the incremental migration.
-  final Map<String, Set<PlcOutputVariant>> _p38ButtonFields = {};
+  // — see setButtonState's doc comment). Used for every PLC type; the wire
+  // format itself (4 vs 10 fields) is decided only at serialization time by
+  // PlcOutputCommand.wireBytesFor.
+  final Map<String, Set<PlcOutputVariant>> _buttonFields = {};
 
   // ── Shared-field ownership ────────────────────────────────────────────────
   // PlcOutputVariant field → the buttonId that currently owns (actively asserts)
@@ -143,12 +131,6 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   PlcType get connectedPlcType =>
       _transportConnState.connectedDevice?.plcType ?? PlcType.unknown;
 
-  // ── PLC38 axis state getters ───────────────────────────────────────────────
-  TraverseDirection get traverseDir => _activeCommand.traverseDirection;
-  bool get traverseFast => _activeCommand.fastLr && !_activeCommand.estop;
-  TravelDirection get travelDir => _activeCommand.travelDirection;
-  bool get travelFast => _activeCommand.fastFb && !_activeCommand.estop;
-  //////////////////////////////////////////////////////////////////////////
   BleConnectionState get connectionState => _transportConnState;
   bool get isScanning =>
       _transportConnState.status == BleConnectionStatus.scanning;
@@ -194,18 +176,13 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   int get a1 => _analogValues['A1'] ?? 0;
   int get a2 => _analogValues['A2'] ?? 0;
 
-  // ── LED indicator states (sourced from PLC) ───────────────────────────────
-  bool get ledEstop => _activeCommand.estop;
-  bool get ledUp => _activeCommand.up && !_activeCommand.estop;
-  bool get ledDown => _activeCommand.down && !_activeCommand.estop;
-  bool get ledFast => _activeCommand.fastUd && !_activeCommand.estop;
-  // PLC38 extended LED states
-  bool get ledLeft => _activeCommand.left && !_activeCommand.estop;
-  bool get ledRight => _activeCommand.right && !_activeCommand.estop;
-  bool get ledFastLr => _activeCommand.fastLr && !_activeCommand.estop;
-  bool get ledForward => _activeCommand.forward && !_activeCommand.estop;
-  bool get ledReverse => _activeCommand.reverse && !_activeCommand.estop;
-  bool get ledFastFb => _activeCommand.fastFb && !_activeCommand.estop;
+  /// LED-display value for [variant] — suppressed to false during E-STOP,
+  /// except for DF1/E-STOP itself (which IS the estop indicator). Generic
+  /// replacement for the old fixed set of ledUp/ledDown-style getters: the
+  /// caller supplies which PlcOutputVariant it wants to display as an LED.
+  bool ledStateFor(PlcOutputVariant variant) => variant.isEmergencyStop
+      ? _activeCommand.estop
+      : (_activeCommand.fieldValue(variant) && !_activeCommand.estop);
 
   /// Generic "is this PLC output/status field currently ON" lookup, sourced
   /// from the same live [_activeCommand] echo the ledUp/ledDown-style
@@ -229,18 +206,6 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       return '$name \u2022 ${plc.displayName}';
     }
     return name;
-  }
-
-  // ── Hoist state derived from active command ───────────────────────────────
-  HoistState get hoistState {
-    if (_activeCommand.estop) return HoistState.idle;
-    return switch ((_activeCommand.direction, _activeCommand.speed)) {
-      (HoistDirection.up, HoistSpeed.slow) => HoistState.upSlow,
-      (HoistDirection.up, HoistSpeed.fast) => HoistState.upFast,
-      (HoistDirection.down, HoistSpeed.slow) => HoistState.downSlow,
-      (HoistDirection.down, HoistSpeed.fast) => HoistState.downFast,
-      _ => HoistState.idle,
-    };
   }
 
   String get statusLabel => _activeCommand.statusLabel;
@@ -407,9 +372,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         _startupEmergencyArmedForConnection = false;
         _pendingEnrollmentOffer = false;
         _deviceTrustRejected = false;
-        _p38VertState = ControlState.idle;
-        _p38TravState = ControlState.idle;
-        _p38TripState = ControlState.idle;
+        _buttonFields.clear();
+        _fieldOwners.clear();
         _lastLoggedPlcType = null;
       } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
@@ -448,15 +412,9 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _handlePlcStatus(PlcOutputCommand command) {
     ButtonStateLog.log(
-      command.estop ||
-              command.up ||
-              command.down ||
-              command.left ||
-              command.right ||
-              command.forward ||
-              command.reverse
-          ? 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)'
-          : 'PLC_STATUS_IDLE (hardware echo, status/LED only)',
+      command.isIdle
+          ? 'PLC_STATUS_IDLE (hardware echo, status/LED only)'
+          : 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)',
     );
     _activeCommand = command;
     notifyListeners();
@@ -665,14 +623,10 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> triggerEStop() async {
     _estopLatched = true;
-    // Reset PLC38 axis states so resumed motion starts clean.
-    _p38VertState = ControlState.idle;
-    _p38TravState = ControlState.idle;
-    _p38TripState = ControlState.idle;
     // Clear button-centric state and field ownership so buttons are not stuck
-    // in a blocked state after estop is cleared (since setButtonCommand is
+    // in a blocked state after estop is cleared (since setButtonState is
     // guarded by _estopLatched, the normal idle-on-release path never runs).
-    _p38ButtonFields.clear();
+    _buttonFields.clear();
     _fieldOwners.clear();
     final cmd = PlcOutputCommand.emergencyStop();
     _activeCommand = cmd;
@@ -694,9 +648,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     if (!isConnected) return;
 
     _estopLatched = true;
-    _p38VertState = ControlState.idle;
-    _p38TravState = ControlState.idle;
-    _p38TripState = ControlState.idle;
+    _buttonFields.clear();
+    _fieldOwners.clear();
     _activeCommand = PlcOutputCommand.emergencyStop();
 
     _pendingCommandBytes = null;
@@ -705,15 +658,12 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     await _bleService.disconnect();
   }
 
-  /// Stops all crane motion by sending an idle command and resetting PLC38 axis
+  /// Stops all outputs by sending an idle command and clearing button-centric
   /// state. No-op when estop is latched (PLC outputs are already off) or when
   /// not connected.
   Future<void> stopAllMotion() async {
     if (_estopLatched || !isConnected) return;
-    _p38VertState = ControlState.idle;
-    _p38TravState = ControlState.idle;
-    _p38TripState = ControlState.idle;
-    _p38ButtonFields.clear();
+    _buttonFields.clear();
     _fieldOwners.clear();
     await _sendCommand(PlcOutputCommand.idle());
   }
@@ -726,185 +676,67 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     await _sendCommand(PlcOutputCommand.idle());
   }
 
-  Future<void> tapHoistButton({required bool isUp}) async {
-    if (_estopLatched || !isConnected) return;
-    final PlcOutputCommand next;
-    if (isUp) {
-      next = switch (hoistState) {
-        HoistState.upSlow => PlcOutputCommand.motion(
-          direction: HoistDirection.up,
-          speed: HoistSpeed.fast,
-        ),
-        HoistState.upFast => PlcOutputCommand.idle(),
-        _ => PlcOutputCommand.motion(
-          direction: HoistDirection.up,
-          speed: HoistSpeed.slow,
-        ),
-      };
-    } else {
-      next = switch (hoistState) {
-        HoistState.downSlow => PlcOutputCommand.motion(
-          direction: HoistDirection.down,
-          speed: HoistSpeed.fast,
-        ),
-        HoistState.downFast => PlcOutputCommand.idle(),
-        _ => PlcOutputCommand.motion(
-          direction: HoistDirection.down,
-          speed: HoistSpeed.slow,
-        ),
-      };
-    }
-    await _sendCommand(next);
-  }
-
-  Future<void> setHoistCommand({
-    required bool isUp,
-    required ControlState state,
-  }) async {
-    if (_estopLatched || !isConnected) return;
-    final PlcOutputCommand cmd;
-    if (connectedPlcType == PlcType.plc38) {
-      _p38VertIsUp = isUp;
-      _p38VertState = state;
-      cmd = _composePlc38Command();
-    } else {
-      cmd = switch (state) {
-        ControlState.idle => PlcOutputCommand.idle(),
-        ControlState.slow => PlcOutputCommand.motion(
-          direction: isUp ? HoistDirection.up : HoistDirection.down,
-          speed: HoistSpeed.slow,
-        ),
-        ControlState.fast => PlcOutputCommand.motion(
-          direction: isUp ? HoistDirection.up : HoistDirection.down,
-          speed: HoistSpeed.fast,
-        ),
-      };
-    }
-    await _sendCommand(cmd);
-  }
-
-  /// Horizontal traverse command — PLC38 only.
-  Future<void> setTraverseCommand({
-    required bool isLeft,
-    required ControlState state,
-  }) async {
-    if (_estopLatched || !isConnected) return;
-    _p38TravIsLeft = isLeft;
-    _p38TravState = state;
-    await _sendCommand(_composePlc38Command());
-  }
-
-  /// Longitudinal travel command — PLC38 only.
-  Future<void> setTravelCommand({
-    required bool isForward,
-    required ControlState state,
-  }) async {
-    if (_estopLatched || !isConnected) return;
-    _p38TripIsForward = isForward;
-    _p38TripState = state;
-    await _sendCommand(_composePlc38Command());
-  }
-
-  /// Builds a full PLC38 command from the three independent axis states.
-  PlcOutputCommand _composePlc38Command() {
-    return PlcOutputCommand.compose(
-      estop: false,
-      up: _p38VertIsUp && _p38VertState != ControlState.idle,
-      down: !_p38VertIsUp && _p38VertState != ControlState.idle,
-      fastUd: _p38VertState == ControlState.fast,
-      left: _p38TravIsLeft && _p38TravState != ControlState.idle,
-      right: !_p38TravIsLeft && _p38TravState != ControlState.idle,
-      fastLr: _p38TravState == ControlState.fast,
-      forward: _p38TripIsForward && _p38TripState != ControlState.idle,
-      reverse: !_p38TripIsForward && _p38TripState != ControlState.idle,
-      fastFb: _p38TripState == ControlState.fast,
-    );
-  }
-
-  /// Button-centric analogue of setHoistCommand/setTraverseCommand/
-  /// setTravelCommand — the generalized composition entry point for the
-  /// button-centric screens. [buttonId] is a ButtonConfig.id, OR a virtual
-  /// sub-button id (see control_role.dart's kVirtualFastKeyFields /
-  /// joystickVirtualButtonId).
+  /// The generic composition entry point every button-centric control uses.
+  /// [buttonId] is a ButtonConfig.id, OR a virtual sub-button id (see
+  /// control_role.dart's joystickVirtualButtonId).
   ///
   /// [stateId] is the LOGICAL state id (e.g. 'idle', 'active', 'step2',
   /// 'zone1') already resolved by the caller from the button's own type —
-  /// see the `logicalStateIdFor`/`crossTravelZoneId`-style helpers in the
+  /// see the `logicalStateIdFor`/`multiZoneId`-style helpers in the
   /// button-type strategies (button_type_strategy.dart doc comments).
   /// [activeVariants] is the EXACT set of PLC output variants [buttonId]
   /// asserts while in [stateId] — the caller must resolve this directly from
   /// ButtonConfig.stateMappings[stateId] (or the equivalent virtual-id
   /// table), never re-derived here. This is the master invariant of the
   /// generic PLC-output-variant model: CraneController never adds a field
-  /// beyond what [activeVariants] explicitly says, for any reason.
+  /// beyond what [activeVariants] explicitly says, for any reason. An empty
+  /// [activeVariants] IS the idle signal — there is no separate physical-
+  /// gesture parameter to consult.
   ///
-  /// PLC14 (single hoist axis, no independent per-axis state needed today)
-  /// delegates to the existing setHoistCommand for hoistUp/hoistDown ids,
-  /// keeping PLC14's single source of truth exactly where it is today.
-  Future<void> setButtonCommand({
+  /// Used identically for every PLC type — the wire format itself (4 vs 10
+  /// fields) is decided only at serialization time by
+  /// PlcOutputCommand.wireBytesFor, never here.
+  Future<void> setButtonState({
     required String buttonId,
-    required ControlState state,
     required String stateId,
     required Set<PlcOutputVariant> activeVariants,
   }) async {
     if (_estopLatched || !isConnected) return;
 
-    if (connectedPlcType != PlcType.plc38) {
-      if (activeVariants.contains(PlcOutputVariant.df2) ||
-          buttonId == ControlRole.hoistUp.name) {
-        await setHoistCommand(isUp: true, state: state);
-      } else if (activeVariants.contains(PlcOutputVariant.df3) ||
-          buttonId == ControlRole.hoistDown.name) {
-        await setHoistCommand(isUp: false, state: state);
-      } else {
-        final joystickField = joystickVirtualFieldFor(buttonId);
-        if (joystickField == PlcOutputVariant.df2) {
-          await setHoistCommand(isUp: true, state: state);
-        } else if (joystickField == PlcOutputVariant.df3) {
-          await setHoistCommand(isUp: false, state: state);
-        }
-      }
-      return;
-    }
-
-    final newFields = state == ControlState.idle
-        ? const <PlcOutputVariant>{}
-        : activeVariants;
-
-    if (state == ControlState.idle) {
+    if (activeVariants.isEmpty) {
       // Release all fields this button currently owns, then mark it idle.
       _fieldOwners.removeWhere((_, owner) => owner == buttonId);
-      _p38ButtonFields.remove(buttonId);
+      _buttonFields.remove(buttonId);
     } else {
       final previousFields =
-          _p38ButtonFields[buttonId] ?? const <PlcOutputVariant>{};
+          _buttonFields[buttonId] ?? const <PlcOutputVariant>{};
 
       // Only check fields being NEWLY claimed (not already owned by this button).
-      final addedFields = newFields.difference(previousFields);
+      final addedFields = activeVariants.difference(previousFields);
       final blocked = addedFields.any(
         (f) => _fieldOwners.containsKey(f) && _fieldOwners[f] != buttonId,
       );
 
       if (!blocked) {
         // Release fields no longer needed by the new state.
-        for (final f in previousFields.difference(newFields)) {
+        for (final f in previousFields.difference(activeVariants)) {
           _fieldOwners.remove(f);
         }
         // Claim the newly added fields.
         for (final f in addedFields) {
           _fieldOwners[f] = buttonId;
         }
-        _p38ButtonFields[buttonId] = newFields;
+        _buttonFields[buttonId] = activeVariants;
       }
       // Blocked commands are silently discarded; the slider's physical clamp
       // (isFieldBlockedForButton) prevents the gesture from reaching here in
       // normal operation.
     }
-    await _sendCommand(_composeFromButtonStates());
+    await _sendCommand(_composeFromButtonFields());
   }
 
   /// Button-centric analog output entry point — the analog counterpart of
-  /// [setButtonCommand]. Shared by every analog control (potentiometer,
+  /// [setButtonState]. Shared by every analog control (potentiometer,
   /// analog joystick, analog slider, ...): [config] is normalized by the
   /// caller (see the control screens' onAnalogCommand) and owns
   /// clamping/formatting via [AnalogWireConfig.wirePayload]; this method
@@ -988,7 +820,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// DIFFERENT button than [buttonId]. The UI layer calls this to apply a
   /// per-zone drag clamp on the slider (physical "stuck" sensation) before
   /// the drag enters the blocked zone. [candidateFields] must be resolved by
-  /// the caller from the button's own stateMappings — see setButtonCommand's
+  /// the caller from the button's own stateMappings — see setButtonState's
   /// doc comment; CraneController never derives this itself.
   bool isFieldBlockedForButton(
     String buttonId,
@@ -999,31 +831,17 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  /// Derives each PlcOutputCommand field from whichever buttons' currently
-  /// active field-sets (as explicitly claimed via setButtonCommand's
-  /// [activeVariants] parameter) contain that field. No ControlRole/AxisKind
-  /// derivation is consulted here — a field is true iff some button
-  /// explicitly claims it in its current state, full stop.
-  PlcOutputCommand _composeFromButtonStates() {
-    bool fieldActive(PlcOutputVariant field) {
-      for (final fields in _p38ButtonFields.values) {
-        if (fields.contains(field)) return true;
-      }
-      return false;
+  /// Derives the composed PlcOutputCommand from whichever buttons' currently
+  /// active field-sets (as explicitly claimed via setButtonState's
+  /// [activeVariants] parameter) are non-empty. A field is asserted iff some
+  /// button explicitly claims it in its current state, full stop — no
+  /// role/axis derivation is consulted here.
+  PlcOutputCommand _composeFromButtonFields() {
+    final fields = <PlcOutputVariant>{};
+    for (final buttonFields in _buttonFields.values) {
+      fields.addAll(buttonFields);
     }
-
-    return PlcOutputCommand.compose(
-      estop: false,
-      up: fieldActive(PlcOutputVariant.df2),
-      down: fieldActive(PlcOutputVariant.df3),
-      fastUd: fieldActive(PlcOutputVariant.df4),
-      left: fieldActive(PlcOutputVariant.df5),
-      right: fieldActive(PlcOutputVariant.df6),
-      fastLr: fieldActive(PlcOutputVariant.df7),
-      forward: fieldActive(PlcOutputVariant.df8),
-      reverse: fieldActive(PlcOutputVariant.df9),
-      fastFb: fieldActive(PlcOutputVariant.df10),
-    );
+    return PlcOutputCommand.compose(fields);
   }
 
   Future<bool> authenticate({

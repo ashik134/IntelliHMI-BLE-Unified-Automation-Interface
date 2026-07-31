@@ -5,10 +5,20 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
-import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/joystick_control.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JoystickButtonStrategy
+//
+// A joystick decomposes into up to 4 independent virtual sub-buttons — one
+// per direction (posX/negX for single-axis, plus posY/negY for dual-axis) —
+// each dispatched as its own onCommand(virtualId, state). The direction
+// identity itself carries no PLC meaning: which field(s) each direction
+// asserts comes entirely from config.joystickSubButtonMappings, resolved by
+// the caller exactly like any other button's stateMappings.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class JoystickButtonStrategy extends ButtonTypeStrategy {
   const JoystickButtonStrategy();
@@ -32,7 +42,7 @@ class JoystickButtonStrategy extends ButtonTypeStrategy {
     ).normalizedForMode();
     final (defaultColor, defaultColorLight) = role != null
         ? colorsForRole(role)
-        : (AppColors.traverseColor, AppColors.traverseColorLight);
+        : (AppColors.accent, AppColors.accent);
     final activeColor = config.style.resolvePrimary(defaultColor);
     final activeColorLight = config.style.resolveActive(defaultColorLight);
     final icon =
@@ -61,12 +71,12 @@ class JoystickButtonStrategy extends ButtonTypeStrategy {
     final commands = <_JoystickCommand>[];
 
     void axisCommands({
-      required ControlRole positive,
-      required ControlRole negative,
+      required JoystickDirection positive,
+      required JoystickDirection negative,
       required int step,
     }) {
-      final positiveId = _virtualIdFor(config, positive.plcMapping);
-      final negativeId = _virtualIdFor(config, negative.plcMapping);
+      final positiveId = joystickVirtualButtonId(config.id, positive);
+      final negativeId = joystickVirtualButtonId(config.id, negative);
       final positiveState = step > 0 ? _stateForStep(step) : ControlState.idle;
       final negativeState = step < 0 ? _stateForStep(step) : ControlState.idle;
       commands
@@ -74,51 +84,36 @@ class JoystickButtonStrategy extends ButtonTypeStrategy {
         ..add(_JoystickCommand(negativeId, negativeState));
     }
 
-    final role = config.role;
     if (joystickConfig.isDualAxis) {
       axisCommands(
-        positive: ControlRole.traverseRight,
-        negative: ControlRole.traverseLeft,
+        positive: JoystickDirection.posX,
+        negative: JoystickDirection.negX,
         step: value.xStep,
       );
       axisCommands(
-        positive: ControlRole.travelForward,
-        negative: ControlRole.travelReverse,
+        positive: JoystickDirection.posY,
+        negative: JoystickDirection.negY,
         step: value.yStep,
       );
       return commands;
     }
 
-    final axis = role?.axis ?? AxisKind.hoist;
     final step = joystickConfig.axis == JoystickAxis.horizontal
         ? value.xStep
         : value.yStep;
-    final (positive, negative) = _rolePairForAxis(axis);
-    axisCommands(positive: positive, negative: negative, step: step);
+    axisCommands(
+      positive: JoystickDirection.posX,
+      negative: JoystickDirection.negX,
+      step: step,
+    );
     return commands;
   }
 
   ControlState _stateForStep(int step) {
     final magnitude = step.abs();
-    if (magnitude >= 2) return ControlState.fast;
-    if (magnitude == 1) return ControlState.slow;
+    if (magnitude >= 2) return ControlState.level2;
+    if (magnitude == 1) return ControlState.level1;
     return ControlState.idle;
-  }
-
-  (ControlRole positive, ControlRole negative) _rolePairForAxis(AxisKind axis) {
-    return switch (axis) {
-      AxisKind.hoist => (ControlRole.hoistUp, ControlRole.hoistDown),
-      AxisKind.traverse => (
-        ControlRole.traverseRight,
-        ControlRole.traverseLeft,
-      ),
-      AxisKind.travel => (ControlRole.travelForward, ControlRole.travelReverse),
-    };
-  }
-
-  String _virtualIdFor(ButtonConfig config, PlcOutputVariant? mapping) {
-    if (mapping == null) return config.id;
-    return joystickVirtualButtonId(config.id, mapping);
   }
 }
 

@@ -1,13 +1,9 @@
-import 'package:rev_crane_control_ops/models/control_role.dart';
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MutualExclusionConfig
 //
-// Per-button mutual-exclusion / inclusive-pairing rule set. Replaces
-// ControlRoleInfo.pairedRole's hardcoded, structurally-enforced pairing with
-// a configurable-but-safely-defaulted equivalent (see
-// MutualExclusionDefaults below) — pairedRole itself is untouched and still
-// used as the seed source here and by the legacy axis path.
+// Per-button mutual-exclusion / inclusive-pairing rule set. A new generic
+// button ships with an empty config by default; a legacy migrated button
+// keeps whatever pairing legacy_layout_migration.dart baked in for it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MutualExclusionConfig {
@@ -17,10 +13,10 @@ class MutualExclusionConfig {
   });
 
   /// Buttons that must be forced idle/disabled while this button is active
-  /// (safety interlock — e.g. hoistUp excludes hoistDown). Seeding writes
-  /// both directions (see [MutualExclusionDefaults]) so a single button's
-  /// config is sufficient to read the relationship without cross-referencing
-  /// its partner.
+  /// (safety interlock — e.g. two opposite-direction outputs that must never
+  /// both be asserted). A symmetric pairing should write both directions so
+  /// a single button's config is sufficient to read the relationship without
+  /// cross-referencing its partner.
   final Set<String> excludedButtonIds;
 
   /// Buttons explicitly PERMITTED (not required) to be active simultaneously
@@ -72,23 +68,4 @@ class MutualExclusionConfig {
 bool _setEquals(Set<String> a, Set<String> b) {
   if (a.length != b.length) return false;
   return a.containsAll(b);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MutualExclusionDefaults
-// ─────────────────────────────────────────────────────────────────────────────
-
-extension MutualExclusionDefaults on ControlRole {
-  /// The DEFAULT exclusion set for this role's button id, seeded from
-  /// today's hardware-mandated pairing (ControlRoleInfo.pairedRole). This is
-  /// what a brand-new/migrated ButtonConfig ships with; the user can edit or
-  /// clear it afterward via the BEHAVIOR tab (with a confirmation warning
-  /// when removing a same-axis opposite-direction exclusion — see
-  /// ButtonEditSheet's BEHAVIOR tab).
-  MutualExclusionConfig get defaultMutualExclusion {
-    final paired = pairedRole;
-    return MutualExclusionConfig(
-      excludedButtonIds: paired != null ? {paired.name} : const {},
-    );
-  }
 }

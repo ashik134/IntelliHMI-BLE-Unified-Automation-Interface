@@ -10,11 +10,12 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 // edit sheet: an idle/center state that could assert arbitrary outputs would
 // be a safety footgun ("never truly off").
 //
-// Cross-travel's 5 (or 3) zones are each their OWN independently-mappable
-// state — never collapsed into borrowed 'slow'/'fast' speed labels, which
-// would smuggle speed semantics back into what must be a fully generic
-// mapping. See Bidirectional5StepStrategy/Bidirectional3StepStrategy for
-// the gesture-to-zone-id resolution (crossTravelZoneId).
+// The multi-zone slider's 5 (or 3) zones are each their OWN
+// independently-mappable state — never collapsed into borrowed speed-level
+// labels, which would smuggle physical-gesture semantics back into what must
+// be a fully generic mapping. See Bidirectional5StepStrategy/
+// Bidirectional3StepStrategy for the gesture-to-zone-id resolution
+// (multiZoneId).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ButtonLogicalState {
@@ -53,7 +54,7 @@ extension ButtonTypeLogicalStates on ButtonType {
     ],
     // Each of the 5 zones is its own independently-configurable state.
     // zone1/zone2 = left side (far/near), center = idle,
-    // zone4/zone5 = right side (near/far) — see crossTravelZoneId.
+    // zone4/zone5 = right side (near/far) — see multiZoneId.
     ButtonType.bidirectionalSlider5Step => const [
       ButtonLogicalState(id: 'zone1', label: 'Zone 1', isIdle: false),
       ButtonLogicalState(id: 'zone2', label: 'Zone 2', isIdle: false),

@@ -6,8 +6,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // ButtonTypeStrategy
 //
-// Shared contract every button TYPE (push/toggle/slider/cross-travel, and
-// future joystick/rotary/lever) implements. Rendering shell (ConfigurableButton),
+// Shared contract every button TYPE (push/toggle/slider/multi-zone slider,
+// joystick/rotary/lever, ...) implements. Rendering shell (ConfigurableButton),
 // selection, editing, and persistence are handled ONCE, outside the strategy —
 // a strategy only supplies interaction/gesture logic and how to visually
 // represent its own state.
@@ -15,8 +15,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 
 /// One uniform command signature every strategy emits, resolving
 /// MultiZoneSliderButton's combined-widget/two-ButtonConfig oddity: every
-/// strategy — including cross-travel — reports state per logical button id,
-/// never a combined/multi-field callback.
+/// strategy — including the multi-zone slider — reports state per logical
+/// button id, never a combined/multi-field callback.
 typedef ButtonCommandCallback =
     void Function(String buttonId, ControlState state);
 typedef ButtonStateIdCommandCallback =
@@ -50,22 +50,20 @@ abstract class ButtonTypeStrategy {
 //
 // Every gesture-handling widget (push button, ToggleSwitchButton,
 // CraneSliderButton, joystick control) only ever reports a plain
-// ControlState (idle/slow/fast) — none of them are rewritten by this
-// refactor. These functions translate that physical gesture signal into the
-// LOGICAL state id used to key ButtonConfig.stateMappings (see
-// ButtonTypeLogicalStates.logicalStates). This is a PURE RELABELING: it never
-// inspects PlcOutputVariant, never adds a second variant, never consults
-// ControlRole/AxisKind. The actual set of PLC output variants a state
-// activates is looked up separately, directly from
-// ButtonConfig.stateMappings[stateId] — never derived here.
+// ControlState (idle/level1/level2). These functions translate that physical
+// gesture signal into the LOGICAL state id used to key
+// ButtonConfig.stateMappings (see ButtonTypeLogicalStates.logicalStates).
+// This is a PURE RELABELING: it never inspects PlcOutputVariant, never adds a
+// second variant. The actual set of PLC output variants a state activates is
+// looked up separately, directly from ButtonConfig.stateMappings[stateId] —
+// never derived here.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Resolves the logical state id for push/toggle/slider/joystick — the
 /// button types where a single ButtonConfig's own id already carries all the
-/// context needed (no side/zone ambiguity). The multi-zone slider's LEGACY
-/// PAIRED path (see multi_zone_slider_strategy.dart) uses [crossTravelZoneId]
-/// instead since it needs an explicit side; the multi-zone slider's GENERIC
-/// path dispatches the widget's own zone id directly and never reaches here.
+/// context needed (no side/zone ambiguity). The multi-zone slider needs an
+/// explicit side, so it uses [multiZoneId] instead and dispatches the
+/// widget's own zone id directly — it never reaches here.
 String logicalStateIdFor({
   required ButtonType type,
   required ControlState physicalState,
@@ -74,25 +72,24 @@ String logicalStateIdFor({
     case ButtonType.pushButton:
       return switch (physicalState) {
         ControlState.idle => 'idle',
-        ControlState.slow || ControlState.fast => 'active',
+        ControlState.level1 || ControlState.level2 => 'active',
       };
     case ButtonType.toggle:
       // ToggleSwitchButton._commandFor already reports a genuine 3-way
-      // signal (left position -> slow, center -> idle, right position ->
-      // fast) as an artifact of its internal 3-position model — this is a
-      // pure id rename, not a claim that 'right' means anything related to
-      // what 'fast' used to mean elsewhere in the app.
+      // signal (left position -> level1, center -> idle, right position ->
+      // level2) as an artifact of its internal 3-position model — this is a
+      // pure id rename, not a claim that 'right' means anything beyond that.
       return switch (physicalState) {
         ControlState.idle => 'center',
-        ControlState.slow => 'left',
-        ControlState.fast => 'right',
+        ControlState.level1 => 'left',
+        ControlState.level2 => 'right',
       };
     case ButtonType.sliderButton:
     case ButtonType.joystick:
       return switch (physicalState) {
         ControlState.idle => 'idle',
-        ControlState.slow => 'step1',
-        ControlState.fast => 'step2',
+        ControlState.level1 => 'step1',
+        ControlState.level2 => 'step2',
       };
     case ButtonType.potentiometer:
     case ButtonType.analogJoystick1D:
@@ -116,11 +113,11 @@ String logicalStateIdFor({
       );
     case ButtonType.bidirectionalSlider5Step:
     case ButtonType.bidirectionalSlider3Step:
-      // Cross-travel needs an explicit side — callers must use
-      // crossTravelZoneId instead. Reaching here is a programming error.
+      // Multi-zone needs an explicit side — callers must use multiZoneId
+      // instead. Reaching here is a programming error.
       throw UnsupportedError(
-        'logicalStateIdFor does not handle cross-travel types; use '
-        'crossTravelZoneId instead.',
+        'logicalStateIdFor does not handle multi-zone slider types; use '
+        'multiZoneId instead.',
       );
   }
 }

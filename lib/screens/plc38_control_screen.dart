@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
@@ -424,59 +425,39 @@ class _SensorSection extends StatelessWidget {
   }
 }
 
+// PLC38 exposes the full 10-field wire format (DF1/E-STOP..DF10).
+const List<PlcOutputVariant> _ledVariants = [
+  PlcOutputVariant.df1,
+  PlcOutputVariant.df2,
+  PlcOutputVariant.df3,
+  PlcOutputVariant.df4,
+  PlcOutputVariant.df5,
+  PlcOutputVariant.df6,
+  PlcOutputVariant.df7,
+  PlcOutputVariant.df8,
+  PlcOutputVariant.df9,
+  PlcOutputVariant.df10,
+];
+
 class _LiveLedRowValues {
-  const _LiveLedRowValues({
-    required this.estop,
-    required this.up,
-    required this.down,
-    required this.fast,
-    required this.left,
-    required this.right,
-    required this.fastLr,
-    required this.forward,
-    required this.reverse,
-    required this.fastFb,
-  });
+  const _LiveLedRowValues(this.states);
 
-  final bool estop;
-  final bool up;
-  final bool down;
-  final bool fast;
-  final bool left;
-  final bool right;
-  final bool fastLr;
-  final bool forward;
-  final bool reverse;
-  final bool fastFb;
+  final List<bool> states;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _LiveLedRowValues &&
-          other.estop == estop &&
-          other.up == up &&
-          other.down == down &&
-          other.fast == fast &&
-          other.left == left &&
-          other.right == right &&
-          other.fastLr == fastLr &&
-          other.forward == forward &&
-          other.reverse == reverse &&
-          other.fastFb == fastFb;
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! _LiveLedRowValues || other.states.length != states.length) {
+      return false;
+    }
+    for (var i = 0; i < states.length; i++) {
+      if (other.states[i] != states[i]) return false;
+    }
+    return true;
+  }
 
   @override
-  int get hashCode => Object.hash(
-    estop,
-    up,
-    down,
-    fast,
-    left,
-    right,
-    fastLr,
-    forward,
-    reverse,
-    fastFb,
-  );
+  int get hashCode => Object.hashAll(states);
 }
 
 class _LiveLedSection extends StatelessWidget {
@@ -484,85 +465,28 @@ class _LiveLedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final v = context.select<CraneController, _LiveLedRowValues>(
-      (c) => _LiveLedRowValues(
-        estop: c.ledEstop,
-        up: c.ledUp,
-        down: c.ledDown,
-        fast: c.ledFast,
-        left: c.ledLeft,
-        right: c.ledRight,
-        fastLr: c.ledFastLr,
-        forward: c.ledForward,
-        reverse: c.ledReverse,
-        fastFb: c.ledFastFb,
-      ),
+    final values = context.select<CraneController, _LiveLedRowValues>(
+      (c) => _LiveLedRowValues([
+        for (final variant in _ledVariants) c.ledStateFor(variant),
+      ]),
     );
     return RepaintBoundary(
       child: LiveLedRow(
         leds: [
-          LedSpec(
-            label: 'ESTOP',
-            active: v.estop,
-            color: AppColors.eStopColor,
-            inactiveColor: AppColors.darkSuccess,
-            pulseWhenInactive: true,
-            // pin: 'Q_ES',
-          ),
-          LedSpec(
-            label: 'UP',
-            active: v.up,
-            color: AppColors.upColor,
-            // pin: 'Q0.1',
-          ),
-          LedSpec(
-            label: 'DN',
-            active: v.down,
-            color: AppColors.downColor,
-            // pin: 'Q0.2',
-          ),
-          LedSpec(
-            label: 'HF',
-            active: v.fast,
-            color: AppColors.fastColor,
-            // pin: 'Q0.3',
-          ),
-          LedSpec(
-            label: 'LT',
-            active: v.left,
-            color: AppColors.traverseColor,
-            // pin: 'Q0.4',
-          ),
-          LedSpec(
-            label: 'RT',
-            active: v.right,
-            color: AppColors.traverseColor,
-            // pin: 'Q0.5',
-          ),
-          LedSpec(
-            label: 'CTF',
-            active: v.fastLr,
-            color: AppColors.fastColor,
-            // pin: 'Q0.6',
-          ),
-          LedSpec(
-            label: 'FW',
-            active: v.forward,
-            color: AppColors.travelColor,
-            // pin: 'Q0.7',
-          ),
-          LedSpec(
-            label: 'RV',
-            active: v.reverse,
-            color: AppColors.travelColor,
-            // pin: 'Q0.8',
-          ),
-          LedSpec(
-            label: 'LTF',
-            active: v.fastFb,
-            color: AppColors.fastColor,
-            // pin: 'Q0.9',
-          ),
+          for (var i = 0; i < _ledVariants.length; i++)
+            LedSpec(
+              label: _ledVariants[i].isEmergencyStop
+                  ? 'ESTOP'
+                  : _ledVariants[i].storageKey,
+              active: values.states[i],
+              color: _ledVariants[i].isEmergencyStop
+                  ? AppColors.eStopColor
+                  : AppColors.accent,
+              inactiveColor: _ledVariants[i].isEmergencyStop
+                  ? AppColors.darkSuccess
+                  : null,
+              pulseWhenInactive: _ledVariants[i].isEmergencyStop,
+            ),
         ],
       ),
     );
@@ -581,8 +505,8 @@ class _StatusChipSection extends StatelessWidget {
             ? AppColors.eStopColor
             : controller.activeCommand.isIdle
             ? AppColors.idleColor
-            : AppColors.upColorLight,
-        label: controller.activeCommand.statusLabel,
+            : AppColors.accent,
+        label: controller.statusLabel,
       ),
     );
   }

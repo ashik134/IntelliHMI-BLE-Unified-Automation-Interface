@@ -4,19 +4,14 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 
-const String kCrossTravelSpanMessage =
+const String kMultiZoneSpanMessage =
     '5-Zone slider requires two adjacent cells. Clear or replace the neighboring control first.';
 
 const String kWidgetPlacementMessage =
     'That widget cannot fit there without overlapping another control.';
 
-/// Synthetic selection id for a vacant slot — never a real [ButtonConfig.id],
-/// so `CustomizationModeController.selectedButton` correctly resolves to
-/// null for it (there's no button yet) while `selectedSlotId` still lets
-/// the grid draw the same highlight styling used for a selected occupied
-/// slot.
+/// Synthetic selection id for a vacant slot — never a real [ButtonConfig.id].
 String vacantSlotSelectionId(int pageIndex, int slotIndex) =>
     '__vacant_${pageIndex}_$slotIndex';
 
@@ -25,12 +20,12 @@ String vacantSlotSelectionId(int pageIndex, int slotIndex) =>
 //
 // The single place a control screen's onCommand(buttonId, state) handler
 // resolves the LOGICAL state id and its EXACT set of user-configured PLC
-// output variants, for any id CraneController.setButtonCommand can be
-// called with — a real ButtonConfig id, a traverse fast-assist virtual key,
-// or a joystick virtual per-direction sub-button id. This is a pure lookup:
-// it never adds a variant beyond what was explicitly configured for that
-// exact (buttonId, stateId) pair. See CraneController.setButtonCommand's
-// doc comment for the master invariant this preserves.
+// output variants, for any id CraneController.setButtonState can be called
+// with — a real ButtonConfig id, or a joystick virtual per-direction
+// sub-button id. This is a pure lookup: it never adds a variant beyond what
+// was explicitly configured for that exact (buttonId, stateId) pair. See
+// CraneController.setButtonState's doc comment for the master invariant this
+// preserves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ResolvedButtonCommand {
@@ -45,30 +40,17 @@ class ResolvedButtonCommand {
 
 /// Resolves [buttonId]'s logical stateId + exact active PLC output variants
 /// for the given physical gesture [state], consulting [layoutCfg] for real
-/// buttons and the fixed virtual-id tables for traverse fast-assist keys /
-/// joystick sub-buttons. Returns idle/`{}` for any id this function cannot
-/// resolve (e.g. a stale id from a just-deleted button) — never guesses.
+/// buttons and the joystick virtual sub-button table. Returns idle/`{}` for
+/// any id this function cannot resolve (e.g. a stale id from a
+/// just-deleted button) — never guesses.
 ResolvedButtonCommand resolveButtonCommand({
   required String buttonId,
   required ControlState state,
   required ControlLayoutConfig layoutCfg,
 }) {
-  // Traverse fast-assist virtual keys: fixed 2-state (idle/active) table,
-  // migrated once, never re-derived.
-  final virtualStates = kVirtualFastKeyStateMappings[buttonId];
-  if (virtualStates != null) {
-    final stateId = state == ControlState.idle
-        ? 'idle'
-        : kVirtualFastKeyActiveState;
-    return ResolvedButtonCommand(
-      stateId: stateId,
-      activeVariants: virtualStates[stateId]?.activeVariants ?? const {},
-    );
-  }
-
   // Joystick virtual per-direction sub-buttons: table lives on the PARENT
   // ButtonConfig (joystickSubButtonMappings), keyed by this sub-button id.
-  if (joystickVirtualFieldFor(buttonId) != null) {
+  if (joystickDirectionFor(buttonId) != null) {
     final parts = buttonId.split(':');
     final sourceButtonId = parts.length == 3 ? parts[1] : null;
     final parent = sourceButtonId == null
@@ -106,29 +88,19 @@ ResolvedButtonCommand resolveButtonCommand({
     return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
   }
   if (config.type == ButtonType.horn ||
-      config.type == ButtonType.alarmIndicator) {
-    // Both are PLC status-driven FEEDBACK widgets (see HornButtonStrategy/
-    // AlarmIndicatorStrategy) — neither ever calls onCommand, so this branch
-    // only guards against a stray/legacy call reaching here; always inert.
+      config.type == ButtonType.alarmIndicator ||
+      config.type == ButtonType.bidirectionalSlider5Step ||
+      config.type == ButtonType.bidirectionalSlider3Step) {
+    // Horn/alarmIndicator are PLC status-driven FEEDBACK widgets (see
+    // HornButtonStrategy/AlarmIndicatorStrategy); the multi-zone sliders
+    // dispatch exclusively via onStateIdCommand with their own raw zone id
+    // (see multi_zone_slider_strategy.dart). None of these ever call
+    // onCommand, so this branch only guards against a stray/legacy call
+    // reaching here; always inert.
     return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
 
-  final String stateId;
-  if (config.type == ButtonType.bidirectionalSlider5Step ||
-      config.type == ButtonType.bidirectionalSlider3Step) {
-    final endpoints = config.type == ButtonType.bidirectionalSlider5Step
-        ? const Bidirectional5StepStrategy().traverseEndpointsFor(config)
-        : const Bidirectional3StepStrategy().traverseEndpointsFor(config);
-    final isLeftButton = buttonId == endpoints.leftId;
-    stateId = crossTravelZoneId(
-      isLeftButton: isLeftButton,
-      state: state,
-      fiveZone: config.type == ButtonType.bidirectionalSlider5Step,
-    );
-  } else {
-    stateId = logicalStateIdFor(type: config.type, physicalState: state);
-  }
-
+  final stateId = logicalStateIdFor(type: config.type, physicalState: state);
   return ResolvedButtonCommand(
     stateId: stateId,
     activeVariants: config.stateMappings[stateId]?.activeVariants ?? const {},
@@ -288,7 +260,6 @@ List<String> validateGridOccupancy(
       rows: rows,
     );
     if (!_isPageControl(button)) continue;
-    if (isRedundantCrossTravelConfig(button, buttons)) continue;
 
     final name = button.label.isEmpty ? button.id : button.label;
     if (button.pageIndex < 0) {
@@ -341,9 +312,6 @@ List<ControlGridPage> buildControlGridPages({
   for (final role in roles) {
     final source = layoutCfg.buttonFor(role);
     if (source == null || !source.visible) continue;
-    if (isRedundantCrossTravelConfig(source, layoutCfg.resolvedButtons)) {
-      continue;
-    }
     renderedIds.add(source.id);
 
     _addPageItem(
@@ -358,9 +326,6 @@ List<ControlGridPage> buildControlGridPages({
   for (final source in layoutCfg.resolvedButtons.values) {
     if (renderedIds.contains(source.id) || !_isPageControl(source)) continue;
     if (source.role != null) continue;
-    if (isRedundantCrossTravelConfig(source, layoutCfg.resolvedButtons)) {
-      continue;
-    }
     _addPageItem(
       source,
       pagesByIndex: pagesByIndex,
@@ -469,7 +434,6 @@ ControlLayoutConfig compactControlPages(
   final occupiedPages = <int>{};
   for (final rawButton in buttons.values) {
     if (!_isPageControl(rawButton)) continue;
-    if (isRedundantCrossTravelConfig(rawButton, buttons)) continue;
     final normalized = normalizeButtonPlacement(
       rawButton,
       slotCount: slotCount,
@@ -524,10 +488,7 @@ ControlLayoutConfig repairControlGridLayout(
   final next = <String, ButtonConfig>{...buttons};
   final occupied = <String, ButtonConfig>{};
   final placeable =
-      buttons.values.where((button) {
-        return _isPageControl(button) &&
-            !isRedundantCrossTravelConfig(button, buttons);
-      }).toList()..sort((a, b) {
+      buttons.values.where(_isPageControl).toList()..sort((a, b) {
         final pageCompare = a.pageIndex.compareTo(b.pageIndex);
         if (pageCompare != 0) return pageCompare;
         final rowCompare = a.gridY.compareTo(b.gridY);
@@ -581,10 +542,7 @@ Map<String, ButtonConfig> autoArrangeButtons(
 }) {
   final next = <String, ButtonConfig>{...buttons};
   final placeable =
-      buttons.values.where((button) {
-        return _isPageControl(button) &&
-            !isRedundantCrossTravelConfig(button, buttons);
-      }).toList()..sort((a, b) {
+      buttons.values.where(_isPageControl).toList()..sort((a, b) {
         final areaCompare = (b.gridColumnSpan * b.gridRowSpan).compareTo(
           a.gridColumnSpan * a.gridRowSpan,
         );
@@ -612,20 +570,6 @@ Map<String, ButtonConfig> autoArrangeButtons(
     );
   }
   return next;
-}
-
-bool isRedundantCrossTravelConfig(
-  ButtonConfig button,
-  Map<String, ButtonConfig> buttons,
-) {
-  if (button.type != ButtonType.bidirectionalSlider5Step ||
-      button.role != ControlRole.traverseRight) {
-    return false;
-  }
-  final left = buttons[ControlRole.traverseLeft.name];
-  return left != null &&
-      left.visible &&
-      left.type == ButtonType.bidirectionalSlider5Step;
 }
 
 GridMutationResult buildGridSlotDrop({
@@ -808,13 +752,13 @@ GridMutationResult buildButtonDelete({
   int rows = ButtonConfig.controlGridRows,
 }) {
   final role = selected.role;
-  if (role != null && !role.isMotionControl) {
+  if (role != null) {
     return const GridMutationResult.invalid(
-      'Safety controls cannot be deleted from the motion grid.',
+      'Safety controls cannot be deleted from the grid.',
     );
   }
 
-  final deletedIds = _buttonIdsForDelete(selected, buttons);
+  final deletedIds = <String>{selected.id};
   final next = <String, ButtonConfig>{};
   for (final entry in buttons.entries) {
     if (deletedIds.contains(entry.key) || deletedIds.contains(entry.value.id)) {
@@ -823,22 +767,6 @@ GridMutationResult buildButtonDelete({
     next[entry.key] = _withoutButtonReferences(entry.value, deletedIds);
   }
   return GridMutationResult.valid(next);
-}
-
-Set<String> _buttonIdsForDelete(
-  ButtonConfig selected,
-  Map<String, ButtonConfig> buttons,
-) {
-  final ids = <String>{selected.id};
-  final role = selected.role;
-  final pairedRole = role?.pairedRole;
-  final paired = pairedRole == null ? null : buttons[pairedRole.name];
-  if (selected.type == ButtonType.bidirectionalSlider5Step &&
-      role?.axis == AxisKind.traverse &&
-      paired?.type == ButtonType.bidirectionalSlider5Step) {
-    ids.add(paired!.id);
-  }
-  return ids;
 }
 
 ButtonConfig _withoutButtonReferences(
@@ -858,136 +786,6 @@ ButtonConfig _withoutButtonReferences(
       inclusiveButtonIds: included,
     ),
   );
-}
-
-LayoutMutationResult buildButtonTypeChange({
-  required ControlLayoutConfig draft,
-  required ControlRole role,
-  required ButtonType type,
-  int slotCount = ButtonConfig.controlSlotCount,
-  int columns = ButtonConfig.controlGridColumns,
-  int rows = ButtonConfig.controlGridRows,
-}) {
-  final current = draft.buttonFor(role);
-  if (current == null) {
-    return const LayoutMutationResult.invalid('Control is not available.');
-  }
-
-  final buttons = {...draft.resolvedButtons};
-  final pairedRole = role.pairedRole;
-  final paired = pairedRole == null ? null : buttons[pairedRole.name];
-  final (defaultColumns, defaultRows) = ButtonConfig.defaultGridSizeFor(
-    type,
-    customProperties: current.customProperties,
-  );
-
-  if (type == ButtonType.bidirectionalSlider5Step) {
-    final candidate = normalizeButtonPlacement(
-      current.copyWith(
-        type: type,
-        visible: true,
-        gridColumns: defaultColumns,
-        gridRows: defaultRows,
-      ),
-      slotCount: slotCount,
-      columns: columns,
-      rows: rows,
-    );
-    final occupied = _occupiedExcept(
-      buttons,
-      {current.id, paired?.id},
-      columns,
-      rows,
-      slotCount,
-    );
-    if (!_isPlacementFree(
-      candidate,
-      occupied,
-      columns: columns,
-      rows: rows,
-      slotCount: slotCount,
-    )) {
-      return const LayoutMutationResult.invalid(kCrossTravelSpanMessage);
-    }
-    buttons[current.id] = candidate;
-    if (role.axis == AxisKind.traverse && paired != null) {
-      buttons[paired.id] = paired.copyWith(visible: false);
-    }
-  } else {
-    final candidate = normalizeButtonPlacement(
-      current.copyWith(
-        type: type,
-        visible: true,
-        gridColumns: defaultColumns,
-        gridRows: defaultRows,
-      ),
-      slotCount: slotCount,
-      columns: columns,
-      rows: rows,
-    );
-    final occupied = _occupiedExcept(
-      buttons,
-      {current.id},
-      columns,
-      rows,
-      slotCount,
-    );
-    buttons[current.id] =
-        _isPlacementFree(
-          candidate,
-          occupied,
-          columns: columns,
-          rows: rows,
-          slotCount: slotCount,
-        )
-        ? candidate
-        : _findFirstPlacement(
-            candidate,
-            occupied: occupied,
-            columns: columns,
-            rows: rows,
-            slotCount: slotCount,
-            startPage: current.pageIndex,
-          );
-
-    if (current.type == ButtonType.bidirectionalSlider5Step &&
-        type == ButtonType.bidirectionalSlider3Step &&
-        role.axis == AxisKind.traverse &&
-        paired != null) {
-      buttons[paired.id] = paired.copyWith(visible: false);
-    } else if (current.type == ButtonType.bidirectionalSlider5Step &&
-        role.axis == AxisKind.traverse &&
-        paired != null) {
-      buttons[paired.id] = paired.copyWith(
-        visible: true,
-        type: paired.type == ButtonType.bidirectionalSlider5Step
-            ? type
-            : paired.type,
-        gridColumns: defaultColumns,
-        gridRows: defaultRows,
-      );
-      final repaired = autoArrangeButtons(
-        buttons,
-        slotCount: slotCount,
-        columns: columns,
-        rows: rows,
-      );
-      buttons
-        ..clear()
-        ..addAll(repaired);
-    }
-  }
-
-  final errors = validateGridOccupancy(
-    buttons,
-    slotCount: slotCount,
-    columns: columns,
-    rows: rows,
-  );
-  if (errors.isNotEmpty) {
-    return LayoutMutationResult.invalid(_messageForErrors(errors, current));
-  }
-  return LayoutMutationResult.valid(draft.copyWith(buttons: buttons));
 }
 
 ControlGridPage _buildPage({
@@ -1098,9 +896,7 @@ Map<String, ButtonConfig> _occupiedExcept(
 ) {
   final occupied = <String, ButtonConfig>{};
   for (final button in buttons.values) {
-    if (excludedIds.contains(button.id) ||
-        !_isPageControl(button) ||
-        isRedundantCrossTravelConfig(button, buttons)) {
+    if (excludedIds.contains(button.id) || !_isPageControl(button)) {
       continue;
     }
     _markOccupied(
@@ -1116,15 +912,15 @@ Map<String, ButtonConfig> _occupiedExcept(
 
 int _slotFor(int x, int y, int columns) => y * columns + x;
 
-bool _isPageControl(ButtonConfig button) {
-  final role = button.role;
-  return button.visible && (role == null || role.isMotionControl);
-}
+// Every button with a fixed role (estop/resetEstop) is a safety control that
+// lives outside the page grid; every roleless button is a generic,
+// grid-placeable control.
+bool _isPageControl(ButtonConfig button) => button.visible && button.role == null;
 
 String _messageForErrors(List<String> errors, ButtonConfig changed) {
   if (changed.type == ButtonType.bidirectionalSlider5Step ||
       changed.occupiesMultipleGridCells) {
-    return kCrossTravelSpanMessage;
+    return kMultiZoneSpanMessage;
   }
   return errors.isEmpty ? kWidgetPlacementMessage : errors.first;
 }

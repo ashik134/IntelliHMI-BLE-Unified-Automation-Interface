@@ -2,15 +2,13 @@ enum AppScreen { connection, authentication, control, plc38Control }
 
 enum DeviceStaleStatus { active, stale, expired }
 
-enum ControlState { idle, slow, fast }
-
-/// Horizontal traverse direction (PLC38 — Left / Right axis).
-enum TraverseDirection { idle, left, right }
-
-/// Longitudinal travel direction (PLC38 — Forward / Reverse axis).
-enum TravelDirection { idle, forward, reverse }
-
-enum HoistState { idle, upSlow, upFast, downSlow, downFast }
+/// Generic gesture-depth level a digital control reports for the physical
+/// touch it's currently tracking. Not a PLC output itself — each button-type
+/// strategy translates this into a neutral logical state id (e.g. 'idle',
+/// 'active', 'step1', 'step2', 'zone1'..'zone5', 'center'), and only that
+/// state id's `ButtonConfig.stateMappings[stateId].activeVariants` ever
+/// reaches the PLC.
+enum ControlState { idle, level1, level2 }
 
 enum PlcType {
   plc14('IntelliKran MIN'),
@@ -50,17 +48,3 @@ enum LayoutBucket {
     PlcType.unknown => LayoutBucket.plc14,
   };
 }
-
-const Map<ControlState, List<int>> plcOutputUp = {
-  ControlState.idle: [0, 0, 0, 0],
-  ControlState.slow: [0, 1, 0, 0],
-  ControlState.fast: [0, 1, 0, 1],
-};
-
-const Map<ControlState, List<int>> plcOutputDown = {
-  ControlState.idle: [0, 0, 0, 0],
-  ControlState.slow: [0, 0, 1, 0],
-  ControlState.fast: [0, 0, 1, 1],
-};
-
-const List<int> plcConflict = [0, 0, 0, 0];

@@ -6,6 +6,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart'
     show LayoutBucket, PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/legacy_layout_migration.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetType
@@ -101,9 +102,9 @@ class ControlWidgetSizeConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 // AxisControlConfig
 //
-// Per-axis control type, spring/latch wiring, and height scale — each axis
-// (Hoist / Traverse / Travel) has its own independent Control Type, replacing
-// the single global switch this app used before per-button editing existed.
+// LEGACY JSON SHAPE ONLY (see AxisConfigSet doc comment) — control type,
+// spring/latch wiring, and height scale for one of the three legacy axis
+// slots. Read via fromJson for backward-compat with pre-v3 saved layouts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AxisControlConfig {
@@ -179,57 +180,48 @@ class AxisControlConfig {
 // AxisConfigSet
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// LEGACY JSON SHAPE ONLY. Read via [fromJson] for backward-compat with
+/// pre-v3 saved layouts (JSON keys 'hoist'/'traverse'/'travel'); never
+/// written by new code, never consulted by any live command/rendering path
+/// — see legacy_layout_migration.dart, the only consumer.
 class AxisConfigSet {
   const AxisConfigSet({
-    this.hoist = const AxisControlConfig(),
-    this.traverse = const AxisControlConfig(),
-    this.travel = const AxisControlConfig(),
+    this.primary = const AxisControlConfig(),
+    this.secondary = const AxisControlConfig(),
+    this.tertiary = const AxisControlConfig(),
   });
 
-  final AxisControlConfig hoist;
-  final AxisControlConfig traverse;
-  final AxisControlConfig travel;
-
-  AxisControlConfig forAxis(AxisKind axis) => switch (axis) {
-    AxisKind.hoist => hoist,
-    AxisKind.traverse => traverse,
-    AxisKind.travel => travel,
-  };
-
-  AxisConfigSet withAxis(AxisKind axis, AxisControlConfig config) =>
-      switch (axis) {
-        AxisKind.hoist => copyWith(hoist: config),
-        AxisKind.traverse => copyWith(traverse: config),
-        AxisKind.travel => copyWith(travel: config),
-      };
+  final AxisControlConfig primary;
+  final AxisControlConfig secondary;
+  final AxisControlConfig tertiary;
 
   AxisConfigSet copyWith({
-    AxisControlConfig? hoist,
-    AxisControlConfig? traverse,
-    AxisControlConfig? travel,
+    AxisControlConfig? primary,
+    AxisControlConfig? secondary,
+    AxisControlConfig? tertiary,
   }) {
     return AxisConfigSet(
-      hoist: hoist ?? this.hoist,
-      traverse: traverse ?? this.traverse,
-      travel: travel ?? this.travel,
+      primary: primary ?? this.primary,
+      secondary: secondary ?? this.secondary,
+      tertiary: tertiary ?? this.tertiary,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'hoist': hoist.toJson(),
-    'traverse': traverse.toJson(),
-    'travel': travel.toJson(),
+    'hoist': primary.toJson(),
+    'traverse': secondary.toJson(),
+    'travel': tertiary.toJson(),
   };
 
   factory AxisConfigSet.fromJson(Map<String, dynamic> json) {
     return AxisConfigSet(
-      hoist: json['hoist'] != null
+      primary: json['hoist'] != null
           ? AxisControlConfig.fromJson(json['hoist'] as Map<String, dynamic>)
           : const AxisControlConfig(),
-      traverse: json['traverse'] != null
+      secondary: json['traverse'] != null
           ? AxisControlConfig.fromJson(json['traverse'] as Map<String, dynamic>)
           : const AxisControlConfig(),
-      travel: json['travel'] != null
+      tertiary: json['travel'] != null
           ? AxisControlConfig.fromJson(json['travel'] as Map<String, dynamic>)
           : const AxisControlConfig(),
     );
@@ -239,12 +231,12 @@ class AxisConfigSet {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is AxisConfigSet &&
-          other.hoist == hoist &&
-          other.traverse == traverse &&
-          other.travel == travel;
+          other.primary == primary &&
+          other.secondary == secondary &&
+          other.tertiary == tertiary;
 
   @override
-  int get hashCode => Object.hash(hoist, traverse, travel);
+  int get hashCode => Object.hash(primary, secondary, tertiary);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -375,86 +367,60 @@ class ButtonStyleConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 // RoleStyleConfig
 //
-// Named fields for the seven STYLEABLE roles only. There is deliberately no
-// `estop` field on this class — a structural (not just validated) guarantee
-// that E-Stop's appearance can never be reassigned away from its safety-red
-// identity. Attempting to look up or set a style for ControlRole.estop
-// throws, by design.
+// LEGACY JSON SHAPE ONLY. Named fields for the six legacy motion-slot styles
+// plus Reset E-STOP. Read via [fromJson] for backward-compat with pre-v3
+// saved layouts; never written by new code, never consulted by any live
+// command/rendering path — see legacy_layout_migration.dart, the only
+// consumer. There is deliberately no `estop` field — E-STOP's appearance was
+// never customizable, migrated or otherwise.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class RoleStyleConfig {
   const RoleStyleConfig({
-    this.hoistUp = const ButtonStyleConfig(),
-    this.hoistDown = const ButtonStyleConfig(),
-    this.traverseLeft = const ButtonStyleConfig(),
-    this.traverseRight = const ButtonStyleConfig(),
-    this.travelForward = const ButtonStyleConfig(),
-    this.travelReverse = const ButtonStyleConfig(),
+    this.slot1 = const ButtonStyleConfig(),
+    this.slot2 = const ButtonStyleConfig(),
+    this.slot3 = const ButtonStyleConfig(),
+    this.slot4 = const ButtonStyleConfig(),
+    this.slot5 = const ButtonStyleConfig(),
+    this.slot6 = const ButtonStyleConfig(),
     this.resetEstop = const ButtonStyleConfig(),
   });
 
-  final ButtonStyleConfig hoistUp;
-  final ButtonStyleConfig hoistDown;
-  final ButtonStyleConfig traverseLeft;
-  final ButtonStyleConfig traverseRight;
-  final ButtonStyleConfig travelForward;
-  final ButtonStyleConfig travelReverse;
+  final ButtonStyleConfig slot1;
+  final ButtonStyleConfig slot2;
+  final ButtonStyleConfig slot3;
+  final ButtonStyleConfig slot4;
+  final ButtonStyleConfig slot5;
+  final ButtonStyleConfig slot6;
   final ButtonStyleConfig resetEstop;
 
-  ButtonStyleConfig forRole(ControlRole role) => switch (role) {
-    ControlRole.hoistUp => hoistUp,
-    ControlRole.hoistDown => hoistDown,
-    ControlRole.traverseLeft => traverseLeft,
-    ControlRole.traverseRight => traverseRight,
-    ControlRole.travelForward => travelForward,
-    ControlRole.travelReverse => travelReverse,
-    ControlRole.resetEstop => resetEstop,
-    ControlRole.estop => throw ArgumentError(
-      'E-Stop appearance is not customizable.',
-    ),
-  };
-
-  RoleStyleConfig withRole(ControlRole role, ButtonStyleConfig style) =>
-      switch (role) {
-        ControlRole.hoistUp => copyWith(hoistUp: style),
-        ControlRole.hoistDown => copyWith(hoistDown: style),
-        ControlRole.traverseLeft => copyWith(traverseLeft: style),
-        ControlRole.traverseRight => copyWith(traverseRight: style),
-        ControlRole.travelForward => copyWith(travelForward: style),
-        ControlRole.travelReverse => copyWith(travelReverse: style),
-        ControlRole.resetEstop => copyWith(resetEstop: style),
-        ControlRole.estop => throw ArgumentError(
-          'E-Stop appearance is not customizable.',
-        ),
-      };
-
   RoleStyleConfig copyWith({
-    ButtonStyleConfig? hoistUp,
-    ButtonStyleConfig? hoistDown,
-    ButtonStyleConfig? traverseLeft,
-    ButtonStyleConfig? traverseRight,
-    ButtonStyleConfig? travelForward,
-    ButtonStyleConfig? travelReverse,
+    ButtonStyleConfig? slot1,
+    ButtonStyleConfig? slot2,
+    ButtonStyleConfig? slot3,
+    ButtonStyleConfig? slot4,
+    ButtonStyleConfig? slot5,
+    ButtonStyleConfig? slot6,
     ButtonStyleConfig? resetEstop,
   }) {
     return RoleStyleConfig(
-      hoistUp: hoistUp ?? this.hoistUp,
-      hoistDown: hoistDown ?? this.hoistDown,
-      traverseLeft: traverseLeft ?? this.traverseLeft,
-      traverseRight: traverseRight ?? this.traverseRight,
-      travelForward: travelForward ?? this.travelForward,
-      travelReverse: travelReverse ?? this.travelReverse,
+      slot1: slot1 ?? this.slot1,
+      slot2: slot2 ?? this.slot2,
+      slot3: slot3 ?? this.slot3,
+      slot4: slot4 ?? this.slot4,
+      slot5: slot5 ?? this.slot5,
+      slot6: slot6 ?? this.slot6,
       resetEstop: resetEstop ?? this.resetEstop,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'hoistUp': hoistUp.toJson(),
-    'hoistDown': hoistDown.toJson(),
-    'traverseLeft': traverseLeft.toJson(),
-    'traverseRight': traverseRight.toJson(),
-    'travelForward': travelForward.toJson(),
-    'travelReverse': travelReverse.toJson(),
+    'hoistUp': slot1.toJson(),
+    'hoistDown': slot2.toJson(),
+    'traverseLeft': slot3.toJson(),
+    'traverseRight': slot4.toJson(),
+    'travelForward': slot5.toJson(),
+    'travelReverse': slot6.toJson(),
     'resetEstop': resetEstop.toJson(),
   };
 
@@ -463,12 +429,12 @@ class RoleStyleConfig {
         ? ButtonStyleConfig.fromJson(json[key] as Map<String, dynamic>)
         : const ButtonStyleConfig();
     return RoleStyleConfig(
-      hoistUp: read('hoistUp'),
-      hoistDown: read('hoistDown'),
-      traverseLeft: read('traverseLeft'),
-      traverseRight: read('traverseRight'),
-      travelForward: read('travelForward'),
-      travelReverse: read('travelReverse'),
+      slot1: read('hoistUp'),
+      slot2: read('hoistDown'),
+      slot3: read('traverseLeft'),
+      slot4: read('traverseRight'),
+      slot5: read('travelForward'),
+      slot6: read('travelReverse'),
       resetEstop: read('resetEstop'),
     );
   }
@@ -477,24 +443,17 @@ class RoleStyleConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is RoleStyleConfig &&
-          other.hoistUp == hoistUp &&
-          other.hoistDown == hoistDown &&
-          other.traverseLeft == traverseLeft &&
-          other.traverseRight == traverseRight &&
-          other.travelForward == travelForward &&
-          other.travelReverse == travelReverse &&
+          other.slot1 == slot1 &&
+          other.slot2 == slot2 &&
+          other.slot3 == slot3 &&
+          other.slot4 == slot4 &&
+          other.slot5 == slot5 &&
+          other.slot6 == slot6 &&
           other.resetEstop == resetEstop;
 
   @override
-  int get hashCode => Object.hash(
-    hoistUp,
-    hoistDown,
-    traverseLeft,
-    traverseRight,
-    travelForward,
-    travelReverse,
-    resetEstop,
-  );
+  int get hashCode =>
+      Object.hash(slot1, slot2, slot3, slot4, slot5, slot6, resetEstop);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -503,12 +462,12 @@ class RoleStyleConfig {
 
 class ControlLabelConfig {
   const ControlLabelConfig({
-    this.upLabel = 'UP',
-    this.downLabel = 'DOWN',
-    this.leftLabel = 'LEFT',
-    this.rightLabel = 'RIGHT',
-    this.forwardLabel = 'FWD',
-    this.reverseLabel = 'REV',
+    this.legacySlot1Label = 'UP',
+    this.legacySlot2Label = 'DOWN',
+    this.legacySlot3Label = 'LEFT',
+    this.legacySlot4Label = 'RIGHT',
+    this.legacySlot5Label = 'FWD',
+    this.legacySlot6Label = 'REV',
     this.estopSwipeInstruction = 'SWIPE TO EMERGENCY STOP',
     this.resetEstopLabel = 'RESET E-STOP',
     this.screenTitle = '',
@@ -521,37 +480,42 @@ class ControlLabelConfig {
   /// screen title) where a full short sentence is expected.
   static const int maxInstructionLength = 40;
 
-  final String upLabel;
-  final String downLabel;
-  final String leftLabel;
-  final String rightLabel;
-  final String forwardLabel;
-  final String reverseLabel;
+  /// LEGACY JSON SHAPE ONLY — see legacy_layout_migration.dart, the only
+  /// consumer. Not read by any live rendering path.
+  final String legacySlot1Label;
+  final String legacySlot2Label;
+  final String legacySlot3Label;
+  final String legacySlot4Label;
+  final String legacySlot5Label;
+  final String legacySlot6Label;
 
+  /// Live — read directly by the control screens' safety panel.
   final String estopSwipeInstruction;
 
+  /// Live — read directly by the control screens' safety panel.
   final String resetEstopLabel;
 
+  /// Live — read directly by the control screens' AppBar title.
   final String screenTitle;
 
   ControlLabelConfig copyWith({
-    String? upLabel,
-    String? downLabel,
-    String? leftLabel,
-    String? rightLabel,
-    String? forwardLabel,
-    String? reverseLabel,
+    String? legacySlot1Label,
+    String? legacySlot2Label,
+    String? legacySlot3Label,
+    String? legacySlot4Label,
+    String? legacySlot5Label,
+    String? legacySlot6Label,
     String? estopSwipeInstruction,
     String? resetEstopLabel,
     String? screenTitle,
   }) {
     return ControlLabelConfig(
-      upLabel: upLabel ?? this.upLabel,
-      downLabel: downLabel ?? this.downLabel,
-      leftLabel: leftLabel ?? this.leftLabel,
-      rightLabel: rightLabel ?? this.rightLabel,
-      forwardLabel: forwardLabel ?? this.forwardLabel,
-      reverseLabel: reverseLabel ?? this.reverseLabel,
+      legacySlot1Label: legacySlot1Label ?? this.legacySlot1Label,
+      legacySlot2Label: legacySlot2Label ?? this.legacySlot2Label,
+      legacySlot3Label: legacySlot3Label ?? this.legacySlot3Label,
+      legacySlot4Label: legacySlot4Label ?? this.legacySlot4Label,
+      legacySlot5Label: legacySlot5Label ?? this.legacySlot5Label,
+      legacySlot6Label: legacySlot6Label ?? this.legacySlot6Label,
       estopSwipeInstruction:
           estopSwipeInstruction ?? this.estopSwipeInstruction,
       resetEstopLabel: resetEstopLabel ?? this.resetEstopLabel,
@@ -560,12 +524,12 @@ class ControlLabelConfig {
   }
 
   Map<String, dynamic> toJson() => {
-    'upLabel': upLabel,
-    'downLabel': downLabel,
-    'leftLabel': leftLabel,
-    'rightLabel': rightLabel,
-    'forwardLabel': forwardLabel,
-    'reverseLabel': reverseLabel,
+    'upLabel': legacySlot1Label,
+    'downLabel': legacySlot2Label,
+    'leftLabel': legacySlot3Label,
+    'rightLabel': legacySlot4Label,
+    'forwardLabel': legacySlot5Label,
+    'reverseLabel': legacySlot6Label,
     'estopSwipeInstruction': estopSwipeInstruction,
     'resetEstopLabel': resetEstopLabel,
     'screenTitle': screenTitle,
@@ -573,12 +537,12 @@ class ControlLabelConfig {
 
   factory ControlLabelConfig.fromJson(Map<String, dynamic> json) {
     return ControlLabelConfig(
-      upLabel: json['upLabel'] as String? ?? 'UP',
-      downLabel: json['downLabel'] as String? ?? 'DOWN',
-      leftLabel: json['leftLabel'] as String? ?? 'LEFT',
-      rightLabel: json['rightLabel'] as String? ?? 'RIGHT',
-      forwardLabel: json['forwardLabel'] as String? ?? 'FWD',
-      reverseLabel: json['reverseLabel'] as String? ?? 'REV',
+      legacySlot1Label: json['upLabel'] as String? ?? 'UP',
+      legacySlot2Label: json['downLabel'] as String? ?? 'DOWN',
+      legacySlot3Label: json['leftLabel'] as String? ?? 'LEFT',
+      legacySlot4Label: json['rightLabel'] as String? ?? 'RIGHT',
+      legacySlot5Label: json['forwardLabel'] as String? ?? 'FWD',
+      legacySlot6Label: json['reverseLabel'] as String? ?? 'REV',
       estopSwipeInstruction:
           json['estopSwipeInstruction'] as String? ?? 'SWIPE TO EMERGENCY STOP',
       resetEstopLabel: json['resetEstopLabel'] as String? ?? 'RESET E-STOP',
@@ -590,24 +554,24 @@ class ControlLabelConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ControlLabelConfig &&
-          other.upLabel == upLabel &&
-          other.downLabel == downLabel &&
-          other.leftLabel == leftLabel &&
-          other.rightLabel == rightLabel &&
-          other.forwardLabel == forwardLabel &&
-          other.reverseLabel == reverseLabel &&
+          other.legacySlot1Label == legacySlot1Label &&
+          other.legacySlot2Label == legacySlot2Label &&
+          other.legacySlot3Label == legacySlot3Label &&
+          other.legacySlot4Label == legacySlot4Label &&
+          other.legacySlot5Label == legacySlot5Label &&
+          other.legacySlot6Label == legacySlot6Label &&
           other.estopSwipeInstruction == estopSwipeInstruction &&
           other.resetEstopLabel == resetEstopLabel &&
           other.screenTitle == screenTitle;
 
   @override
   int get hashCode => Object.hash(
-    upLabel,
-    downLabel,
-    leftLabel,
-    rightLabel,
-    forwardLabel,
-    reverseLabel,
+    legacySlot1Label,
+    legacySlot2Label,
+    legacySlot3Label,
+    legacySlot4Label,
+    legacySlot5Label,
+    legacySlot6Label,
     estopSwipeInstruction,
     resetEstopLabel,
     screenTitle,
@@ -678,14 +642,6 @@ class ControlArrangementConfig {
 // ControlLayoutConfig  (top-level)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Default axis render order (Hoist, Traverse, Travel). PLC38-only meaning —
-/// PLC14/PLC21 only ever render the Hoist axis, so order is a no-op there.
-const List<AxisKind> kDefaultAxisOrder = [
-  AxisKind.hoist,
-  AxisKind.traverse,
-  AxisKind.travel,
-];
-
 class ControlLayoutConfig {
   const ControlLayoutConfig({
     this.sizeConfig = const ControlWidgetSizeConfig(),
@@ -693,7 +649,6 @@ class ControlLayoutConfig {
     this.arrangementConfig = const ControlArrangementConfig(),
     this.axisConfigs = const AxisConfigSet(),
     this.roleStyles = const RoleStyleConfig(),
-    this.axisOrder = kDefaultAxisOrder,
     this.buttons = const <String, ButtonConfig>{},
     this.controlPageCount = 1,
     bool buttonsAreAuthoritative = false,
@@ -737,13 +692,10 @@ class ControlLayoutConfig {
   /// LEGACY (v2 shape) — see [axisConfigs] doc comment.
   final RoleStyleConfig roleStyles;
 
-  /// Display order of the three motion axes. Meaningful on PLC38 only.
-  final List<AxisKind> axisOrder;
-
-  /// Button-centric configs, keyed by [ButtonConfig.id] (== `ControlRole.name`
-  /// for all 8 legacy buttons). Populated either explicitly (new-format
-  /// JSON) or synthesized from [axisConfigs]/[roleStyles]/[labelConfig] on
-  /// load when absent (old-format JSON) — see [fromJson].
+  /// Button-centric configs, keyed by [ButtonConfig.id]. Populated either
+  /// explicitly (new-format JSON) or synthesized from
+  /// [axisConfigs]/[roleStyles]/[labelConfig] on load when absent (old-format
+  /// JSON) — see [fromJson].
   final Map<String, ButtonConfig> buttons;
   final bool _buttonsAreAuthoritative;
 
@@ -758,7 +710,11 @@ class ControlLayoutConfig {
   Map<String, ButtonConfig> get resolvedButtons =>
       _buttonsAreAuthoritative || buttons.isNotEmpty
       ? buttons
-      : _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
+      : synthesizeLegacyButtons(
+          axisConfigs: axisConfigs,
+          roleStyles: roleStyles,
+          labelConfig: labelConfig,
+        );
 
   ButtonConfig? buttonFor(ControlRole role) => resolvedButtons[role.name];
 
@@ -771,7 +727,6 @@ class ControlLayoutConfig {
     ControlArrangementConfig? arrangementConfig,
     AxisConfigSet? axisConfigs,
     RoleStyleConfig? roleStyles,
-    List<AxisKind>? axisOrder,
     Map<String, ButtonConfig>? buttons,
     int? controlPageCount,
   }) {
@@ -781,7 +736,6 @@ class ControlLayoutConfig {
       arrangementConfig: arrangementConfig ?? this.arrangementConfig,
       axisConfigs: axisConfigs ?? this.axisConfigs,
       roleStyles: roleStyles ?? this.roleStyles,
-      axisOrder: axisOrder ?? this.axisOrder,
       buttons: buttons ?? this.buttons,
       controlPageCount: controlPageCount ?? this.controlPageCount,
       buttonsAreAuthoritative: buttons != null
@@ -797,74 +751,30 @@ class ControlLayoutConfig {
     'arrangementConfig': arrangementConfig.toJson(),
     'axisConfigs': axisConfigs.toJson(),
     'roleStyles': roleStyles.toJson(),
-    'axisOrder': axisOrder.map((a) => a.name).toList(),
     'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
     'controlPageCount': controlPageCount,
   };
 
   /// Synthesizes the button-centric `buttons` map from the legacy per-axis/
-  /// per-role/per-label fields. Pure and idempotent — invoked by [fromJson]
-  /// whenever old-format JSON (no `buttons` key) is parsed, so old saved
-  /// layouts silently upgrade in memory on load with zero user action, and
-  /// get persisted in the new format on the very next save.
-  static Map<String, ButtonConfig> _synthesizeButtonsFromLegacy(
-    AxisConfigSet axisConfigs,
-    RoleStyleConfig roleStyles,
-    ControlLabelConfig labelConfig,
-  ) {
-    String legacyLabelFor(ControlRole role) => switch (role) {
-      ControlRole.hoistUp => labelConfig.upLabel,
-      ControlRole.hoistDown => labelConfig.downLabel,
-      ControlRole.traverseLeft => labelConfig.leftLabel,
-      ControlRole.traverseRight => labelConfig.rightLabel,
-      ControlRole.travelForward => labelConfig.forwardLabel,
-      ControlRole.travelReverse => labelConfig.reverseLabel,
-      ControlRole.estop => role.defaultLabel,
-      ControlRole.resetEstop => labelConfig.resetEstopLabel,
-    };
-
-    final result = <String, ButtonConfig>{};
-    for (final role in ControlRole.values) {
-      if (role == ControlRole.estop) {
-        result[role.name] = ButtonConfig.estopDefault();
-        continue;
-      }
-      if (role == ControlRole.resetEstop) {
-        result[role.name] = ButtonConfig.resetEstopDefault(
-          legacyLabelFor(role),
-          style: roleStyles.resetEstop,
-        );
-        continue;
-      }
-      final axis = role.axis!;
-      result[role.name] = ButtonConfig.fromLegacyAxis(
-        role: role,
-        axisConfig: axisConfigs.forAxis(axis),
-        style: roleStyles.forRole(role),
-        label: legacyLabelFor(role),
-      );
-    }
-    return result;
-  }
-
+  /// per-role/per-label fields — delegates to legacy_layout_migration.dart,
+  /// the sole owner of that derivation. Pure and idempotent — invoked by
+  /// [fromJson] whenever old-format JSON (no `buttons` key) is parsed, so old
+  /// saved layouts silently upgrade in memory on load with zero user action,
+  /// and get persisted in the new format on the very next save.
   static Map<String, ButtonConfig> buttonsFromLegacy({
     AxisConfigSet axisConfigs = const AxisConfigSet(),
     RoleStyleConfig roleStyles = const RoleStyleConfig(),
     ControlLabelConfig labelConfig = const ControlLabelConfig(),
-  }) => _synthesizeButtonsFromLegacy(axisConfigs, roleStyles, labelConfig);
+  }) => synthesizeLegacyButtons(
+    axisConfigs: axisConfigs,
+    roleStyles: roleStyles,
+    labelConfig: labelConfig,
+  );
 
-  /// Roles hidden by default on PLC14/PLC21 hardware. These PLC types have no
-  /// traverse/travel outputs, so those controls start hidden rather than
-  /// showing buttons that would silently no-op when pressed.
-  static const List<ControlRole> _hoistOnlyHiddenRoles = [
-    ControlRole.traverseLeft,
-    ControlRole.traverseRight,
-    ControlRole.travelForward,
-    ControlRole.travelReverse,
-  ];
-
-  /// Fresh-install default for [bucket], keeping persisted storage bucketed by
-  /// PLC type while sharing the same 2 x 3 control grid model.
+  /// Fresh-install default for [bucket]: just the two safety controls
+  /// (E-STOP, Reset E-STOP) — no synthetic motion buttons. An existing
+  /// install's saved layout still loads/migrates via [fromJson] regardless;
+  /// this only affects what a brand-new install starts with.
   factory ControlLayoutConfig.defaultForBucket(LayoutBucket bucket) {
     return switch (bucket) {
       LayoutBucket.plc14 => ControlLayoutConfig.defaultForPlcType(
@@ -880,54 +790,14 @@ class ControlLayoutConfig {
   }
 
   factory ControlLayoutConfig.defaultForPlcType(PlcType plcType) {
-    final buttons = buttonsFromLegacy();
-    if (plcType == PlcType.plc38) {
-      return ControlLayoutConfig(buttons: buttons);
-    }
-
-    final hoistOnly = {
-      ...buttons,
-      ControlRole.hoistUp.name: buttons[ControlRole.hoistUp.name]!.copyWith(
-        type: ButtonType.sliderButton,
-        pageIndex: 0,
-        gridX: 0,
-        gridY: 0,
-        gridColumns: 1,
-        gridRows: ButtonConfig.controlGridRows,
-        slotIndex: 0,
-      ),
-      ControlRole.hoistDown.name: buttons[ControlRole.hoistDown.name]!.copyWith(
-        type: ButtonType.sliderButton,
-        pageIndex: 0,
-        gridX: 1,
-        gridY: 0,
-        gridColumns: 1,
-        gridRows: ButtonConfig.controlGridRows,
-        slotIndex: 1,
-      ),
-      for (final role in _hoistOnlyHiddenRoles)
-        role.name: buttons[role.name]!.copyWith(visible: false),
-    };
-    return ControlLayoutConfig(buttons: hoistOnly);
-  }
-
-  static AxisKind? _tryParseAxisKind(dynamic name) {
-    for (final a in AxisKind.values) {
-      if (a.name == name) return a;
-    }
-    return null;
-  }
-
-  static List<AxisKind> _parseAxisOrder(dynamic raw) {
-    if (raw is! List) return kDefaultAxisOrder;
-    final parsed = raw.map(_tryParseAxisKind).whereType<AxisKind>().toList();
-    // Defensive fallback: must be exactly the 3 axis kinds, each once —
-    // otherwise a corrupted/hand-edited value silently reverts to default
-    // rather than producing a partial or duplicated axis list.
-    if (parsed.length != 3 || parsed.toSet().length != 3) {
-      return kDefaultAxisOrder;
-    }
-    return parsed;
+    return ControlLayoutConfig(
+      buttons: {
+        ControlRole.estop.name: ButtonConfig.estopDefault(),
+        ControlRole.resetEstop.name: ButtonConfig.resetEstopDefault(
+          const ControlLabelConfig().resetEstopLabel,
+        ),
+      },
+    );
   }
 
   factory ControlLayoutConfig.fromJson(Map<String, dynamic> json) {
@@ -947,10 +817,10 @@ class ControlLayoutConfig {
     // serialized before this refactor, so v1 and v2 are indistinguishable
     // and handled identically here). Silently upgrade in memory; this gets
     // persisted in the new format on the very next save.
-    final legacyButtons = _synthesizeButtonsFromLegacy(
-      axisConfigs,
-      roleStyles,
-      labelConfig,
+    final legacyButtons = synthesizeLegacyButtons(
+      axisConfigs: axisConfigs,
+      roleStyles: roleStyles,
+      labelConfig: labelConfig,
     );
     final schema = _parseSchemaVersion(json['schemaVersion']);
     final hasButtons = json['buttons'] != null;
@@ -976,7 +846,6 @@ class ControlLayoutConfig {
           : const ControlArrangementConfig(),
       axisConfigs: axisConfigs,
       roleStyles: roleStyles,
-      axisOrder: _parseAxisOrder(json['axisOrder']),
       buttons: buttons,
       controlPageCount: _parsePositiveInt(json['controlPageCount']),
       buttonsAreAuthoritative: hasButtons && schema >= 8,
@@ -993,14 +862,6 @@ class ControlLayoutConfig {
     } catch (_) {
       return const ControlLayoutConfig();
     }
-  }
-
-  static bool _axisOrderEquals(List<AxisKind> a, List<AxisKind> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   static bool _buttonsEqual(
@@ -1023,7 +884,6 @@ class ControlLayoutConfig {
           other.arrangementConfig == arrangementConfig &&
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
-          _axisOrderEquals(other.axisOrder, axisOrder) &&
           _buttonsEqual(other.resolvedButtons, resolvedButtons) &&
           other.controlPageCount == controlPageCount;
 
@@ -1034,7 +894,6 @@ class ControlLayoutConfig {
     arrangementConfig,
     axisConfigs,
     roleStyles,
-    Object.hashAll(axisOrder),
     Object.hashAllUnordered(
       resolvedButtons.entries.map((e) => Object.hash(e.key, e.value)),
     ),

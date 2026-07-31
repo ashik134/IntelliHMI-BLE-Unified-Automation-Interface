@@ -1,19 +1,19 @@
 // Dedicated regression guard for the highest-risk part of the generic
-// PLC-output-variant refactor: the 5-zone (and 3-zone) cross-travel
-// control's gesture-to-zone-id resolution (crossTravelZoneId).
+// PLC-output-variant refactor: the 5-zone (and 3-zone) multi-zone slider's
+// gesture-to-zone-id resolution (multiZoneId).
 //
 // The master invariant under test:
 //   No button state may control any PLC output variant unless the user
 //   explicitly configured that exact variant for that exact state.
 //
-// A bug in crossTravelZoneId would NOT look like "auto-derivation" (adding
+// A bug in multiZoneId would NOT look like "auto-derivation" (adding
 // an unconfigured variant) — it would look like one zone silently reading a
 // DIFFERENT zone's user-configured variants, which is harder to notice
 // because the packet would still contain only user-configured variants,
 // just for the wrong zone. This suite proves that cannot happen:
-//   1. crossTravelZoneId is exhaustively truth-tabled against every
+//   1. multiZoneId is exhaustively truth-tabled against every
 //      reachable (isLeftButton, ControlState) combination.
-//   2. All 5 zones (or 3, for the slow-only variant) are configured to
+//   2. All 5 zones (or 3, for the level1-only variant) are configured to
 //      mutually-disjoint, arbitrary (non-crane-equivalent) variant sets,
 //      and each zone's resolved output is asserted to be EXACTLY that
 //      zone's own configured set — never a neighbor's, never a union.
@@ -23,29 +23,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
-import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 
 void main() {
-  group('crossTravelZoneId — exhaustive truth table (5-zone)', () {
+  group('multiZoneId — exhaustive truth table (5-zone)', () {
     final cases = <(bool, ControlState, String)>[
       (true, ControlState.idle, 'center'),
-      (true, ControlState.slow, 'zone2'),
-      (true, ControlState.fast, 'zone1'),
+      (true, ControlState.level1, 'zone2'),
+      (true, ControlState.level2, 'zone1'),
       (false, ControlState.idle, 'center'),
-      (false, ControlState.slow, 'zone4'),
-      (false, ControlState.fast, 'zone5'),
+      (false, ControlState.level1, 'zone4'),
+      (false, ControlState.level2, 'zone5'),
     ];
 
     for (final (isLeftButton, state, expected) in cases) {
       test('isLeftButton=$isLeftButton, state=${state.name} -> $expected', () {
         expect(
-          crossTravelZoneId(
-            isLeftButton: isLeftButton,
-            state: state,
-            fiveZone: true,
-          ),
+          multiZoneId(isLeftButton: isLeftButton, state: state, fiveZone: true),
           expected,
         );
       });
@@ -55,7 +50,7 @@ void main() {
         'shared idle id (no accidental aliasing)', () {
       final resolved = {
         for (final (isLeftButton, state, _) in cases)
-          '$isLeftButton:${state.name}': crossTravelZoneId(
+          '$isLeftButton:${state.name}': multiZoneId(
             isLeftButton: isLeftButton,
             state: state,
             fiveZone: true,
@@ -67,18 +62,18 @@ void main() {
     });
   });
 
-  group('crossTravelZoneId — exhaustive truth table (3-zone slow-only)', () {
+  group('multiZoneId — exhaustive truth table (3-zone level1-only)', () {
     final cases = <(bool, ControlState, String)>[
       (true, ControlState.idle, 'center'),
-      (true, ControlState.slow, 'zone1'),
+      (true, ControlState.level1, 'zone1'),
       (false, ControlState.idle, 'center'),
-      (false, ControlState.slow, 'zone3'),
+      (false, ControlState.level1, 'zone3'),
     ];
 
     for (final (isLeftButton, state, expected) in cases) {
       test('isLeftButton=$isLeftButton, state=${state.name} -> $expected', () {
         expect(
-          crossTravelZoneId(
+          multiZoneId(
             isLeftButton: isLeftButton,
             state: state,
             fiveZone: false,
@@ -91,15 +86,13 @@ void main() {
 
   group('5-zone: all 5 zones independently mapped to disjoint variants — '
       'no cross-zone leakage', () {
-    // Deliberately NOT the migrated crane-equivalent values (which would be
-    // zone1/zone2 sharing `left`, zone4/zone5 sharing `right`) — proving the
-    // mechanism is fully generic, not secretly still crane-shaped.
-    final leftConfig = ButtonConfig(
-      id: ControlRole.traverseLeft.name,
+    // Deliberately arbitrary, non-crane-equivalent values — proving the
+    // mechanism is fully generic, not secretly still axis-shaped.
+    const leftConfig = ButtonConfig(
+      id: 'left',
       type: ButtonType.bidirectionalSlider5Step,
       plcMapping: PlcOutputVariant.df5,
-      role: ControlRole.traverseLeft,
-      stateMappings: const {
+      stateMappings: {
         'zone1': ButtonStateOutputMapping(
           stateId: 'zone1',
           activeVariants: {PlcOutputVariant.df10},
@@ -111,12 +104,11 @@ void main() {
         'center': ButtonStateOutputMapping(stateId: 'center'),
       },
     );
-    final rightConfig = ButtonConfig(
-      id: ControlRole.traverseRight.name,
+    const rightConfig = ButtonConfig(
+      id: 'right',
       type: ButtonType.bidirectionalSlider5Step,
       plcMapping: PlcOutputVariant.df6,
-      role: ControlRole.traverseRight,
-      stateMappings: const {
+      stateMappings: {
         'center': ButtonStateOutputMapping(stateId: 'center'),
         'zone4': ButtonStateOutputMapping(
           stateId: 'zone4',
@@ -134,7 +126,7 @@ void main() {
       bool isLeft,
       ControlState state,
     ) {
-      final zoneId = crossTravelZoneId(
+      final zoneId = multiZoneId(
         isLeftButton: isLeft,
         state: state,
         fiveZone: true,
@@ -143,18 +135,18 @@ void main() {
     }
 
     test(
-      'zone1 (left, fast) activates exactly {fastFb} — not zone2\'s {down}',
+      'zone1 (left, level2) activates exactly {fastFb} — not zone2\'s {down}',
       () {
-        expect(resolve(leftConfig, true, ControlState.fast), {
+        expect(resolve(leftConfig, true, ControlState.level2), {
           PlcOutputVariant.df10,
         });
       },
     );
 
     test(
-      'zone2 (left, slow) activates exactly {down} — not zone1\'s {fastFb}',
+      'zone2 (left, level1) activates exactly {down} — not zone1\'s {fastFb}',
       () {
-        expect(resolve(leftConfig, true, ControlState.slow), {
+        expect(resolve(leftConfig, true, ControlState.level1), {
           PlcOutputVariant.df3,
         });
       },
@@ -167,17 +159,17 @@ void main() {
       },
     );
 
-    test('zone4 (right, slow) activates exactly {forward, reverse} — not '
+    test('zone4 (right, level1) activates exactly {forward, reverse} — not '
         'zone5\'s {up}', () {
-      expect(resolve(rightConfig, false, ControlState.slow), {
+      expect(resolve(rightConfig, false, ControlState.level1), {
         PlcOutputVariant.df8,
         PlcOutputVariant.df9,
       });
     });
 
-    test('zone5 (right, fast) activates exactly {up} — not zone4\'s '
+    test('zone5 (right, level2) activates exactly {up} — not zone4\'s '
         '{forward, reverse}', () {
-      expect(resolve(rightConfig, false, ControlState.fast), {
+      expect(resolve(rightConfig, false, ControlState.level2), {
         PlcOutputVariant.df2,
       });
     });
@@ -192,10 +184,10 @@ void main() {
     test('no two non-idle zones share any variant across all 5 configured '
         'sets (proving true independence, not shared/OR-ed configuration)', () {
       final allSets = <Set<PlcOutputVariant>>[
-        resolve(leftConfig, true, ControlState.fast), // zone1
-        resolve(leftConfig, true, ControlState.slow), // zone2
-        resolve(rightConfig, false, ControlState.slow), // zone4
-        resolve(rightConfig, false, ControlState.fast), // zone5
+        resolve(leftConfig, true, ControlState.level2), // zone1
+        resolve(leftConfig, true, ControlState.level1), // zone2
+        resolve(rightConfig, false, ControlState.level1), // zone4
+        resolve(rightConfig, false, ControlState.level2), // zone5
       ];
       for (var i = 0; i < allSets.length; i++) {
         for (var j = i + 1; j < allSets.length; j++) {
@@ -209,13 +201,12 @@ void main() {
     });
   });
 
-  group('3-zone slow-only: 2 independently mapped zones — no leakage', () {
-    final leftConfig = ButtonConfig(
-      id: ControlRole.traverseLeft.name,
+  group('3-zone level1-only: 2 independently mapped zones — no leakage', () {
+    const leftConfig = ButtonConfig(
+      id: 'left',
       type: ButtonType.bidirectionalSlider3Step,
       plcMapping: PlcOutputVariant.df5,
-      role: ControlRole.traverseLeft,
-      stateMappings: const {
+      stateMappings: {
         'zone1': ButtonStateOutputMapping(
           stateId: 'zone1',
           activeVariants: {PlcOutputVariant.df4, PlcOutputVariant.df8},
@@ -223,12 +214,11 @@ void main() {
         'center': ButtonStateOutputMapping(stateId: 'center'),
       },
     );
-    final rightConfig = ButtonConfig(
-      id: ControlRole.traverseRight.name,
+    const rightConfig = ButtonConfig(
+      id: 'right',
       type: ButtonType.bidirectionalSlider3Step,
       plcMapping: PlcOutputVariant.df6,
-      role: ControlRole.traverseRight,
-      stateMappings: const {
+      stateMappings: {
         'center': ButtonStateOutputMapping(stateId: 'center'),
         'zone3': ButtonStateOutputMapping(
           stateId: 'zone3',
@@ -242,7 +232,7 @@ void main() {
       bool isLeft,
       ControlState state,
     ) {
-      final zoneId = crossTravelZoneId(
+      final zoneId = multiZoneId(
         isLeftButton: isLeft,
         state: state,
         fiveZone: false,
@@ -251,7 +241,7 @@ void main() {
     }
 
     test('zone1 activates exactly its configured set', () {
-      expect(resolve(leftConfig, true, ControlState.slow), {
+      expect(resolve(leftConfig, true, ControlState.level1), {
         PlcOutputVariant.df4,
         PlcOutputVariant.df8,
       });
@@ -260,10 +250,10 @@ void main() {
     test(
       'zone3 activates exactly its configured set — disjoint from zone1',
       () {
-        final zone3 = resolve(rightConfig, false, ControlState.slow);
+        final zone3 = resolve(rightConfig, false, ControlState.level1);
         expect(zone3, {PlcOutputVariant.df9});
         expect(
-          zone3.intersection(resolve(leftConfig, true, ControlState.slow)),
+          zone3.intersection(resolve(leftConfig, true, ControlState.level1)),
           isEmpty,
         );
       },
