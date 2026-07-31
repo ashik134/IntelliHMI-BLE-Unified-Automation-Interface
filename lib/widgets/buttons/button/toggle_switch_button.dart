@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
@@ -80,6 +81,7 @@ class ToggleSwitchButton extends StatefulWidget {
     required this.isSpringReturn,
     required this.onCommandChanged,
     this.style = const ButtonStyleConfig(),
+    this.rotation = ButtonRotation.none,
     this.mode,
     this.position,
     this.topLabel,
@@ -100,6 +102,7 @@ class ToggleSwitchButton extends StatefulWidget {
   final bool isSpringReturn;
   final ValueChanged<ControlState> onCommandChanged;
   final ButtonStyleConfig style;
+  final ButtonRotation rotation;
 
   // ── Extended API ─────────────────────────────────────────────────────────
   final ToggleSwitchMode? mode;
@@ -632,6 +635,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                           iconColor: isOn
                               ? widget.activeColorLight
                               : AppColors.darkTextMuted,
+                          rotation: widget.rotation,
                         ),
                       ),
                     ),
@@ -945,7 +949,7 @@ class _PositionIndicatorLabel extends StatelessWidget {
         style: TextStyle(
           color: color,
           fontSize: fontSize,
-          fontWeight: FontWeight.w800,
+          fontWeight: ControlButtonVisualMetrics.labelFontWeight,
           letterSpacing: 0,
           height: 1,
         ),
@@ -1089,7 +1093,7 @@ class _HintLabel extends StatelessWidget {
       style: const TextStyle(
         color: AppColors.darkTextSub,
         fontSize: 8,
-        fontWeight: FontWeight.w700,
+        fontWeight: ControlButtonVisualMetrics.labelFontWeight,
         letterSpacing: 1.0,
       ),
     );

@@ -19,8 +19,8 @@ import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_slot_grid.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
@@ -967,17 +967,15 @@ class _ControlGridSection extends StatelessWidget {
         );
       },
       onAnalogCommand: (config, value) {
-        final potentiometer = PotentiometerConfig.fromCustomProperties(
-          config.customProperties,
-        ).normalized();
+        final analogConfig = resolveAnalogWireConfig(config);
         ButtonStateLog.log(
           'ANALOG_PENDING [${config.id}] -> '
-          '${potentiometer.formatValue(value)} (PLC14)',
+          '${analogConfig.wirePayload(value)} (PLC14)',
         );
         context.read<CraneController>().setAnalogButtonValue(
           buttonId: config.id,
           value: value,
-          config: potentiometer,
+          config: analogConfig,
         );
       },
       onEditButton: (config) {

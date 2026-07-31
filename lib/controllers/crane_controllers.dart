@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
@@ -12,7 +13,6 @@ import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
-import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';
 import 'package:rev_crane_control_ops/services/permission_service.dart';
 import 'package:rev_crane_control_ops/services/secure_credential_store.dart';
@@ -904,16 +904,18 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Button-centric analog output entry point — the analog counterpart of
-  /// [setButtonCommand]. [config] is normalized by the caller (see the
-  /// control screens' onAnalogCommand) and owns clamping/formatting via
-  /// [PotentiometerConfig.wirePayload]; this method never re-derives those
-  /// rules itself. No-ops if the widget's own "send to PLC" toggle
-  /// (outputEnabled) is off — the operator opts a control into transmitting
-  /// analog output the same way they configure everything else about it.
+  /// [setButtonCommand]. Shared by every analog control (potentiometer,
+  /// analog joystick, analog slider, ...): [config] is normalized by the
+  /// caller (see the control screens' onAnalogCommand) and owns
+  /// clamping/formatting via [AnalogWireConfig.wirePayload]; this method
+  /// never re-derives those rules itself. No-ops if the widget's own "send
+  /// to PLC" toggle (outputEnabled) is off — the operator opts a control
+  /// into transmitting analog output the same way they configure everything
+  /// else about it.
   Future<void> setAnalogButtonValue({
     required String buttonId,
     required double value,
-    required PotentiometerConfig config,
+    required AnalogWireConfig config,
   }) async {
     if (_estopLatched || !isConnected || !config.outputEnabled) {
       _logger.w(

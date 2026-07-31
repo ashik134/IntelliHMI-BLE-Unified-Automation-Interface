@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -28,6 +29,7 @@ class MultiStepSliderButton extends StatelessWidget {
     this.activeColor,
     this.step2Color,
     this.style,
+    this.rotation = ButtonRotation.none,
     required this.onStateChanged,
   });
 
@@ -38,6 +40,7 @@ class MultiStepSliderButton extends StatelessWidget {
   final Color? activeColor;
   final Color? step2Color;
   final ButtonStyleConfig? style;
+  final ButtonRotation rotation;
   final ValueChanged<String> onStateChanged;
 
   @override
@@ -50,6 +53,7 @@ class MultiStepSliderButton extends StatelessWidget {
       activeColor: activeColor,
       step2Color: step2Color,
       style: style,
+      rotation: rotation,
       onStateChanged: onStateChanged,
     );
   }
@@ -69,6 +73,7 @@ class IndustrialMultiStepSlider extends StatefulWidget {
     this.step2Color,
     this.stateId = MultiStepSliderStateId.idle,
     this.style,
+    this.rotation = ButtonRotation.none,
     required this.onStateChanged,
   });
 
@@ -79,6 +84,7 @@ class IndustrialMultiStepSlider extends StatefulWidget {
   final Color? activeColor;
   final Color? step2Color;
   final ButtonStyleConfig? style;
+  final ButtonRotation rotation;
   final ValueChanged<String> onStateChanged;
 
   @override
@@ -452,6 +458,7 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
                     isDisabled: !widget.enabled,
                     maxWidth: width,
                     style: widget.style,
+                    rotation: widget.rotation,
                   ),
                 ),
             ],
@@ -554,6 +561,7 @@ class _SliderFooter extends StatelessWidget {
   final bool isDisabled;
   final double maxWidth;
   final ButtonStyleConfig? style;
+  final ButtonRotation rotation;
 
   const _SliderFooter({
     required this.icon,
@@ -563,6 +571,7 @@ class _SliderFooter extends StatelessWidget {
     required this.isDisabled,
     required this.maxWidth,
     required this.style,
+    this.rotation = ButtonRotation.none,
   });
 
   @override
@@ -585,6 +594,7 @@ class _SliderFooter extends StatelessWidget {
               ? activeColor
               : AppColors.darkTextMuted,
           style: style,
+          rotation: rotation,
         ),
       ),
     );

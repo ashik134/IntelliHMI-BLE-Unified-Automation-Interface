@@ -74,6 +74,7 @@ class HornButtonStrategy extends ButtonTypeStrategy {
       config: isCustomizing
           ? hornConfig.copyWith(soundEnabled: false, hapticFeedback: false)
           : hornConfig,
+      rotation: config.rotation,
     );
   }
 }

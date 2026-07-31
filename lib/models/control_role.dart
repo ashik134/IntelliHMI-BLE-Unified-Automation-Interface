@@ -128,13 +128,13 @@ extension PlcOutputVariantLegacyRoleInfo on PlcOutputVariant {
 /// sliders to assert the DF7 PLC field without activating either
 /// direction bit. These are NOT [ButtonConfig] IDs — they exist only in
 /// [CraneController]'s runtime button-state map and in
-/// [CrossTravelSlowOnlyStrategy]'s command dispatch. Each slider owns its
+/// [Bidirectional3StepStrategy]'s command dispatch. Each slider owns its
 /// own key so that one releasing does not clear the other's contribution.
 const String kTraverseLeftFastKey = 'traverseLeftFast';
 const String kTraverseRightFastKey = 'traverseRightFast';
 
 /// Maps every virtual fast-key button ID to the single PLC field it asserts.
-/// CraneController._fieldsFor and CrossTravelSlowOnlyStrategy both consult
+/// CraneController._fieldsFor and Bidirectional3StepStrategy both consult
 /// this table so the mapping is defined in one place.
 const Map<String, PlcOutputVariant> kVirtualFastKeyFields = {
   kTraverseLeftFastKey: PlcOutputVariant.df7,

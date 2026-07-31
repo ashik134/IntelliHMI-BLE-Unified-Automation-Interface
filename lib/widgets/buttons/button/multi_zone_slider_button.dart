@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -50,6 +51,7 @@ class MultiZoneSliderButton extends StatelessWidget {
     this.nearColor,
     this.farColor,
     this.style,
+    this.rotation = ButtonRotation.none,
     this.isStartZoneBlocked = false,
     this.isEndZoneBlocked = false,
     required this.onStateChanged,
@@ -74,7 +76,9 @@ class MultiZoneSliderButton extends StatelessWidget {
   final MultiZoneSliderVariant variant;
 
   /// Color for the near/center-adjacent zones (zone2/zone4, or zone1/zone3
-  /// in three-zone mode). Defaults to [AppColors.traverseColor].
+  /// in three-zone mode). Defaults to [AppColors.accent]. Callers that want
+  /// role-specific theming (e.g. the crane traverse role buttons) pass an
+  /// explicit override.
   final Color? nearColor;
 
   /// Color for the far/outermost zones (zone1/zone5). Defaults to
@@ -82,6 +86,8 @@ class MultiZoneSliderButton extends StatelessWidget {
   final Color? farColor;
 
   final ButtonStyleConfig? style;
+
+  final ButtonRotation rotation;
 
   /// True blocks the thumb from entering the negative (start-side) zone(s) —
   /// used when an external owner already claims that zone's output.
@@ -111,6 +117,7 @@ class MultiZoneSliderButton extends StatelessWidget {
       nearColor: nearColor,
       farColor: farColor,
       style: style,
+      rotation: rotation,
       isStartZoneBlocked: isStartZoneBlocked,
       isEndZoneBlocked: isEndZoneBlocked,
       onStateChanged: onStateChanged,
@@ -145,6 +152,7 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
     this.nearColor,
     this.farColor,
     this.style,
+    this.rotation = ButtonRotation.none,
     this.isStartZoneBlocked = false,
     this.isEndZoneBlocked = false,
     required this.onStateChanged,
@@ -160,6 +168,7 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
   final Color? nearColor;
   final Color? farColor;
   final ButtonStyleConfig? style;
+  final ButtonRotation rotation;
   final bool isStartZoneBlocked;
   final bool isEndZoneBlocked;
   final ValueChanged<String> onStateChanged;
@@ -425,7 +434,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   // Colors
   // ─────────────────────────────────────────────────────────────────────────
 
-  Color get _nearColor => widget.nearColor ?? AppColors.traverseColor;
+  Color get _nearColor => widget.nearColor ?? AppColors.accent;
   Color get _farColor => widget.farColor ?? AppColors.fastColor;
 
   bool get _isFarZone =>
@@ -576,11 +585,10 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
       child: ControlButtonLabelIcon(
         label: text,
         icon: icon,
-        color: active ? AppColors.traverseColorLight : AppColors.darkText,
-        iconColor: active
-            ? AppColors.traverseColorLight
-            : AppColors.darkTextMuted,
+        color: active ? _nearColor : AppColors.darkText,
+        iconColor: active ? _nearColor : AppColors.darkTextMuted,
         style: widget.style,
+        rotation: widget.rotation,
       ),
     );
   }

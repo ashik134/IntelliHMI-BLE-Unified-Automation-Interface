@@ -65,6 +65,7 @@ class PushButtonStrategy extends ButtonTypeStrategy {
         externalStateId: _stateIdFor(activeState, isSpringReturn),
         activeColor: activeColor,
         activeColorLight: activeColorLight,
+        rotation: config.rotation,
         onStateChanged: (stateId) =>
             onCommand(config.id, _controlStateFor(stateId)),
       ),

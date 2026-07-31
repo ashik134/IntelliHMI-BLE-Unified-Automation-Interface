@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
-class PotentiometerConfig {
+class PotentiometerConfig implements AnalogWireConfig {
   const PotentiometerConfig({
     this.minValue = 0.0,
     this.maxValue = 100.0,
@@ -26,8 +27,10 @@ class PotentiometerConfig {
   final String? outputVariantId;
   final String outputChannel;
 
-  /// Reserved for the future analog writer. It intentionally defaults to
-  /// false because the current BLE protocol only carries boolean fields.
+  /// Opt-in "send to PLC" flag for this control's analog output. Defaults
+  /// to false so a freshly-added control stays inert until the operator
+  /// explicitly enables it in the OUTPUT MAPPING editor.
+  @override
   final bool outputEnabled;
 
   double get range => maxValue - minValue;
@@ -109,6 +112,7 @@ class PotentiometerConfig {
   /// protocol: bare numbers, no unit suffix, clamped to this config's range.
   /// [value] is clamped/snapped the same way [formatValue] displays it, so
   /// what the operator sees on screen is exactly what the PLC receives.
+  @override
   String wirePayload(double value) {
     final config = normalized();
     String fmt(double v) => v.toStringAsFixed(config.decimalPlaces);

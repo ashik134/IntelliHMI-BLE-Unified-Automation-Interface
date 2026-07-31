@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
+import 'package:rev_crane_control_ops/models/analog_joystick_config.dart';
+import 'package:rev_crane_control_ops/models/analog_slider_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
@@ -471,6 +473,16 @@ class _OutputMappingEditor extends StatelessWidget {
       );
     }
 
+    if (config.type == ButtonType.analogJoystick1D ||
+        config.type == ButtonType.analogJoystick2D) {
+      return _AnalogJoystickOutputEditor(config: config, onChanged: onChanged);
+    }
+
+    if (config.type == ButtonType.analogSliderOT ||
+        config.type == ButtonType.analogSliderTOT) {
+      return _AnalogSliderOutputEditor(config: config, onChanged: onChanged);
+    }
+
     // horn/alarmIndicator never reach here — ButtonEditSheet skips the
     // OUTPUT MAPPING tab entirely for both (see the realConfig.type checks
     // around the OUTPUT MAPPING _TabCard), since neither type has any
@@ -737,6 +749,117 @@ class _PotentiometerOutputEditor extends StatelessWidget {
   }
 }
 
+/// "Send to PLC" toggle shared by every analog-output control other than
+/// potentiometer (which additionally exposes the legacy, currently-unused
+/// output-variant/channel hint fields — deliberately not replicated here).
+class _AnalogSendToPlcToggle extends StatelessWidget {
+  const _AnalogSendToPlcToggle({
+    required this.outputEnabled,
+    required this.enabledMessage,
+    required this.disabledMessage,
+    required this.onChanged,
+  });
+
+  final bool outputEnabled;
+  final String enabledMessage;
+  final String disabledMessage;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _InfoNote(
+          message: outputEnabled ? enabledMessage : disabledMessage,
+          color: outputEnabled ? AppColors.darkInfo : AppColors.fastColor,
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          value: outputEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Send to PLC',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+class _AnalogJoystickOutputEditor extends StatelessWidget {
+  const _AnalogJoystickOutputEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final analog = AnalogJoystickConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+
+    return _AnalogSendToPlcToggle(
+      outputEnabled: analog.outputEnabled,
+      enabledMessage:
+          'Analog output is on. Moving this joystick streams an encrypted '
+          'min,max,value packet to the PLC over BLE (never while '
+          'Customization Mode is active).',
+      disabledMessage:
+          'Analog output is off. These values are saved with the layout, '
+          'but nothing is sent to the PLC until you enable it below.',
+      onChanged: (value) => onChanged(
+        config.copyWith(
+          customProperties: analog
+              .copyWith(outputEnabled: value)
+              .applyToCustomProperties(config.customProperties),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalogSliderOutputEditor extends StatelessWidget {
+  const _AnalogSliderOutputEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final analog = AnalogSliderConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+
+    return _AnalogSendToPlcToggle(
+      outputEnabled: analog.outputEnabled,
+      enabledMessage:
+          'Analog output is on. Dragging this slider streams an encrypted '
+          'min,max,value packet to the PLC over BLE (never while '
+          'Customization Mode is active).',
+      disabledMessage:
+          'Analog output is off. These values are saved with the layout, '
+          'but nothing is sent to the PLC until you enable it below.',
+      onChanged: (value) => onChanged(
+        config.copyWith(
+          customProperties: analog
+              .copyWith(outputEnabled: value)
+              .applyToCustomProperties(config.customProperties),
+        ),
+      ),
+    );
+  }
+}
+
 class _VariantChipGroup extends StatelessWidget {
   const _VariantChipGroup({
     required this.selectable,
@@ -946,6 +1069,24 @@ class _CustomButtonConfigEditor extends StatelessWidget {
                 onChanged: onChanged,
               ),
             ),
+          if (realConfig.type == ButtonType.analogJoystick1D ||
+              realConfig.type == ButtonType.analogJoystick2D)
+            _TabCard(
+              title: 'ANALOG JOYSTICK',
+              child: _AnalogJoystickConfigEditor(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
+            ),
+          if (realConfig.type == ButtonType.analogSliderOT ||
+              realConfig.type == ButtonType.analogSliderTOT)
+            _TabCard(
+              title: 'ANALOG SLIDER',
+              child: _AnalogSliderConfigEditor(
+                config: realConfig,
+                onChanged: onChanged,
+              ),
+            ),
           if (realConfig.type == ButtonType.horn)
             _TabCard(
               title: 'HORN / BUZZER',
@@ -967,7 +1108,11 @@ class _CustomButtonConfigEditor extends StatelessWidget {
           if (realConfig.type != ButtonType.joystick &&
               realConfig.type != ButtonType.potentiometer &&
               realConfig.type != ButtonType.horn &&
-              realConfig.type != ButtonType.alarmIndicator)
+              realConfig.type != ButtonType.alarmIndicator &&
+              realConfig.type != ButtonType.analogJoystick1D &&
+              realConfig.type != ButtonType.analogJoystick2D &&
+              realConfig.type != ButtonType.analogSliderOT &&
+              realConfig.type != ButtonType.analogSliderTOT)
             const _TabCard(
               title: 'CUSTOM PARAMETERS',
               child: _InfoNote(
@@ -1048,15 +1193,19 @@ class _CustomTypeEntry {
   final bool isNone;
 }
 
-const _customTypeEntries = [
-  _CustomTypeEntry(
-    type: null,
-    label: 'None',
-    icon: Icons.block_rounded,
-    available: true,
-    note: 'Leave this slot empty.',
-    isNone: true,
-  ),
+const _customNoneEntry = _CustomTypeEntry(
+  type: null,
+  label: 'None',
+  icon: Icons.block_rounded,
+  available: true,
+  note: 'Leave this slot empty.',
+  isNone: true,
+);
+
+// Discrete/boolean output controls — state driven via ButtonConfig
+// .stateMappings. See _customAnalogTypeEntries below for controls that emit
+// a continuous value instead.
+const _customDigitalTypeEntries = [
   _CustomTypeEntry(
     type: ButtonType.pushButton,
     label: 'Push Button',
@@ -1099,18 +1248,11 @@ const _customTypeEntries = [
         '(resizable to a vertical 1x2 layout).',
   ),
   _CustomTypeEntry(
-    type: ButtonType.potentiometer,
-    label: 'Potentiometer',
-    icon: Icons.tune_rounded,
-    available: true,
-    note: 'Rotary analog value control. Output transport is pending.',
-  ),
-  _CustomTypeEntry(
     type: ButtonType.joystick,
     label: 'Joystick',
     icon: Icons.gamepad_rounded,
     available: true,
-    note: 'Digital or analog joystick-style control.',
+    note: 'Digital joystick-style control (discrete slow/fast states).',
   ),
   _CustomTypeEntry(
     type: ButtonType.horn,
@@ -1137,6 +1279,84 @@ const _customTypeEntries = [
   ),
 ];
 
+// Continuous-value output controls — emit a numeric value through
+// AnalogWireConfig/CraneController.setAnalogButtonValue, never through
+// stateMappings. See analog_wire_config.dart for the shared pipeline.
+const _customAnalogTypeEntries = [
+  _CustomTypeEntry(
+    type: ButtonType.potentiometer,
+    label: 'Potentiometer',
+    icon: Icons.tune_rounded,
+    available: true,
+    note: 'Rotary analog value control.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.analogJoystick1D,
+    label: '1D Analog Joystick',
+    icon: Icons.control_camera_rounded,
+    available: true,
+    note: 'Single-axis analog rail with spring-return to neutral.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.analogJoystick2D,
+    label: '2D Analog Joystick',
+    icon: Icons.games_rounded,
+    available: true,
+    note:
+        'Dual-axis analog gimbal. Only the configured axis (X or Y) is '
+        'transmitted — the firmware accepts one value per control.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.analogSliderOT,
+    label: 'O-T Analog Slider',
+    icon: Icons.vertical_align_top_rounded,
+    available: true,
+    note:
+        'One-side spring-return slider — rests at one end, drag toward the '
+        'active value.',
+  ),
+  _CustomTypeEntry(
+    type: ButtonType.analogSliderTOT,
+    label: 'T-O-T Analog Slider',
+    icon: Icons.height_rounded,
+    available: true,
+    note:
+        'Two-side spring-return slider — rests at center, drag toward '
+        'either side.',
+  ),
+];
+
+/// Section divider between the DIGITAL and ANALOG groups in the type
+/// picker — same label style already used for OUTPUT VARIANT/state headings
+/// elsewhere in this sheet (e.g. _PotentiometerOutputEditor).
+class _TypeSectionHeader extends StatelessWidget {
+  const _TypeSectionHeader(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 10, 2, 6),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.darkTextSub,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(child: Divider(color: AppColors.darkBorder)),
+        ],
+      ),
+    );
+  }
+}
+
 class _CustomTypePicker extends StatelessWidget {
   const _CustomTypePicker({
     required this.config,
@@ -1152,16 +1372,21 @@ class _CustomTypePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final isNoneSelected = config == null || !config!.visible;
 
+    Widget tileFor(_CustomTypeEntry entry) => _CustomTypeTile(
+      entry: entry,
+      isSelected: entry.isNone
+          ? isNoneSelected
+          : config?.visible == true && config!.type == entry.type,
+      onTap: entry.available ? () => _selectType(context, entry) : null,
+    );
+
     return Column(
       children: [
-        for (final entry in _customTypeEntries)
-          _CustomTypeTile(
-            entry: entry,
-            isSelected: entry.isNone
-                ? isNoneSelected
-                : config?.visible == true && config!.type == entry.type,
-            onTap: entry.available ? () => _selectType(context, entry) : null,
-          ),
+        tileFor(_customNoneEntry),
+        const _TypeSectionHeader('DIGITAL'),
+        for (final entry in _customDigitalTypeEntries) tileFor(entry),
+        const _TypeSectionHeader('ANALOG'),
+        for (final entry in _customAnalogTypeEntries) tileFor(entry),
       ],
     );
   }
@@ -1192,9 +1417,31 @@ class _CustomTypePicker extends StatelessWidget {
               .read<CustomizationModeController>()
               .activeControlPage,
         );
+    // O-T and T-O-T share one AnalogSliderConfig shape distinguished only by
+    // neutralValue (see AnalogSliderConfig doc comment) — seed a sensible
+    // default for whichever one was just picked, but only when the type is
+    // actually changing, so re-tapping the already-selected entry never
+    // clobbers a config the operator already customized.
+    final customProperties = current.type == type
+        ? current.customProperties
+        : switch (type) {
+            ButtonType.analogSliderOT => const AnalogSliderConfig(
+              minValue: 0,
+              maxValue: 100,
+              neutralValue: 0,
+              stepSize: 1,
+            ).applyToCustomProperties(current.customProperties),
+            ButtonType.analogSliderTOT => const AnalogSliderConfig(
+              minValue: -100,
+              maxValue: 100,
+              neutralValue: 0,
+              stepSize: 1,
+            ).applyToCustomProperties(current.customProperties),
+            _ => current.customProperties,
+          };
     final (columns, rows) = ButtonConfig.defaultGridSizeFor(
       type,
-      customProperties: current.customProperties,
+      customProperties: customProperties,
     );
     final next = current.copyWith(
       type: type,
@@ -1206,6 +1453,7 @@ class _CustomTypePicker extends StatelessWidget {
       // interactive vs. grayed-out, so it must flip true here.
       enabled: true,
       plcMappingEnabled: true,
+      customProperties: customProperties,
       gridColumns: columns,
       gridRows: rows,
       columnSpan: columns,
@@ -1977,6 +2225,465 @@ class _PotentiometerPresetChip extends StatelessWidget {
   }
 }
 
+/// Generic segmented-choice-chip row, shared by the two analog config
+/// editors below — same look as _CustomJoystickConfigEditor's local
+/// `segmented` helper (kept separate per editor, matching this file's
+/// existing convention of not sharing that particular closure across
+/// editors), just hoisted to a small reusable widget since these two new
+/// editors need the identical pattern for two different enums each.
+class _SegmentedChoiceRow<T> extends StatelessWidget {
+  const _SegmentedChoiceRow({
+    required this.label,
+    required this.value,
+    required this.values,
+    required this.text,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T value;
+  final List<T> values;
+  final String Function(T) text;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.darkTextMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final item in values)
+                ChoiceChip(
+                  label: Text(text(item)),
+                  selected: item == value,
+                  selectedColor: AppColors.accent.withAlpha(50),
+                  labelStyle: TextStyle(
+                    color: item == value
+                        ? AppColors.accent
+                        : AppColors.darkTextSub,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  onSelected: (_) => onChanged(item),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnalogJoystickConfigEditor extends StatelessWidget {
+  const _AnalogJoystickConfigEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final analog = AnalogJoystickConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+    final isDualAxis = config.type == ButtonType.analogJoystick2D;
+
+    void save(AnalogJoystickConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    void saveNumber(
+      String raw,
+      AnalogJoystickConfig Function(double value) update,
+    ) {
+      final parsed = double.tryParse(raw.trim());
+      if (parsed == null) return;
+      save(update(parsed));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _PotentiometerPresetChip(
+              label: '-100 to +100',
+              onTap: () => save(
+                const AnalogJoystickConfig(
+                  minValue: -100,
+                  maxValue: 100,
+                  neutralValue: 0,
+                  stepSize: 1,
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: '0 to 100',
+              onTap: () => save(
+                const AnalogJoystickConfig(
+                  minValue: 0,
+                  maxValue: 100,
+                  neutralValue: 0,
+                  stepSize: 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Minimum',
+                value: _numberText(analog.minValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(minValue: value)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Maximum',
+                value: _numberText(analog.maxValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(maxValue: value)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Neutral',
+                value: _numberText(analog.neutralValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => analog.copyWith(neutralValue: value),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Step size',
+                value: _numberText(analog.stepSize),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: false,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(stepSize: value)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _ConfigTextField(
+          label: 'Unit / suffix',
+          value: analog.unit,
+          hint: '%, deg, mm/s...',
+          onChanged: (value) => save(analog.copyWith(unit: value)),
+        ),
+        const SizedBox(height: 6),
+        if (!isDualAxis)
+          _SegmentedChoiceRow<AnalogJoystickOrientation>(
+            label: 'Orientation',
+            value: analog.orientation,
+            values: AnalogJoystickOrientation.values,
+            text: (o) => o.label,
+            onChanged: (o) => save(analog.copyWith(orientation: o)),
+          ),
+        if (isDualAxis)
+          _SegmentedChoiceRow<AnalogJoystickOutputAxis>(
+            label: 'Transmitted axis',
+            value: analog.outputAxis,
+            values: AnalogJoystickOutputAxis.values,
+            text: (a) => a.label,
+            onChanged: (a) => save(analog.copyWith(outputAxis: a)),
+          ),
+        if (isDualAxis)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _InfoNote(
+              message:
+                  'The firmware accepts one analog value per control — only '
+                  'the axis selected above is sent. The other axis still '
+                  'moves the stick visually but is not transmitted.',
+            ),
+          ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Dead zone ${analog.deadZone.toStringAsFixed(2)}',
+              style: const TextStyle(
+                color: AppColors.darkTextMuted,
+                fontSize: 11,
+              ),
+            ),
+            Slider(
+              value: analog.deadZone.clamp(0.0, 0.6),
+              min: 0.0,
+              max: 0.6,
+              divisions: 24,
+              activeColor: AppColors.accent,
+              inactiveColor: AppColors.darkBorder,
+              onChanged: (value) => save(analog.copyWith(deadZone: value)),
+            ),
+          ],
+        ),
+        SwitchListTile(
+          value: analog.springReturnEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Spring return to neutral',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) =>
+              save(analog.copyWith(springReturnEnabled: value)),
+        ),
+        SwitchListTile(
+          value: analog.invert,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Invert',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(analog.copyWith(invert: value)),
+        ),
+      ],
+    );
+  }
+}
+
+class _AnalogSliderConfigEditor extends StatelessWidget {
+  const _AnalogSliderConfigEditor({
+    required this.config,
+    required this.onChanged,
+  });
+
+  final ButtonConfig config;
+  final ValueChanged<ButtonConfig?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final analog = AnalogSliderConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+
+    void save(AnalogSliderConfig next) {
+      onChanged(
+        config.copyWith(
+          customProperties: next.applyToCustomProperties(
+            config.customProperties,
+          ),
+        ),
+      );
+    }
+
+    void saveNumber(
+      String raw,
+      AnalogSliderConfig Function(double value) update,
+    ) {
+      final parsed = double.tryParse(raw.trim());
+      if (parsed == null) return;
+      save(update(parsed));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _PotentiometerPresetChip(
+              label: 'One-side 0-100',
+              onTap: () => save(
+                const AnalogSliderConfig(
+                  minValue: 0,
+                  maxValue: 100,
+                  neutralValue: 0,
+                  stepSize: 1,
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: 'Two-side -100/+100',
+              onTap: () => save(
+                const AnalogSliderConfig(
+                  minValue: -100,
+                  maxValue: 100,
+                  neutralValue: 0,
+                  stepSize: 1,
+                ),
+              ),
+            ),
+            _PotentiometerPresetChip(
+              label: 'Two-side 0-100 (mid)',
+              onTap: () => save(
+                const AnalogSliderConfig(
+                  minValue: 0,
+                  maxValue: 100,
+                  neutralValue: 50,
+                  stepSize: 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Minimum',
+                value: _numberText(analog.minValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(minValue: value)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Maximum',
+                value: _numberText(analog.maxValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(maxValue: value)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Neutral',
+                value: _numberText(analog.neutralValue),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: true,
+                  decimal: true,
+                ),
+                onChanged: (raw) => saveNumber(
+                  raw,
+                  (value) => analog.copyWith(neutralValue: value),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConfigTextField(
+                label: 'Step size',
+                value: _numberText(analog.stepSize),
+                keyboardType: const TextInputType.numberWithOptions(
+                  signed: false,
+                  decimal: true,
+                ),
+                onChanged: (raw) =>
+                    saveNumber(raw, (value) => analog.copyWith(stepSize: value)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _ConfigTextField(
+          label: 'Unit / suffix',
+          value: analog.unit,
+          hint: '%, V, mm...',
+          onChanged: (value) => save(analog.copyWith(unit: value)),
+        ),
+        const SizedBox(height: 6),
+        _InfoNote(
+          message: analog.isOneSided
+              ? 'Neutral sits at an end of the range — this behaves as a '
+                    'one-side (O-T) slider.'
+              : 'Neutral sits between minimum and maximum — this behaves as '
+                    'a two-side (T-O-T) slider.',
+        ),
+        const SizedBox(height: 12),
+        _SegmentedChoiceRow<AnalogSliderOrientation>(
+          label: 'Orientation',
+          value: analog.orientation,
+          values: AnalogSliderOrientation.values,
+          text: (o) => o.label,
+          onChanged: (o) => save(analog.copyWith(orientation: o)),
+        ),
+        SwitchListTile(
+          value: analog.springReturnEnabled,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Spring return to neutral',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) =>
+              save(analog.copyWith(springReturnEnabled: value)),
+        ),
+        SwitchListTile(
+          value: analog.invert,
+          activeThumbColor: AppColors.accent,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            'Invert',
+            style: TextStyle(color: AppColors.darkText, fontSize: 12),
+          ),
+          onChanged: (value) => save(analog.copyWith(invert: value)),
+        ),
+      ],
+    );
+  }
+}
+
 /// Shared "which PLC output/status variants trigger this feedback widget"
 /// editor: a variant chip picker (reusing _VariantChipGroup) plus an any-of/
 /// all-of combinator toggle. Used by both HORN/BUZZER (one trigger) and
@@ -2475,8 +3182,12 @@ ControlWidgetType _previewWidgetType(ButtonType type) => switch (type) {
   ButtonType.toggle => ControlWidgetType.toggle,
   ButtonType.sliderButton ||
   ButtonType.bidirectionalSlider5Step ||
-  ButtonType.bidirectionalSlider3Step => ControlWidgetType.sliderButton,
-  ButtonType.joystick => ControlWidgetType.joystick,
+  ButtonType.bidirectionalSlider3Step ||
+  ButtonType.analogSliderOT ||
+  ButtonType.analogSliderTOT => ControlWidgetType.sliderButton,
+  ButtonType.joystick ||
+  ButtonType.analogJoystick1D ||
+  ButtonType.analogJoystick2D => ControlWidgetType.joystick,
   ButtonType.potentiometer ||
   ButtonType.alarmIndicator => ControlWidgetType.rotary,
 };
@@ -2540,14 +3251,42 @@ const _typeEntries = [
     'Joystick',
     Icons.gamepad_rounded,
     true,
-    'Analog or digital joystick. Configure behavior in the Behavior tab.',
+    'Digital joystick. Configure behavior in the Behavior tab.',
   ),
   _TypeEntry(
     ButtonType.potentiometer,
     'Potentiometer',
     Icons.tune_rounded,
     true,
-    'Rotary analog value control. Output transport is pending.',
+    'Rotary analog value control.',
+  ),
+  _TypeEntry(
+    ButtonType.analogJoystick1D,
+    '1D Analog Joystick',
+    Icons.control_camera_rounded,
+    true,
+    'Single-axis analog rail with spring-return to neutral.',
+  ),
+  _TypeEntry(
+    ButtonType.analogJoystick2D,
+    '2D Analog Joystick',
+    Icons.games_rounded,
+    true,
+    'Dual-axis analog gimbal. Only the configured axis is transmitted.',
+  ),
+  _TypeEntry(
+    ButtonType.analogSliderOT,
+    'O-T Analog Slider',
+    Icons.vertical_align_top_rounded,
+    true,
+    'One-side spring-return analog slider.',
+  ),
+  _TypeEntry(
+    ButtonType.analogSliderTOT,
+    'T-O-T Analog Slider',
+    Icons.height_rounded,
+    true,
+    'Two-side spring-return analog slider, center neutral.',
   ),
 ];
 
@@ -3641,8 +4380,34 @@ class _BehaviorCard extends StatelessWidget {
               ),
             ),
           ),
+        if (config.type == ButtonType.analogJoystick1D ||
+            config.type == ButtonType.analogJoystick2D)
+          _TabCard(
+            title: '${role.defaultLabel} - ANALOG JOYSTICK',
+            child: _AnalogJoystickConfigEditor(
+              config: config,
+              onChanged: (next) => customCtrl.applyDraftChange(
+                draft.withButton(role.name, next!),
+              ),
+            ),
+          ),
+        if (config.type == ButtonType.analogSliderOT ||
+            config.type == ButtonType.analogSliderTOT)
+          _TabCard(
+            title: '${role.defaultLabel} - ANALOG SLIDER',
+            child: _AnalogSliderConfigEditor(
+              config: config,
+              onChanged: (next) => customCtrl.applyDraftChange(
+                draft.withButton(role.name, next!),
+              ),
+            ),
+          ),
         if (config.type != ButtonType.joystick &&
-            config.type != ButtonType.potentiometer)
+            config.type != ButtonType.potentiometer &&
+            config.type != ButtonType.analogJoystick1D &&
+            config.type != ButtonType.analogJoystick2D &&
+            config.type != ButtonType.analogSliderOT &&
+            config.type != ButtonType.analogSliderTOT)
           _TabCard(
             title: '${role.defaultLabel} · CUSTOM PROPERTIES',
             child: const _InfoNote(

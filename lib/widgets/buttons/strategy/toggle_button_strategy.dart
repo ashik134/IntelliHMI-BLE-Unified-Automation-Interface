@@ -65,6 +65,7 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
       leftIsSpringReturn: mode == ToggleSwitchMode.mixed ? false : null,
       rightIsSpringReturn: mode == ToggleSwitchMode.mixed ? true : null,
       style: config.style,
+      rotation: config.rotation,
       onCommandChanged: (state) => onCommand(config.id, state),
     );
   }

@@ -6,6 +6,8 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/alarm_indicator_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/analog_joystick_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/analog_slider_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/horn_button_strategy.dart';
@@ -35,6 +37,18 @@ const Map<ButtonType, ButtonTypeStrategy> kButtonTypeStrategies = {
   ButtonType.potentiometer: PotentiometerButtonStrategy(),
   ButtonType.horn: HornButtonStrategy(),
   ButtonType.alarmIndicator: AlarmIndicatorStrategy(),
+  ButtonType.analogJoystick1D: AnalogJoystickStrategy(
+    type: ButtonType.analogJoystick1D,
+    dualAxis: false,
+  ),
+  ButtonType.analogJoystick2D: AnalogJoystickStrategy(
+    type: ButtonType.analogJoystick2D,
+    dualAxis: true,
+  ),
+  ButtonType.analogSliderOT: AnalogSliderStrategy(type: ButtonType.analogSliderOT),
+  ButtonType.analogSliderTOT: AnalogSliderStrategy(
+    type: ButtonType.analogSliderTOT,
+  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

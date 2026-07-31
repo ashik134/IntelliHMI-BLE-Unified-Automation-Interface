@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 
 class ControlButtonVisualMetrics {
@@ -195,6 +196,7 @@ class ControlButtonLabelIcon extends StatelessWidget {
     this.showIcon = true,
     this.showLabel = true,
     this.alignment = MainAxisAlignment.center,
+    this.rotation = ButtonRotation.none,
   });
 
   final String label;
@@ -206,6 +208,16 @@ class ControlButtonLabelIcon extends StatelessWidget {
   final bool showLabel;
   final MainAxisAlignment alignment;
 
+  /// The button's own configured rotation (see ButtonConfig.rotation and
+  /// ConfigurableButton's outer Transform.rotate, which rotates this
+  /// widget along with everything else in the button). Counter-rotating by
+  /// the same amount here keeps the label/icon upright and correctly
+  /// measured no matter how the rest of the button is rotated. RotatedBox
+  /// (unlike Transform.rotate) natively swaps layout constraints for a
+  /// quarter turn, so no manual size bookkeeping is needed beyond computing
+  /// [size] below with width/height swapped to match.
+  final ButtonRotation rotation;
+
   @override
   Widget build(BuildContext context) {
     final wantsLabel = showLabel && (style?.showLabel ?? true);
@@ -215,13 +227,19 @@ class ControlButtonLabelIcon extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth.isFinite
+        final boxWidth = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : 160.0;
-        final height = constraints.maxHeight.isFinite
+        final boxHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight
             : ControlButtonVisualMetrics.rowHeight;
-        final size = Size(width, height);
+        final quarterTurns = rotation.quarterTurns;
+        final isSideways = quarterTurns.isOdd;
+        // Once counter-rotated back to upright, the label's own available
+        // space is this box with width/height swapped for a 90/270 turn.
+        final size = isSideways
+            ? Size(boxHeight, boxWidth)
+            : Size(boxWidth, boxHeight);
         final iconSize = ControlButtonVisualMetrics.iconSizeFor(size);
         final gap = ControlButtonVisualMetrics.gapFor(size);
         final canShowText = ControlButtonVisualMetrics.canShowText(
@@ -251,7 +269,7 @@ class ControlButtonLabelIcon extends StatelessWidget {
 
         if (children.isEmpty) return const SizedBox.shrink();
 
-        return SizedBox(
+        final row = SizedBox(
           width: double.infinity,
           height: double.infinity,
           child: Row(
@@ -260,6 +278,9 @@ class ControlButtonLabelIcon extends StatelessWidget {
             children: children,
           ),
         );
+
+        if (quarterTurns == 0) return row;
+        return RotatedBox(quarterTurns: -quarterTurns, child: row);
       },
     );
   }

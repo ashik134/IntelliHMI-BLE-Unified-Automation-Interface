@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -32,6 +33,7 @@ class PushControlButton extends StatelessWidget {
     this.activeColor,
     this.activeColorLight,
     this.hapticFeedback = true,
+    this.rotation = ButtonRotation.none,
     required this.onStateChanged,
   });
 
@@ -43,6 +45,7 @@ class PushControlButton extends StatelessWidget {
   final Color? activeColor;
   final Color? activeColorLight;
   final bool hapticFeedback;
+  final ButtonRotation rotation;
   final ValueChanged<String> onStateChanged;
 
   @override
@@ -64,6 +67,7 @@ class PushControlButton extends StatelessWidget {
       isLatched: latched,
       enabled: enabled,
       hapticFeedback: hapticFeedback,
+      rotation: rotation,
       onPressed: isSpringReturn
           ? () => onStateChanged(PushControlStateId.pressed)
           : null,
@@ -104,6 +108,7 @@ class IndustrialSpringButton extends StatefulWidget {
     this.pressScale = 0.965,
     this.animationDuration = const Duration(milliseconds: 90),
     this.releaseDuration = const Duration(milliseconds: 150),
+    this.rotation = ButtonRotation.none,
     this.onChanged,
     this.onPressed,
     this.onReleased,
@@ -113,6 +118,7 @@ class IndustrialSpringButton extends StatefulWidget {
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonRotation rotation;
   final bool isActive;
   final bool isSpringReturn;
   final bool isLatched;
@@ -308,6 +314,7 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
                         icon: widget.icon,
                         activeColor: widget.activeColor,
                         activeColorLight: widget.activeColorLight,
+                        rotation: widget.rotation,
                         press: press,
                         pressScale: widget.pressScale,
                         isActive: isActive,
@@ -338,6 +345,7 @@ class _IndustrialButtonContent extends StatelessWidget {
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
+    this.rotation = ButtonRotation.none,
     required this.press,
     required this.pressScale,
     required this.isActive,
@@ -355,6 +363,7 @@ class _IndustrialButtonContent extends StatelessWidget {
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonRotation rotation;
   final double press;
   final double pressScale;
   final bool isActive;
@@ -436,7 +445,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                         style: TextStyle(
                           color: mutedColor,
                           fontSize: statusFontSize,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: ControlButtonVisualMetrics.labelFontWeight,
                           letterSpacing: 0.8,
                           shadows: [
                             Shadow(
@@ -457,7 +466,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                           isEnabled ? _alpha(0.95) : _alpha(0.7),
                         ),
                         fontSize: modeFontSize,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: ControlButtonVisualMetrics.labelFontWeight,
                         letterSpacing: 0.5,
                         shadows: [
                           Shadow(
@@ -571,6 +580,7 @@ class _IndustrialButtonContent extends StatelessWidget {
                   label: label,
                   color: labelColor,
                   showIcon: false,
+                  rotation: rotation,
                 ),
               ),
               SizedBox(height: bottomSpacing * 0.8),

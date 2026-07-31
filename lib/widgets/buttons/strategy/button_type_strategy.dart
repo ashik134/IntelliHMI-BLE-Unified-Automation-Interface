@@ -95,8 +95,13 @@ String logicalStateIdFor({
         ControlState.fast => 'step2',
       };
     case ButtonType.potentiometer:
+    case ButtonType.analogJoystick1D:
+    case ButtonType.analogJoystick2D:
+    case ButtonType.analogSliderOT:
+    case ButtonType.analogSliderTOT:
       throw UnsupportedError(
-        'logicalStateIdFor does not handle analog potentiometer values.',
+        'logicalStateIdFor does not handle $type; it is an analog-output '
+        'control and never reaches here (see AnalogButtonCommandCallback).',
       );
     case ButtonType.horn:
     case ButtonType.alarmIndicator:

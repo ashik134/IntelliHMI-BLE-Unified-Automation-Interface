@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
@@ -209,6 +211,7 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
       isLeftZoneBlocked: isLeftZoneBlocked,
       isRightZoneBlocked: isRightZoneBlocked,
       onCommand: onCommand,
+      rotation: config.rotation,
     );
   }
 
@@ -242,6 +245,7 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
     required ButtonCommandCallback onCommand,
     bool isLeftZoneBlocked = false,
     bool isRightZoneBlocked = false,
+    ButtonRotation rotation = ButtonRotation.none,
   }) {
     return MultiZoneSliderButton(
       startLabel: leftLabel,
@@ -251,6 +255,11 @@ class Bidirectional5StepStrategy extends ButtonTypeStrategy {
       isDisabled: isDisabled,
       isStartZoneBlocked: isLeftZoneBlocked,
       isEndZoneBlocked: isRightZoneBlocked,
+      // Explicit traverse theming for the crane role pairing — the widget's
+      // own default is intentionally neutral (see MultiZoneSliderButton doc
+      // comment) for freestanding/generic sliders.
+      nearColor: AppColors.traverseColor,
+      rotation: rotation,
       onStateChanged: (zoneId) {
         final resolved = zoneIdToSideAndState(zoneId: zoneId, fiveZone: true);
         if (resolved.state == ControlState.idle) {
@@ -345,6 +354,9 @@ class Bidirectional3StepStrategy extends ButtonTypeStrategy {
       isStartZoneBlocked: isLeftZoneBlocked,
       isEndZoneBlocked: isRightZoneBlocked,
       variant: MultiZoneSliderVariant.threeZone,
+      // See buildPaired's identical comment above.
+      nearColor: AppColors.traverseColor,
+      rotation: config.rotation,
       onStateChanged: (zoneId) {
         final resolved = zoneIdToSideAndState(zoneId: zoneId, fiveZone: false);
         if (resolved.state == ControlState.idle) {
@@ -474,6 +486,7 @@ Widget buildGenericMultiZoneSlider({
     variant: fiveZone
         ? MultiZoneSliderVariant.fiveZone
         : MultiZoneSliderVariant.threeZone,
+    rotation: config.rotation,
     isStartZoneBlocked: isStartZoneBlocked,
     isEndZoneBlocked: isEndZoneBlocked,
     onStateChanged: (zoneId) {

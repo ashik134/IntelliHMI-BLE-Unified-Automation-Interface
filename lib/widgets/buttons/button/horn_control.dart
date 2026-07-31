@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/services/buzzer_tone_service.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
@@ -31,12 +32,14 @@ class IndustrialHornControl extends StatefulWidget {
     required this.enabled,
     this.icon = Icons.campaign_rounded,
     this.config = const HornConfig(),
+    this.rotation = ButtonRotation.none,
   });
 
   final String label;
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonRotation rotation;
 
   /// Whether the configured PLC condition is currently true. Purely
   /// caller-supplied — this widget never evaluates or sends anything itself.
@@ -176,6 +179,7 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
                     icon: widget.icon,
                     activeColor: widget.activeColor,
                     activeColorLight: widget.activeColorLight,
+                    rotation: widget.rotation,
                     ringT: _ringCtrl.value,
                     isActive: isActive,
                     isEnabled: widget.enabled,
@@ -198,6 +202,7 @@ class _HornContent extends StatelessWidget {
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
+    this.rotation = ButtonRotation.none,
     required this.ringT,
     required this.isActive,
     required this.isEnabled,
@@ -209,6 +214,7 @@ class _HornContent extends StatelessWidget {
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonRotation rotation;
   final double ringT;
   final bool isActive;
   final bool isEnabled;
@@ -316,6 +322,7 @@ class _HornContent extends StatelessWidget {
                       ? AppColors.darkTextMuted
                       : AppColors.darkText,
                   showIcon: false,
+                  rotation: rotation,
                 ),
               ),
             ],

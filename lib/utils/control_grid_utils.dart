@@ -7,7 +7,7 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 
 const String kCrossTravelSpanMessage =
-    '5-Zone Cross Travel requires two adjacent cells. Clear or replace the neighboring control first.';
+    '5-Zone slider requires two adjacent cells. Clear or replace the neighboring control first.';
 
 const String kWidgetPlacementMessage =
     'That widget cannot fit there without overlapping another control.';
@@ -98,7 +98,11 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config == null) {
     return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
-  if (config.type == ButtonType.potentiometer) {
+  if (config.type == ButtonType.potentiometer ||
+      config.type == ButtonType.analogJoystick1D ||
+      config.type == ButtonType.analogJoystick2D ||
+      config.type == ButtonType.analogSliderOT ||
+      config.type == ButtonType.analogSliderTOT) {
     return const ResolvedButtonCommand(stateId: 'analog', activeVariants: {});
   }
   if (config.type == ButtonType.horn ||

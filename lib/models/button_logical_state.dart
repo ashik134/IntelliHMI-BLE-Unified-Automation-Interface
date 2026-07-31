@@ -13,8 +13,8 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 // Cross-travel's 5 (or 3) zones are each their OWN independently-mappable
 // state — never collapsed into borrowed 'slow'/'fast' speed labels, which
 // would smuggle speed semantics back into what must be a fully generic
-// mapping. See CrossTravelStrategy/CrossTravelSlowOnlyStrategy for the
-// gesture-to-zone-id resolution (crossTravelZoneId).
+// mapping. See Bidirectional5StepStrategy/Bidirectional3StepStrategy for
+// the gesture-to-zone-id resolution (crossTravelZoneId).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ButtonLogicalState {
@@ -81,10 +81,16 @@ extension ButtonTypeLogicalStates on ButtonType {
     // on/off or severity is entirely computed from PlcConditionConfig
     // against CraneController's live PlcOutputCommand (see
     // HornButtonStrategy/AlarmIndicatorStrategy) and never round-trips
-    // through stateMappings.
+    // through stateMappings. The analog types are analog-output controls —
+    // same reasoning as potentiometer, they emit a continuous value via
+    // onAnalogCommand and never touch stateMappings either.
     ButtonType.potentiometer ||
     ButtonType.horn ||
-    ButtonType.alarmIndicator => const [],
+    ButtonType.alarmIndicator ||
+    ButtonType.analogJoystick1D ||
+    ButtonType.analogJoystick2D ||
+    ButtonType.analogSliderOT ||
+    ButtonType.analogSliderTOT => const [],
   };
 }
 

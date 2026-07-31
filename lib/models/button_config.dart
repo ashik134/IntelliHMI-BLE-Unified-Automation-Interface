@@ -19,6 +19,12 @@ enum ButtonType {
   potentiometer,
   horn,
   alarmIndicator,
+  // Analog controls (see analog_wire_config.dart) — all bypass
+  // stateMappings entirely, exactly like potentiometer.
+  analogJoystick1D,
+  analogJoystick2D,
+  analogSliderOT,
+  analogSliderTOT,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,8 +216,9 @@ class ButtonConfig {
     if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
     // The 3-zone slider fits a single cell (1x1) by default, honoring an
     // explicit gridColumns override above like any other type.
-    if (type == ButtonType.joystick &&
-        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+    if (type == ButtonType.analogJoystick2D ||
+        (type == ButtonType.joystick &&
+            JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
       return 2;
     }
     return columnSpan.clamp(1, controlGridColumns);
@@ -219,8 +226,9 @@ class ButtonConfig {
 
   int get gridRowSpan {
     if (gridRows > 1) return gridRows.clamp(1, controlGridRows);
-    if (type == ButtonType.joystick &&
-        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+    if (type == ButtonType.analogJoystick2D ||
+        (type == ButtonType.joystick &&
+            JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
       return 2;
     }
     return 1;
@@ -257,8 +265,9 @@ class ButtonConfig {
     if (type == ButtonType.bidirectionalSlider3Step) {
       return (1, 1);
     }
-    if (type == ButtonType.joystick &&
-        JoystickConfig.fromCustomProperties(customProperties).isDualAxis) {
+    if (type == ButtonType.analogJoystick2D ||
+        (type == ButtonType.joystick &&
+            JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
       return (2, 2);
     }
     return (1, 1);
@@ -378,10 +387,16 @@ class ButtonConfig {
       case ButtonType.potentiometer:
       case ButtonType.horn:
       case ButtonType.alarmIndicator:
-        // horn/alarmIndicator are PLC status-driven FEEDBACK widgets, never
-        // fromLegacyAxis migration targets and never composed from
+      case ButtonType.analogJoystick1D:
+      case ButtonType.analogJoystick2D:
+      case ButtonType.analogSliderOT:
+      case ButtonType.analogSliderTOT:
+        // horn/alarmIndicator are PLC status-driven FEEDBACK widgets, and
+        // the analog types are analog-output widgets — none of them are
+        // fromLegacyAxis migration targets or ever composed from
         // stateMappings at all (see HornButtonStrategy/
-        // AlarmIndicatorStrategy) — always empty/inert.
+        // AlarmIndicatorStrategy/AnalogJoystickStrategy) — always
+        // empty/inert.
         return const <String, ButtonStateOutputMapping>{};
       case ButtonType.toggle:
         return {
@@ -391,9 +406,10 @@ class ButtonConfig {
         };
       case ButtonType.bidirectionalSlider5Step:
         // Only reachable for traverseLeft/traverseRight roles (the only
-        // roles fromLegacyAxis ever resolves to ButtonType.crossTravel).
+        // roles fromLegacyAxis ever resolves to
+        // ButtonType.bidirectionalSlider5Step).
         // zone1/zone2 = left side far/near; zone4/zone5 = right side
-        // near/far — matching CrossTravelStrategy's crossTravelZoneId
+        // near/far — matching Bidirectional5StepStrategy's crossTravelZoneId
         // convention exactly. Each button config only owns its OWN side's
         // two zones; the opposite side's zones stay {} on this config
         // (they belong to the sibling ButtonConfig).
