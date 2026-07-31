@@ -12,10 +12,9 @@ import 'package:rev_crane_control_ops/widgets/buttons/button/estop_swipe_button.
 // in plc14_control_screen.dart and plc38_control_screen.dart — pure
 // presentational de-dup, no behavior change.
 //
-// Deliberately never wrapped in EditableControlTile by callers: E-Stop must
-// remain structurally separate from layout editing chrome. Customization Mode
-// may still disable reset interaction so the PLC stays latched until the
-// operator returns to normal control mode.
+// E-Stop must remain structurally separate from layout editing chrome — the
+// [resetEnabled] flag exists so a future editing/customization workflow can
+// disable reset interaction without touching this widget's internals.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SafetyActionPanel extends StatelessWidget {

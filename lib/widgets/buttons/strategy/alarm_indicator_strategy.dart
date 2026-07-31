@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
@@ -62,13 +61,7 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
       config.customProperties,
     );
     final craneController = context.watch<CraneController>();
-    final isCustomizing = context.watch<CustomizationModeController>().isActive;
-    // Customization Mode never escalates/animates, even if the underlying
-    // live PLC condition happens to be true — editing a layout must not
-    // visually alarm the operator over a preview tile.
-    final severity = isCustomizing
-        ? AlarmSeverity.normal
-        : severityFor(alarmConfig, craneController.isFieldActive);
+    final severity = severityFor(alarmConfig, craneController.isFieldActive);
 
     return AlarmIndicatorControl(
       label: config.label,

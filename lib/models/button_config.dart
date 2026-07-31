@@ -256,9 +256,6 @@ class ButtonConfig {
     ButtonType type, {
     Map<String, dynamic> customProperties = const <String, dynamic>{},
   }) {
-    // 3-zone: a single grid cell. 5-zone: two cells horizontally by default
-    // (a vertical 1x2 placement is also supported — see buildButtonResize's
-    // bidirectionalSlider5Step special case in control_grid_utils.dart).
     if (type == ButtonType.bidirectionalSlider5Step) {
       return (2, 1);
     }

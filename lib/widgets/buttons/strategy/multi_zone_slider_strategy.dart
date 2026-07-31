@@ -18,49 +18,6 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // Two ways this strategy builds MultiZoneSliderButton, kept deliberately
 // isolated from one another:
 //
-// 1. GENERIC path (config.role == null — a free-standing button placed
-//    anywhere in the control grid): a single ButtonConfig owns all of its
-//    own zones directly via its own stateMappings. The widget's zone id is
-//    dispatched to the controller UNCHANGED via ButtonStateIdCommandCallback
-//    — no crossTravelZoneId translation, no left/right ControlRole, no
-//    paired sibling. This is the fully generic path described by the
-//    button-type-strategy architecture (see button_type_strategy.dart).
-//
-// 2. LEGACY PAIRED path (config.role != null — the crane's traverse axis):
-//    preserved exactly as before. MultiZoneSliderButton intrinsically needs
-//    both LEFT and RIGHT ButtonConfig (two labels/two PLC-mapped halves),
-//    which a single ButtonTypeStrategy.build() call can't express without
-//    leaking this one type's oddity into the shared interface every other
-//    strategy would have to ignore. So build() supports only the "single
-//    side" case with a same-value fallback label, and [buildPaired] — an
-//    escape hatch OUTSIDE the ButtonTypeStrategy interface, directly
-//    analogous to how ButtonEditSheet.forAxis already special-cases this one
-//    axis today — is the real entry point screens use for cross-travel.
-//    Translating the widget's generic zone id into which side's ButtonConfig
-//    it belongs to (and the legacy ControlState the rest of that pipeline
-//    still expects) happens entirely HERE, in the strategy — never inside
-//    the widget — via [zoneIdToSideAndState].
-//
-// Whichever path is used, MultiZoneSliderButton itself never resolves a PLC
-// output and never assumes left/right/crane/traverse/slow/fast — see
-// multi_zone_slider_button.dart.
-//
-// ── Zone-id resolution (crossTravelZoneId) ─────────────────────────────────
-//
-// crossTravelZoneId below is the pure, exhaustive relabeling used by
-// resolveButtonCommand (see control_grid_utils.dart) to recover a paired
-// button's logical state id from its (side, ControlState) pair, with no
-// default/fallback case, so a future ControlState value would be a compile
-// error here rather than silently misrouting a drag into the wrong zone's
-// configured output variants. [zoneIdToSideAndState] below is its exact
-// inverse, used to translate MultiZoneSliderButton's own zone id back into
-// the (side, ControlState) pair the legacy paired path's onCommand callers
-// still expect. This is the highest-risk part of the whole
-// generic-output-variant refactor: a bug here wouldn't look like
-// auto-derivation (adding an unconfigured variant) — it would look like one
-// zone silently reading a DIFFERENT zone's user-configured variants, which
-// is why every arm is written out explicitly instead of collapsed via `_`.
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Exhaustive truth table (5-zone):
 ///   isLeftButton=true,  idle -> center

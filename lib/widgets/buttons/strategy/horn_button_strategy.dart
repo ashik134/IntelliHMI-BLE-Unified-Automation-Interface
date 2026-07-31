@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
-import 'package:rev_crane_control_ops/controllers/customization_mode_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
@@ -21,11 +20,6 @@ import 'package:rev_crane_control_ops/widgets/buttons/role_appearance.dart';
 // variants, e.g. "A2 ON" or "A5 AND A6 ON") to decide whether to sound.
 // [onCommand]/[activeState] are UNUSED here — this strategy never calls
 // onCommand, matching "Buzzer must not send PLC output commands."
-//
-// Sound/haptic/pulse are additionally suppressed whenever Customization Mode
-// is active (context.watch<CustomizationModeController>().isActive), even if
-// the underlying live PLC condition happens to be true — editing a layout
-// must never make noise.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HornButtonStrategy extends ButtonTypeStrategy {
@@ -54,15 +48,11 @@ class HornButtonStrategy extends ButtonTypeStrategy {
     final hornConfig = HornConfig.fromCustomProperties(config.customProperties);
 
     final craneController = context.watch<CraneController>();
-    final isCustomizing = context.watch<CustomizationModeController>().isActive;
 
     final conditionTrue = hornConfig.trigger.isActive(
       craneController.isFieldActive,
     );
-    // Customization Mode never sounds/vibrates/pulses, even if the
-    // underlying condition happens to be true (e.g. previewing a layout
-    // while the live PLC state coincidentally matches the trigger).
-    final isActive = conditionTrue && !isCustomizing && !isDisabled;
+    final isActive = conditionTrue && !isDisabled;
 
     return IndustrialHornControl(
       label: config.label,
@@ -71,9 +61,7 @@ class HornButtonStrategy extends ButtonTypeStrategy {
       activeColorLight: activeColorLight,
       isActive: isActive,
       enabled: !isDisabled,
-      config: isCustomizing
-          ? hornConfig.copyWith(soundEnabled: false, hapticFeedback: false)
-          : hornConfig,
+      config: hornConfig,
       rotation: config.rotation,
     );
   }
