@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
-import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 
 /// Opens a bottom sheet for viewing/editing the canvas-selected widget's
@@ -244,9 +243,18 @@ class _WidgetPropertiesSheetState extends State<WidgetPropertiesSheet> {
   }
 }
 
-String _typeDisplayName(ButtonType type) {
-  for (final entry in kButtonCatalog) {
-    if (entry.buttonType == type) return entry.displayName;
-  }
-  return type.name;
-}
+String _typeDisplayName(ButtonType type) => switch (type) {
+  ButtonType.pushButton => 'Push Button',
+  ButtonType.toggle => 'Toggle Switch',
+  ButtonType.sliderButton => 'Slider Button',
+  ButtonType.bidirectionalSlider5Step => '5-Zone Slider',
+  ButtonType.bidirectionalSlider3Step => '3-Zone Slider',
+  ButtonType.joystick => 'Joystick',
+  ButtonType.potentiometer => 'Potentiometer',
+  ButtonType.horn => 'Horn',
+  ButtonType.alarmIndicator => 'Alarm Indicator',
+  ButtonType.analogJoystick1D => 'Analog Joystick (1-Axis)',
+  ButtonType.analogJoystick2D => 'Analog Joystick (2-Axis)',
+  ButtonType.analogSliderOT => 'Analog Slider (O-T)',
+  ButtonType.analogSliderTOT => 'Analog Slider (T-O-T)',
+};
