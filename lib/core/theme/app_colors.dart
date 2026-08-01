@@ -46,9 +46,10 @@ class AppColors {
   static const Color appBarBg = Color(0xFF12101E);
   static const Color appBarGlow = Color(0xFF8B5CF6);
   static const Color appBarBanner = Color(0x1A7C3AED); // violet-600 @ 10%
-  static const Color appBarBannerBorder = Color(
-    0x338B5CF6,
-  ); // violet-500 @ 20%
+  static const Color appBarBannerBorder = Color(0x338B5CF6); // violet-500 @ 20%
+  // Solid, more saturated violet used only while Customization/Edit Mode is
+  // active, so the AppBar itself reads as visually distinct from normal mode.
+  static const Color appBarEditingBg = Color(0xFF1F1533);
 
   // ── Selection overlay (customization mode, violet-tinted) ────────────
   static const Color selectionViolet = Color(0xFF8B5CF6); // violet-500

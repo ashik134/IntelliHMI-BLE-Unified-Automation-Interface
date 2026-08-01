@@ -39,6 +39,116 @@ class ControlAppBarGlow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EditModeAppBarTitle
+//
+// Replaces DeviceInfoAppBarTitle in the AppBar while Customization/Edit Mode
+// is active, so the title itself — not just a small icon — announces the
+// mode change: an edit glyph plus "Customization Mode" and a one-line hint,
+// in place of the tappable device/RSSI readout that isn't relevant while
+// editing (outputs are blocked, so RSSI/connection detail is a distraction).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class EditModeAppBarTitle extends StatelessWidget {
+  const EditModeAppBarTitle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppColors.selectionViolet.withAlpha(46),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(
+            Icons.edit_rounded,
+            size: 16,
+            color: AppColors.selectionViolet,
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Customization Mode',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppColors.darkText,
+              ),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Tap a widget to select or delete',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, color: AppColors.darkTextSub),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CustomizationModeBanner
+//
+// Replaces the AppBar's thin bottom accent line while Customization/Edit
+// Mode is active. Deliberately louder than the normal-mode line (solid
+// violet fill, bold uppercase text) so the AppBar's bottom edge alone makes
+// the state obvious at a glance, and states the safety rule plainly — PLC
+// outputs stay blocked for the whole edit session (see
+// LayoutEditController.enter, which force-latches E-STOP on entry, and
+// ControlCanvas/_CanvasSection.isDisabled, which disable every button while
+// isEditing is true).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class CustomizationModeBanner extends StatelessWidget
+    implements PreferredSizeWidget {
+  const CustomizationModeBanner({super.key});
+
+  @override
+  Size get preferredSize => const Size.fromHeight(28);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: preferredSize.height,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: AppColors.selectionVioletDeep,
+        border: Border(
+          bottom: BorderSide(color: AppColors.selectionViolet, width: 2),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 13, color: Colors.white),
+          SizedBox(width: 6),
+          Text(
+            'OUTPUTS BLOCKED — LAYOUT EDITING ONLY',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DeviceInfoAppBarTitle
 //
 // Normal-mode AppBar title: device name + PLC type + live RSSI, tappable to
@@ -166,7 +276,9 @@ class _DeviceInfoDialog extends StatelessWidget {
     final rows = <_InfoRowData>[
       _InfoRowData(
         'Device name',
-        device?.name ?? controller.connectedDeviceName ?? BLEConstants.deviceName,
+        device?.name ??
+            controller.connectedDeviceName ??
+            BLEConstants.deviceName,
       ),
       _InfoRowData('PLC type', plcType.displayName),
       _InfoRowData(
@@ -227,9 +339,7 @@ class _DeviceInfoDialog extends StatelessWidget {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
                   child: Column(
-                    children: [
-                      for (final row in rows) _InfoRow(data: row),
-                    ],
+                    children: [for (final row in rows) _InfoRow(data: row)],
                   ),
                 ),
               ),
@@ -263,7 +373,8 @@ class _DeviceInfoDialog extends StatelessWidget {
       BleConnectionStatus.scanning => 'Scanning',
       BleConnectionStatus.connecting => 'Connecting',
       BleConnectionStatus.discoveringServices => 'Discovering services',
-      BleConnectionStatus.configuringNotifications => 'Configuring notifications',
+      BleConnectionStatus.configuringNotifications =>
+        'Configuring notifications',
       BleConnectionStatus.initializingSafeState => 'Initializing safe state',
       BleConnectionStatus.connected => 'Connected',
       BleConnectionStatus.awaitingAuthentication => 'Awaiting authentication',
@@ -291,9 +402,7 @@ class _DialogHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
       decoration: const BoxDecoration(
         color: AppColors.appBarBanner,
-        border: Border(
-          bottom: BorderSide(color: AppColors.appBarBannerBorder),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.appBarBannerBorder)),
         borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
       ),
       child: Row(

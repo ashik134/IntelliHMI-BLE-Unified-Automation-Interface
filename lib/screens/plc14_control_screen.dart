@@ -3,18 +3,27 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
+import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
@@ -38,9 +47,11 @@ import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dar
 // status chip) is its own small widget with its own narrow Selector, so a BLE
 // notification only rebuilds the specific section that actually changed.
 //
-// The customization workflow (draft editing, drag/resize, selection overlays,
-// the control grid) has been removed pending a full redesign — see the
-// Customize button in the AppBar, which is currently a no-op.
+// The customization workflow is a tap-only Edit Mode (no drag/resize this
+// pass — see LayoutEditController): the Customize button starts an edit
+// session, ControlCanvas renders the grid with tap-to-select/delete chrome,
+// and the bottom CustomizationToolbar exposes Widgets/Load Template/Save
+// Layout/Layout Settings/Done.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ControlScreen extends StatefulWidget {
@@ -57,6 +68,16 @@ class _ControlScreenState extends State<ControlScreen>
   bool _isBackNavigating = false;
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
+
+  // Written only by the onCommand callback below, which fires synchronously
+  // from a button's own gesture handler — never from PLC status feedback.
+  // See _CanvasSection._activeStateForButton's doc comment.
+  final Map<String, ControlState> _localActive = {};
+
+  void _resetLocalButtonStates() {
+    if (_localActive.isEmpty) return;
+    setState(_localActive.clear);
+  }
 
   @override
   void initState() {
@@ -105,6 +126,7 @@ class _ControlScreenState extends State<ControlScreen>
     if (controller.currentScreen != AppScreen.control ||
         controller.isDisconnected) {
       _dismissResetDialogIfVisible();
+      _resetLocalButtonStates();
     }
     if (controller.isDisconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -145,7 +167,12 @@ class _ControlScreenState extends State<ControlScreen>
 
   Future<void> _onResetEStopTap() async {
     final controller = context.read<CraneController>();
-    if (controller.currentScreen != AppScreen.control ||
+    // isEditing is defense-in-depth: SafetyActionPanel already disables the
+    // reset swipe (resetEnabled: !isEditing) while Edit Mode is active, but
+    // gating here too means Reset E-Stop can never fire mid-edit even if
+    // that wiring ever changes.
+    if (context.read<LayoutEditController>().isEditing ||
+        controller.currentScreen != AppScreen.control ||
         !controller.isConnected) {
       return;
     }
@@ -203,17 +230,29 @@ class _ControlScreenState extends State<ControlScreen>
     return Selector<CraneController, PlcType>(
       selector: (_, controller) => controller.connectedPlcType,
       builder: (context, plcType, _) {
-        return Selector<LayoutSettingsController, ControlLayoutConfig>(
-          selector: (_, layoutCtrl) =>
-              layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
-          builder: (context, layoutCfg, _) =>
-              _buildScaffold(context, layoutCfg),
+        return Selector2<
+          LayoutEditController,
+          LayoutSettingsController,
+          _LayoutShape
+        >(
+          selector: (_, editCtrl, layoutCtrl) => _LayoutShape(
+            isEditing: editCtrl.isEditing,
+            layoutCfg: editCtrl.isEditing
+                ? editCtrl.draft
+                : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
+          ),
+          builder: (context, shape, _) =>
+              _buildScaffold(context, shape.isEditing, shape.layoutCfg),
         );
       },
     );
   }
 
-  Widget _buildScaffold(BuildContext context, ControlLayoutConfig layoutCfg) {
+  Widget _buildScaffold(
+    BuildContext context,
+    bool isEditing,
+    ControlLayoutConfig layoutCfg,
+  ) {
     final labels = layoutCfg.labelConfig;
     final sizing = layoutCfg.sizeConfig;
     final arrangement = layoutCfg.arrangementConfig;
@@ -227,50 +266,96 @@ class _ControlScreenState extends State<ControlScreen>
       preferShowLEDs: arrangement.showLiveLEDs,
     );
 
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: _onBackAttempted,
-      child: Scaffold(
-        backgroundColor: AppColors.darkBg,
-        resizeToAvoidBottomInset: false,
-        appBar: _ControlAppBar(labels: labels),
-        body: SafeArea(
-          maintainBottomViewPadding: true,
-          child: Padding(
-            padding: metrics.bodyPadding,
-            child: Column(
-              children: [
-                _SafetyPanelSection(
-                  compact: metrics.isCompact,
-                  height: metrics.estopHeight,
-                  width: sizing.resolvedEstopWidthOrFill,
-                  instructionLabel: labels.estopSwipeInstruction,
-                  resetLabel: labels.resetEstopLabel,
-                  onEStopTap: _onEStopTap,
-                  onResetActivated: _onResetEStopTap,
-                ),
-                SizedBox(height: metrics.itemSpacing),
-                if (metrics.showSensorRow) ...[
-                  const _SensorSection(),
-                  SizedBox(height: metrics.itemSpacing),
+    return Stack(
+      children: [
+        PopScope(
+          canPop: !isEditing,
+          onPopInvokedWithResult: _onBackAttempted,
+          child: Scaffold(
+            backgroundColor: AppColors.darkBg,
+            resizeToAvoidBottomInset: false,
+            appBar: _ControlAppBar(labels: labels, isEditing: isEditing),
+            body: SafeArea(
+              maintainBottomViewPadding: true,
+              child: Stack(
+                children: [
+                  Padding(
+                    padding: metrics.bodyPadding,
+                    child: Column(
+                      children: [
+                        _SafetyPanelSection(
+                          compact: metrics.isCompact,
+                          height: metrics.estopHeight,
+                          width: sizing.resolvedEstopWidthOrFill,
+                          instructionLabel: labels.estopSwipeInstruction,
+                          resetLabel: labels.resetEstopLabel,
+                          isEditing: isEditing,
+                          onEStopTap: _onEStopTap,
+                          onResetActivated: _onResetEStopTap,
+                        ),
+                        SizedBox(height: metrics.itemSpacing),
+                        if (metrics.showSensorRow) ...[
+                          const _SensorSection(),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+                        if (metrics.showLEDs) ...[
+                          const _LiveLedSection(),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+                        Expanded(
+                          child: RepaintBoundary(
+                            child: _CanvasSection(
+                              layoutCfg: layoutCfg,
+                              isEditing: isEditing,
+                              localActive: _localActive,
+                              onLocalActiveChanged: (id, state) =>
+                                  setState(() => _localActive[id] = state),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: metrics.itemSpacing),
+                        const _StatusChipSection(),
+                        SizedBox(height: metrics.itemSpacing),
+                      ],
+                    ),
+                  ),
+                  if (isEditing)
+                    const Positioned.fill(child: EditModeBackdrop()),
                 ],
-                if (metrics.showLEDs) ...[
-                  const _LiveLedSection(),
-                  SizedBox(height: metrics.itemSpacing),
-                ],
-                const Expanded(
-                  child: RepaintBoundary(child: _MainControlsPlaceholder()),
-                ),
-                SizedBox(height: metrics.itemSpacing),
-                const _StatusChipSection(),
-                SizedBox(height: metrics.itemSpacing),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+        EditModeToolbarHost(isEditing: isEditing),
+      ],
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _LayoutShape
+//
+// Value type combining LayoutEditController.isEditing with the layout config
+// that should currently be rendered (the draft while editing, the committed
+// config otherwise), so the screen's Selector2 only rebuilds when either
+// actually changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LayoutShape {
+  const _LayoutShape({required this.isEditing, required this.layoutCfg});
+
+  final bool isEditing;
+  final ControlLayoutConfig layoutCfg;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LayoutShape &&
+          other.isEditing == isEditing &&
+          other.layoutCfg == layoutCfg;
+
+  @override
+  int get hashCode => Object.hash(isEditing, layoutCfg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,47 +363,57 @@ class _ControlScreenState extends State<ControlScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _ControlAppBar({required this.labels});
+  const _ControlAppBar({required this.labels, required this.isEditing});
 
   final ControlLabelConfig labels;
+  final bool isEditing;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 3);
+  Size get preferredSize =>
+      Size.fromHeight(kToolbarHeight + (isEditing ? 28 : 3));
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
       actionsPadding: const EdgeInsets.only(right: 8),
       automaticallyImplyLeading: false,
-      backgroundColor: AppColors.appBarBg,
+      backgroundColor: isEditing
+          ? AppColors.appBarEditingBg
+          : AppColors.appBarBg,
       flexibleSpace: const ControlAppBarGlow(),
       titleSpacing: NavigationToolbar.kMiddleSpacing,
-      title: _DeviceTitle(labels: labels),
+      title: isEditing
+          ? const EditModeAppBarTitle()
+          : _DeviceTitle(labels: labels),
       actions: [
-        IconButton(
-          icon: const Icon(
-            Icons.dashboard_customize_rounded,
-            size: 20,
-            color: AppColors.darkTextSub,
+        // The customize action only makes sense in normal mode — while
+        // editing it would be a duplicate way to (re-)enter a mode already
+        // active, so it's omitted entirely rather than disabled.
+        if (!isEditing)
+          IconButton(
+            icon: const Icon(
+              Icons.dashboard_customize_rounded,
+              size: 20,
+              color: AppColors.darkTextMuted,
+            ),
+            tooltip: 'Customize Layout',
+            onPressed: () => context.read<LayoutEditController>().enter(),
           ),
-          tooltip: 'Customize Layout',
-          onPressed: () {
-            // TODO: Implement the redesigned customization workflow.
-          },
-        ),
         const _DisconnectButton(),
       ],
-      bottom: const PreferredSize(
-        preferredSize: Size.fromHeight(3),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.appBarBanner,
-            border: Border(
-              bottom: BorderSide(color: AppColors.appBarBannerBorder),
+      bottom: isEditing
+          ? const CustomizationModeBanner()
+          : const PreferredSize(
+              preferredSize: Size.fromHeight(3),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.appBarBanner,
+                  border: Border(
+                    bottom: BorderSide(color: AppColors.appBarBannerBorder),
+                  ),
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -382,6 +477,7 @@ class _SafetyPanelSection extends StatelessWidget {
     required this.width,
     required this.instructionLabel,
     required this.resetLabel,
+    required this.isEditing,
     required this.onEStopTap,
     required this.onResetActivated,
   });
@@ -391,6 +487,11 @@ class _SafetyPanelSection extends StatelessWidget {
   final double? width;
   final String instructionLabel;
   final String resetLabel;
+
+  /// Forces resetEnabled off on SafetyActionPanel while Edit Mode is active
+  /// — the operator must press Done and leave Edit Mode before Reset E-Stop
+  /// becomes swipeable again (see [_onResetEStopTap]'s matching guard).
+  final bool isEditing;
   final Future<void> Function() onEStopTap;
   final Future<void> Function() onResetActivated;
 
@@ -407,6 +508,7 @@ class _SafetyPanelSection extends StatelessWidget {
         width: width,
         instructionLabel: instructionLabel,
         resetLabel: resetLabel,
+        resetEnabled: !isEditing,
         onEStopTap: onEStopTap,
         onResetActivated: onResetActivated,
       ),
@@ -509,45 +611,169 @@ class _StatusChipSection extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _MainControlsPlaceholder
+// _CanvasSection
 //
-// The customizable control grid (motion buttons, drag/resize, selection
-// overlays) has been removed pending a full redesign of the customization
-// workflow. This is a non-interactive placeholder only — it never sends a
-// PLC command and holds no state.
+// Wraps ControlCanvas with its own narrow watch of exactly the
+// CraneController fields the grid's isDisabled/activeStateFor closures need
+// (estopLatched, isConnected). A BLE status notification that doesn't flip
+// either of those never rebuilds the grid.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _MainControlsPlaceholder extends StatelessWidget {
-  const _MainControlsPlaceholder();
+class _GridGateValues {
+  const _GridGateValues(this.estopLatched, this.isConnected);
+
+  final bool estopLatched;
+  final bool isConnected;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _GridGateValues &&
+          other.estopLatched == estopLatched &&
+          other.isConnected == isConnected;
+
+  @override
+  int get hashCode => Object.hash(estopLatched, isConnected);
+}
+
+class _CanvasSection extends StatelessWidget {
+  const _CanvasSection({
+    required this.layoutCfg,
+    required this.isEditing,
+    required this.localActive,
+    required this.onLocalActiveChanged,
+  });
+
+  final ControlLayoutConfig layoutCfg;
+  final bool isEditing;
+  final Map<String, ControlState> localActive;
+  final void Function(String id, ControlState state) onLocalActiveChanged;
+
+  bool _isMutuallyExcluded(ButtonConfig config) {
+    // Cross-travel widgets manage both directions as a single unit; mutual
+    // exclusion with the paired role would incorrectly disable the widget
+    // mid-drag and leave it permanently stuck in the disabled state.
+    if (config.type == ButtonType.bidirectionalSlider5Step ||
+        config.type == ButtonType.bidirectionalSlider3Step) {
+      return false;
+    }
+    for (final excludedId in config.mutualExclusion.excludedButtonIds) {
+      if ((localActive[excludedId] ?? ControlState.idle) != ControlState.idle) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Resolves the VISUAL active state for [config]. Local-touch state only
+  /// (see [localActive]) — PLC feedback intentionally never feeds into a
+  /// button's own visual state; it stays visible only through status/output
+  /// indicators (LEDs, status chip) elsewhere on screen. estop latch forces
+  /// idle regardless of local state.
+  ControlState _activeStateForButton(bool estopLatched, ButtonConfig config) {
+    if (estopLatched) return ControlState.idle;
+    return localActive[config.id] ?? ControlState.idle;
+  }
+
+  void _onDelete(BuildContext context, String id) {
+    final result = context.read<LayoutEditController>().deleteButton(id);
+    if (!result.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Could not delete this widget.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.darkBorder),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.widgets_outlined,
-              size: 28,
-              color: AppColors.darkTextMuted,
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Controls area — pending redesign',
-              style: TextStyle(
-                color: AppColors.darkTextMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
+    final gate = context.select<CraneController, _GridGateValues>(
+      (c) => _GridGateValues(c.estopLatched, c.isConnected),
+    );
+    final selectedButtonId = isEditing
+        ? context.select<LayoutEditController, String?>(
+            (c) => c.selectedButtonId,
+          )
+        : null;
+
+    return ControlCanvas(
+      layoutCfg: layoutCfg,
+      isEditing: isEditing,
+      activeStateFor: (config) =>
+          _activeStateForButton(gate.estopLatched, config),
+      isDisabled: (config) =>
+          // isEditing is defense-in-depth: ControlCanvas already forces
+          // every occupied cell's ConfigurableButton disabled+AbsorbPointer
+          // while editing, but gating here too means this closure alone
+          // documents and enforces "Edit Mode never sends PLC output" even
+          // if that internal behavior ever changes.
+          isEditing ||
+          gate.estopLatched ||
+          !gate.isConnected ||
+          !config.enabled ||
+          (config.role == null && !config.plcMappingEnabled) ||
+          _isMutuallyExcluded(config),
+      onCommand: (id, state) {
+        ButtonStateLog.log(
+          state == ControlState.idle
+              ? 'SEND_IDLE  [$id] (PLC14)'
+              : 'SEND_ACTIVE [$id] -> ${state.name} (PLC14)',
+        );
+        onLocalActiveChanged(id, state);
+        final resolved = resolveButtonCommand(
+          buttonId: id,
+          state: state,
+          layoutCfg: layoutCfg,
+        );
+        context.read<CraneController>().setButtonState(
+          buttonId: id,
+          stateId: resolved.stateId,
+          activeVariants: resolved.activeVariants,
+        );
+      },
+      // Generic zone-id path (multi-zone slider): the widget already reports
+      // the REAL logical state id directly (e.g. 'zone1'..'zone5'), so —
+      // unlike onCommand above — there is no ControlState to translate it
+      // back from. [state] here is only a binary idle/non-idle bookkeeping
+      // marker for localActive/mutual-exclusion; the PLC composition is
+      // driven entirely by activeVariants, resolved directly from this exact
+      // (buttonId, stateId) pair's ButtonConfig.stateMappings entry.
+      onStateIdCommand: (id, stateId) {
+        final isIdle =
+            stateId == MultiZoneSliderStateId.center || stateId == 'idle';
+        final state = isIdle ? ControlState.idle : ControlState.level1;
+        ButtonStateLog.log(
+          isIdle
+              ? 'SEND_IDLE  [$id] (PLC14)'
+              : 'SEND_ACTIVE [$id] -> $stateId (PLC14)',
+        );
+        onLocalActiveChanged(id, state);
+        final activeVariants =
+            layoutCfg
+                .resolvedButtons[id]
+                ?.stateMappings[stateId]
+                ?.activeVariants ??
+            const <PlcOutputVariant>{};
+        context.read<CraneController>().setButtonState(
+          buttonId: id,
+          stateId: stateId,
+          activeVariants: activeVariants,
+        );
+      },
+      onAnalogCommand: (config, value) {
+        final analogConfig = resolveAnalogWireConfig(config);
+        context.read<CraneController>().setAnalogButtonValue(
+          buttonId: config.id,
+          value: value,
+          config: analogConfig,
+        );
+      },
+      selectedButtonId: selectedButtonId,
+      onSelectButton: isEditing
+          ? (id) => context.read<LayoutEditController>().selectButton(id)
+          : null,
+      onDeleteButton: isEditing ? (id) => _onDelete(context, id) : null,
     );
   }
 }

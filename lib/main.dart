@@ -16,6 +16,7 @@ import 'package:rev_crane_control_ops/screens/scan_page.dart';
 import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 
@@ -48,6 +49,17 @@ class IntelliHMIApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => CraneController()),
         ChangeNotifierProvider(create: (_) => LayoutSettingsController()),
+        ChangeNotifierProxyProvider2<
+          CraneController,
+          LayoutSettingsController,
+          LayoutEditController
+        >(
+          create: (ctx) => LayoutEditController(
+            layoutSettings: ctx.read<LayoutSettingsController>(),
+            craneController: ctx.read<CraneController>(),
+          ),
+          update: (ctx, crane, layout, previous) => previous!,
+        ),
         ChangeNotifierProvider(create: (_) => NavigationController()),
       ],
       child: MaterialApp(

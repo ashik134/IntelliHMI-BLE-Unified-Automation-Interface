@@ -1,0 +1,171 @@
+import 'package:flutter/foundation.dart';
+
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/services/layout_template_service.dart';
+import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LayoutEditController
+//
+// Holds the transient "Edit Mode" session: a draft ControlLayoutConfig that
+// is freely mutated (add/delete a button, apply a template, edit labels/
+// arrangement/sizing) without ever touching SharedPreferences. Nothing this
+// controller does is visible to LayoutSettingsController — and therefore
+// never persisted — until save()/exit() explicitly commits the draft via
+// LayoutSettingsController.replaceConfig, which validates before writing.
+//
+// Kept deliberately separate from LayoutSettingsController so that
+// controller stays a pure persisted-config store with no transient UI state.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class LayoutEditController extends ChangeNotifier {
+  LayoutEditController({
+    required LayoutSettingsController layoutSettings,
+    required CraneController craneController,
+    LayoutValidationService? validationService,
+  }) : _layoutSettings = layoutSettings,
+       _craneController = craneController,
+       _validator = validationService ?? const LayoutValidationService();
+
+  final LayoutSettingsController _layoutSettings;
+  final CraneController _craneController;
+  final LayoutValidationService _validator;
+
+  bool _isEditing = false;
+  LayoutBucket _bucket = LayoutBucket.plc14;
+  ControlLayoutConfig _draft = const ControlLayoutConfig();
+  String? _selectedButtonId;
+  ValidationResult _lastValidation = const ValidationResult.valid();
+
+  bool get isEditing => _isEditing;
+  LayoutBucket get activeBucket => _bucket;
+  ControlLayoutConfig get draft => _draft;
+  String? get selectedButtonId => _selectedButtonId;
+  ValidationResult get lastValidation => _lastValidation;
+
+  bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
+
+  /// Enters Edit Mode for the currently-connected PLC's layout bucket,
+  /// seeding the draft from the committed config. Force-latches E-STOP as a
+  /// safety measure so no motion control can be actuated while the operator
+  /// is looking at the editing canvas instead of the machine.
+  Future<void> enter() async {
+    if (_isEditing) return;
+    await _craneController.triggerEStop();
+    _bucket = LayoutBucket.forPlcType(_craneController.connectedPlcType);
+    _draft = _layoutSettings.configFor(_bucket);
+    _selectedButtonId = null;
+    _lastValidation = const ValidationResult.valid();
+    _isEditing = true;
+    notifyListeners();
+  }
+
+  void selectButton(String? id) {
+    if (_selectedButtonId == id) return;
+    _selectedButtonId = id;
+    notifyListeners();
+  }
+
+  /// Places [button] at the next open grid slot in the draft. Returns the
+  /// [GridMutationResult] so the caller (Widget Catalog) can show an error
+  /// and stay on the catalog page rather than popping on failure.
+  GridMutationResult addButton(ButtonConfig button) {
+    final result = buildButtonAdd(
+      buttons: _draft.resolvedButtons,
+      button: button,
+      preferredPageIndex: 0,
+    );
+    if (result.isValid) {
+      final placed = result.buttons![button.id]!;
+      final nextPageCount = (placed.pageIndex + 1) > _draft.controlPageCount
+          ? placed.pageIndex + 1
+          : _draft.controlPageCount;
+      _applyDraft(
+        _draft.copyWith(
+          buttons: result.buttons,
+          controlPageCount: nextPageCount,
+        ),
+      );
+      _selectedButtonId = button.id;
+      notifyListeners();
+    }
+    return result;
+  }
+
+  GridMutationResult deleteButton(String id) {
+    final button = _draft.resolvedButtons[id];
+    if (button == null) {
+      return const GridMutationResult.invalid('Button not found.');
+    }
+    final result = buildButtonDelete(
+      buttons: _draft.resolvedButtons,
+      selected: button,
+    );
+    if (result.isValid) {
+      if (_selectedButtonId == id) _selectedButtonId = null;
+      _applyDraft(_draft.copyWith(buttons: result.buttons));
+    }
+    return result;
+  }
+
+  void toggleArrangement(ArrangementToggle which) {
+    _applyDraft(_draft.copyWith(arrangementConfig: which.apply(_draft.arrangementConfig)));
+  }
+
+  void updateDraftLabelConfig(ControlLabelConfig next) {
+    _applyDraft(_draft.copyWith(labelConfig: next));
+  }
+
+  void updateDraftSizeConfig(ControlWidgetSizeConfig next) {
+    _applyDraft(_draft.copyWith(sizeConfig: next));
+  }
+
+  void updateDraftArrangementConfig(ControlArrangementConfig next) {
+    _applyDraft(_draft.copyWith(arrangementConfig: next));
+  }
+
+  /// Replaces the entire draft with [template]'s layout — a full overwrite,
+  /// not a merge. Callers (Load Template sheet) are responsible for warning
+  /// the operator first when [hasUnsavedChanges] is true.
+  void applyTemplate(LayoutTemplate template) {
+    _applyDraft(template.build(_bucket));
+  }
+
+  void _applyDraft(ControlLayoutConfig next) {
+    _draft = next;
+    _lastValidation = _validator.validateFullConfig(_draft);
+    notifyListeners();
+  }
+
+  /// Validates and persists the draft via LayoutSettingsController, without
+  /// leaving Edit Mode. Stays the draft's baseline at the repaired, persisted
+  /// config on success.
+  Future<ValidationResult> save() async {
+    final result = await _layoutSettings.replaceConfig(_bucket, _draft);
+    _lastValidation = result;
+    if (result.isValid) {
+      _draft = _layoutSettings.configFor(_bucket);
+    }
+    notifyListeners();
+    return result;
+  }
+
+  /// Validates, saves, and — only on success — leaves Edit Mode. On failure
+  /// the session stays active so the operator can fix the reported errors
+  /// and press Done again.
+  Future<ValidationResult> exit() async {
+    final result = await save();
+    if (result.isValid) {
+      _isEditing = false;
+      _selectedButtonId = null;
+      notifyListeners();
+    }
+    return result;
+  }
+}
