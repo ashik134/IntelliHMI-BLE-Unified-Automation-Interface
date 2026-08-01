@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
@@ -314,7 +315,10 @@ class _ControlScreenState extends State<ControlScreen>
                           ),
                         ),
                         SizedBox(height: metrics.itemSpacing),
-                        const _StatusChipSection(),
+                        BottomActionsRecede(
+                          recede: isEditing,
+                          child: const _StatusChipSection(),
+                        ),
                         SizedBox(height: metrics.itemSpacing),
                       ],
                     ),
@@ -696,10 +700,18 @@ class _CanvasSection extends StatelessWidget {
             (c) => c.selectedButtonId,
           )
         : null;
+    // Only meaningful while editing — live mode's NeverScrollableScrollPhysics
+    // below never lets the operator page-swipe at all.
+    final pageTransitionStyle = isEditing
+        ? context.select<LayoutEditController, CanvasPageTransitionStyle>(
+            (c) => c.pageTransitionStyle,
+          )
+        : CanvasPageTransitionStyle.slide;
 
     return ControlCanvas(
       layoutCfg: layoutCfg,
       isEditing: isEditing,
+      pageTransitionStyle: pageTransitionStyle,
       activeStateFor: (config) =>
           _activeStateForButton(gate.estopLatched, config),
       isDisabled: (config) =>

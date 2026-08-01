@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
@@ -43,11 +44,18 @@ class LayoutEditController extends ChangeNotifier {
   String? _selectedButtonId;
   ValidationResult _lastValidation = const ValidationResult.valid();
 
+  /// Session-only UI preference for how ControlCanvas animates between grid
+  /// pages while editing — see CanvasPageTransitionStyle's doc comment. Never
+  /// part of the draft/persisted layout; reset on every [enter].
+  CanvasPageTransitionStyle _pageTransitionStyle =
+      CanvasPageTransitionStyle.slide;
+
   bool get isEditing => _isEditing;
   LayoutBucket get activeBucket => _bucket;
   ControlLayoutConfig get draft => _draft;
   String? get selectedButtonId => _selectedButtonId;
   ValidationResult get lastValidation => _lastValidation;
+  CanvasPageTransitionStyle get pageTransitionStyle => _pageTransitionStyle;
 
   bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
 
@@ -62,6 +70,7 @@ class LayoutEditController extends ChangeNotifier {
     _draft = _layoutSettings.configFor(_bucket);
     _selectedButtonId = null;
     _lastValidation = const ValidationResult.valid();
+    _pageTransitionStyle = CanvasPageTransitionStyle.slide;
     _isEditing = true;
     notifyListeners();
   }
@@ -69,6 +78,12 @@ class LayoutEditController extends ChangeNotifier {
   void selectButton(String? id) {
     if (_selectedButtonId == id) return;
     _selectedButtonId = id;
+    notifyListeners();
+  }
+
+  void setPageTransitionStyle(CanvasPageTransitionStyle style) {
+    if (_pageTransitionStyle == style) return;
+    _pageTransitionStyle = style;
     notifyListeners();
   }
 
@@ -114,8 +129,42 @@ class LayoutEditController extends ChangeNotifier {
     return result;
   }
 
+  /// Clones [id]'s ButtonConfig onto the next open grid slot and selects the
+  /// copy. Refuses safety controls (role != null), mirroring
+  /// [deleteButton]'s guard — those live outside the grid entirely and are
+  /// never reachable via canvas selection in practice, but the guard keeps
+  /// this method's own contract self-evident.
+  GridMutationResult duplicateButton(String id) {
+    final source = _draft.resolvedButtons[id];
+    if (source == null) {
+      return const GridMutationResult.invalid('Button not found.');
+    }
+    if (source.role != null) {
+      return const GridMutationResult.invalid(
+        'Safety controls cannot be duplicated.',
+      );
+    }
+    final clone = source.copyWith(
+      id: 'copy_${DateTime.now().microsecondsSinceEpoch}',
+      clearSlotIndex: true,
+    );
+    return addButton(clone);
+  }
+
+  /// Applies [update] to [id]'s ButtonConfig in the draft — the mutation
+  /// entry point for the Properties sheet (label/enabled edits). A no-op if
+  /// [id] no longer exists (e.g. deleted from another surface while a
+  /// Properties sheet referencing it was still open).
+  void updateButton(String id, ButtonConfig Function(ButtonConfig) update) {
+    final current = _draft.resolvedButtons[id];
+    if (current == null) return;
+    _applyDraft(_draft.withButton(id, update(current)));
+  }
+
   void toggleArrangement(ArrangementToggle which) {
-    _applyDraft(_draft.copyWith(arrangementConfig: which.apply(_draft.arrangementConfig)));
+    _applyDraft(
+      _draft.copyWith(arrangementConfig: which.apply(_draft.arrangementConfig)),
+    );
   }
 
   void updateDraftLabelConfig(ControlLabelConfig next) {

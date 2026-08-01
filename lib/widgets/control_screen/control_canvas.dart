@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
@@ -22,7 +23,7 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // widget this pass, there is no drag/resize yet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class ControlCanvas extends StatelessWidget {
+class ControlCanvas extends StatefulWidget {
   const ControlCanvas({
     super.key,
     required this.layoutCfg,
@@ -35,6 +36,7 @@ class ControlCanvas extends StatelessWidget {
     this.selectedButtonId,
     this.onSelectButton,
     this.onDeleteButton,
+    this.pageTransitionStyle = CanvasPageTransitionStyle.slide,
   });
 
   final ControlLayoutConfig layoutCfg;
@@ -48,21 +50,40 @@ class ControlCanvas extends StatelessWidget {
   final ValueChanged<String?>? onSelectButton;
   final ValueChanged<String>? onDeleteButton;
 
+  /// Edit Mode-only page-swipe preview style (see
+  /// CanvasPageTransitionStyle's doc comment) — inert in live mode, which
+  /// never allows page-swiping at all (see [isEditing]'s physics below).
+  final CanvasPageTransitionStyle pageTransitionStyle;
+
+  @override
+  State<ControlCanvas> createState() => _ControlCanvasState();
+}
+
+class _ControlCanvasState extends State<ControlCanvas> {
+  final PageController _pageController = PageController();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = buildControlGridPages(
-      layoutCfg: layoutCfg,
+      layoutCfg: widget.layoutCfg,
       roles: const <ControlRole>[],
     );
 
     return PageView.builder(
-      physics: isEditing
+      controller: _pageController,
+      physics: widget.isEditing
           ? const PageScrollPhysics()
           : const NeverScrollableScrollPhysics(),
       itemCount: pages.isEmpty ? 1 : pages.length,
       itemBuilder: (context, pageIndex) {
         final page = pageIndex < pages.length ? pages[pageIndex] : null;
-        return LayoutBuilder(
+        final content = LayoutBuilder(
           builder: (context, constraints) {
             final cellWidth =
                 constraints.maxWidth / ButtonConfig.controlGridColumns;
@@ -83,19 +104,21 @@ class ControlCanvas extends StatelessWidget {
                     height: item.rowSpan * cellHeight,
                     child: _OccupiedCell(
                       config: item.config,
-                      isEditing: isEditing,
+                      isEditing: widget.isEditing,
                       isSelected:
-                          isEditing && item.config.id == selectedButtonId,
-                      activeState: activeStateFor(item.config),
-                      isDisabled: isDisabled(item.config),
-                      onCommand: onCommand,
-                      onStateIdCommand: onStateIdCommand,
-                      onAnalogCommand: onAnalogCommand,
-                      onTap: () => onSelectButton?.call(item.config.id),
-                      onDelete: () => onDeleteButton?.call(item.config.id),
+                          widget.isEditing &&
+                          item.config.id == widget.selectedButtonId,
+                      activeState: widget.activeStateFor(item.config),
+                      isDisabled: widget.isDisabled(item.config),
+                      onCommand: widget.onCommand,
+                      onStateIdCommand: widget.onStateIdCommand,
+                      onAnalogCommand: widget.onAnalogCommand,
+                      onTap: () => widget.onSelectButton?.call(item.config.id),
+                      onDelete: () =>
+                          widget.onDeleteButton?.call(item.config.id),
                     ),
                   ),
-                if (isEditing)
+                if (widget.isEditing)
                   for (
                     var slot = 0;
                     slot < ButtonConfig.controlSlotCount;
@@ -115,6 +138,28 @@ class ControlCanvas extends StatelessWidget {
                       ),
               ],
             );
+          },
+        );
+
+        if (widget.pageTransitionStyle != CanvasPageTransitionStyle.fade) {
+          return content;
+        }
+        // Fade preview: cross-fades pages by distance from the controller's
+        // current scroll offset instead of the PageView's built-in slide.
+        // Guarded by hasClients/haveDimensions since itemBuilder can run
+        // before the Scrollable beneath this PageView has attached a
+        // position (e.g. the very first frame).
+        return AnimatedBuilder(
+          animation: _pageController,
+          child: content,
+          builder: (context, child) {
+            var page = pageIndex.toDouble();
+            if (_pageController.hasClients &&
+                _pageController.position.haveDimensions) {
+              page = _pageController.page ?? page;
+            }
+            final opacity = (1 - (page - pageIndex).abs()).clamp(0.0, 1.0);
+            return Opacity(opacity: opacity, child: child);
           },
         );
       },

@@ -58,6 +58,14 @@ class AppColors {
   static const Color selectionHandleFill = Color(0xFFFFFFFF);
   static const Color selectionDotGrid = Color(0x14FFFFFF); // white @ 8%
 
+  // ── Customization toolbar (floating circular action row) ─────────────
+  // Dark graphite, deliberately NOT violet/saturated — the accent is
+  // reserved for the selected-item and Done affordances so it never reads
+  // as a live PLC control state.
+  static const Color toolbarCircleBg = Color(0xFF20232B);
+  static const Color toolbarCircleBgPressed = Color(0xFF2C2F39);
+  static const Color toolbarCircleBgSelected = Color(0xFF2A2440);
+
   // ── Light theme – Home Screen ────────────────────────────────────────
   static const Color homeBg = Color(0xFFF5F7FA);
   static const Color surface = Color(0xFFFFFFFF);

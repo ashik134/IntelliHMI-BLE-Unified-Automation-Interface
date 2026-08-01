@@ -43,3 +43,44 @@ class EditModeBackdrop extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BottomActionsRecede
+//
+// Fades and nudges [child] downward when [recede] is true, coordinated with
+// EditModeToolbarHost's own 280ms/easeOutCubic entrance so the normal-mode
+// bottom content (the status chip, sitting where CustomizationToolbar docks)
+// visually gets out of the way as the toolbar rises, instead of the two
+// abruptly overlapping.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class BottomActionsRecede extends StatelessWidget {
+  const BottomActionsRecede({
+    super.key,
+    required this.recede,
+    required this.child,
+  });
+
+  final bool recede;
+  final Widget child;
+
+  static const Duration _duration = Duration(milliseconds: 280);
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: recede,
+      child: AnimatedSlide(
+        duration: _duration,
+        curve: Curves.easeOutCubic,
+        offset: recede ? const Offset(0, 0.6) : Offset.zero,
+        child: AnimatedOpacity(
+          duration: _duration,
+          curve: Curves.easeOutCubic,
+          opacity: recede ? 0.0 : 1.0,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
