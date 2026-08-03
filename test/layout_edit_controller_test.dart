@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart' show Offset, Rect, Size;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -6,7 +7,9 @@ import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 
 ButtonConfig _sampleButton(String id) => ButtonConfig(
@@ -15,6 +18,45 @@ ButtonConfig _sampleButton(String id) => ButtonConfig(
   plcMapping: PlcOutputVariant.df2,
   label: 'Test Button',
 );
+
+// Fixed canvas so a cell's pixel center maps back to an exact, unambiguous
+// grid anchor — same convention as control_grid_utils_test.dart: 2 columns x
+// 3 rows -> 100x100 cells over a 200x300 canvas.
+const _canvasRect = Rect.fromLTWH(0, 0, 200, 300);
+const _previewSize = Size(80, 80);
+
+const _testCatalogEntry = CatalogEntry(
+  category: CatalogCategory.digitalControls,
+  group: 'Test',
+  name: 'Test Button',
+  description: 'Test',
+  tags: [],
+  buttonType: ButtonType.pushButton,
+  previewSize: _previewSize,
+);
+
+/// The feedback avatar's top-left ([handleCatalogueDrop]/
+/// [LayoutEditController.updatePlacementPreview]'s own coordinate space) so
+/// its center lands exactly on grid cell (col, row).
+Offset _offsetForCell(int col, int row) {
+  final center = Offset(col * 100 + 50, row * 100 + 50);
+  return center - Offset(_previewSize.width / 2, _previewSize.height / 2);
+}
+
+PlacementSurface _fixedSurface({int pageIndex = 0}) => PlacementSurface(
+  canvasRect: () => _canvasRect,
+  currentPageIndex: () => pageIndex,
+  navigateToPage: (_) {},
+);
+
+/// Drives the same browsingCatalogue -> liftingCatalogueWidget ->
+/// placingWidget sequence the real Widgets catalogue drives, so tests reach
+/// placingWidget the same way production code does.
+void _beginPlacement(LayoutEditController ctrl) {
+  ctrl.enterCatalogueBrowsing();
+  ctrl.beginCatalogueLift(_testCatalogEntry);
+  ctrl.confirmPlacementStarted();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -154,6 +196,93 @@ void main() {
         expect(result.isValid, isFalse);
         expect(result.errors, isNotEmpty);
         expect(editCtrl.isEditing, isTrue);
+      },
+    );
+  });
+
+  group('placement preview', () {
+    test(
+      'updatePlacementPreview populates previewLayoutCfg without touching draft',
+      () async {
+        await editCtrl.enter();
+        editCtrl.addButton(_sampleButton('occupant')); // lands at (0,0)
+        final draftBefore = editCtrl.draft;
+
+        editCtrl.registerPlacementSurface(Object(), _fixedSurface());
+        _beginPlacement(editCtrl);
+        editCtrl.updatePlacementPreview(
+          globalOffset: _offsetForCell(0, 0),
+          previewSize: _previewSize,
+        );
+
+        expect(editCtrl.draft, draftBefore);
+        expect(editCtrl.previewLayoutCfg, isNot(draftBefore));
+        final moved = editCtrl.previewLayoutCfg.resolvedButtons['occupant']!;
+        expect(
+          moved.pageIndex == 0 && moved.gridX == 0 && moved.gridY == 0,
+          isFalse,
+        );
+      },
+    );
+
+    test('cancelCataloguePlacement restores previewLayoutCfg to draft', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('occupant'));
+      editCtrl.registerPlacementSurface(Object(), _fixedSurface());
+      _beginPlacement(editCtrl);
+      editCtrl.updatePlacementPreview(
+        globalOffset: _offsetForCell(0, 0),
+        previewSize: _previewSize,
+      );
+      expect(editCtrl.previewLayoutCfg, isNot(editCtrl.draft));
+
+      editCtrl.cancelCataloguePlacement();
+
+      expect(editCtrl.interactionMode, CustomizationInteractionMode.editing);
+      expect(editCtrl.previewLayoutCfg, editCtrl.draft);
+    });
+
+    test(
+      'commitSettledPlacement applies both the new button and any settling '
+      'moves in one step',
+      () async {
+        await editCtrl.enter();
+        editCtrl.addButton(_sampleButton('occupant'));
+        editCtrl.registerPlacementSurface(Object(), _fixedSurface());
+        _beginPlacement(editCtrl);
+
+        editCtrl.handleCatalogueDrop(
+          globalDropOffset: _offsetForCell(0, 0),
+          previewSize: _previewSize,
+        );
+        expect(
+          editCtrl.interactionMode,
+          CustomizationInteractionMode.settlingWidget,
+        );
+
+        editCtrl.commitSettledPlacement();
+
+        expect(editCtrl.interactionMode, CustomizationInteractionMode.editing);
+        final buttons = editCtrl.draft.resolvedButtons;
+
+        // The occupant that was sitting at (0,0) must have relocated
+        // elsewhere in the SAME draft-mutating step, not just in the
+        // (now-cleared) preview.
+        final occupant = buttons['occupant']!;
+        expect(
+          occupant.pageIndex == 0 &&
+              occupant.gridX == 0 &&
+              occupant.gridY == 0,
+          isFalse,
+        );
+
+        // The new button must have landed exactly at the target cell.
+        final placedIds = buttons.keys.where((id) => id.startsWith('placed_'));
+        expect(placedIds, hasLength(1));
+        final placed = buttons[placedIds.first]!;
+        expect(placed.pageIndex, 0);
+        expect(placed.gridX, 0);
+        expect(placed.gridY, 0);
       },
     );
   });

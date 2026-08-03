@@ -319,7 +319,12 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             isEditing: editCtrl.isEditing,
             interactionMode: editCtrl.interactionMode,
             layoutCfg: editCtrl.isEditing
-                ? editCtrl.draft
+                ? (editCtrl.interactionMode ==
+                              CustomizationInteractionMode.placingWidget ||
+                          editCtrl.interactionMode ==
+                              CustomizationInteractionMode.settlingWidget
+                      ? editCtrl.previewLayoutCfg
+                      : editCtrl.draft)
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
             pendingCatalogueEntry: editCtrl.pendingCatalogueEntry,
             settlingStartRect: editCtrl.settlingStartRect,

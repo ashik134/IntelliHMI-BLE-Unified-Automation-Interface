@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Offset, Rect, Size;
 
@@ -85,6 +87,36 @@ class LayoutEditController extends ChangeNotifier {
   Rect? _settlingEndRect;
   DropPlacementTarget? _settlingTarget;
 
+  /// Existing buttons the live insertion preview says must relocate to make
+  /// room at [_settlingTarget]/[_previewTarget] — see [predictInsertionLayout].
+  /// [_previewMoves] is live during [CustomizationInteractionMode.placingWidget]
+  /// (recomputed by [updatePlacementPreview] on every pointer move that
+  /// crosses into a new grid cell); [_settlingMoves] is the frozen copy
+  /// carried into [CustomizationInteractionMode.settlingWidget] and applied
+  /// to the draft by [commitSettledPlacement].
+  Map<String, GridPlacement> _previewMoves = const {};
+  DropPlacementTarget? _previewTarget;
+  Map<String, GridPlacement>? _settlingMoves;
+
+  /// (page, col, row) the last [updatePlacementPreview] call actually
+  /// recomputed a prediction for — lets subsequent calls skip re-running
+  /// [predictInsertionLayout] (and the notifyListeners it would trigger)
+  /// while the pointer is still hovering the same grid cell.
+  (int, int, int)? _lastPreviewAnchor;
+
+  static const double _kEdgeTurnZonePx = 32;
+  static const Duration _kEdgeTurnDelay = Duration(milliseconds: 550);
+
+  Timer? _edgeTurnTimer;
+  int? _edgeTurnDirection;
+
+  /// True while the floating preview hovers the canvas's right edge zone —
+  /// see [_handleEdgeHover]. Read by [previewLayoutCfg] to keep one extra
+  /// blank page reachable even before any prediction has targeted it, so
+  /// [PlacementSurface.navigateToPage] always has somewhere valid to animate
+  /// the PageView to once the edge-turn timer fires.
+  bool _rightEdgeHover = false;
+
   /// One-shot failure message for the mounted control screen to surface as a
   /// SnackBar (see [clearPlacementError]) — set only when [handleCatalogueDrop]
   /// cannot find any valid rectangle anywhere, which never happens for any
@@ -128,6 +160,46 @@ class LayoutEditController extends ChangeNotifier {
   String? get placementError => _placementError;
 
   bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
+
+  /// The draft with the live insertion preview's moved buttons applied — see
+  /// [updatePlacementPreview]/[predictInsertionLayout]. Identical to [draft]
+  /// whenever there is nothing to preview (not currently placing a widget,
+  /// or the target cell was free so nothing needed to move), which is what
+  /// makes Cancel "free": ControlCanvas is simply handed [draft] again and
+  /// the same generic AnimatedPositioned machinery slides everything back.
+  /// Callers (the control screens) should feed this — not [draft] — to
+  /// ControlCanvas while [interactionMode] is `placingWidget` or
+  /// `settlingWidget`.
+  ControlLayoutConfig get previewLayoutCfg {
+    if (_previewMoves.isEmpty && _previewTarget == null && !_rightEdgeHover) {
+      return _draft;
+    }
+    final buttons = {..._draft.resolvedButtons};
+    var maxPage = _draft.controlPageCount - 1;
+    for (final entry in _previewMoves.entries) {
+      final current = buttons[entry.key];
+      if (current == null) continue;
+      final placement = entry.value;
+      buttons[entry.key] = current.copyWith(
+        pageIndex: placement.pageIndex,
+        gridX: placement.gridX,
+        gridY: placement.gridY,
+        slotIndex:
+            placement.gridY * ButtonConfig.controlGridColumns +
+            placement.gridX,
+      );
+      if (placement.pageIndex > maxPage) maxPage = placement.pageIndex;
+    }
+    final target = _previewTarget;
+    if (target != null && target.pageIndex > maxPage) {
+      maxPage = target.pageIndex;
+    }
+    // Keep one extra blank page reachable while the preview is hovering the
+    // canvas's right edge, even before a prediction has actually targeted
+    // that page — see _handleEdgeHover/navigateToPage.
+    if (_rightEdgeHover) maxPage += 1;
+    return _draft.copyWith(buttons: buttons, controlPageCount: maxPage + 1);
+  }
 
   /// Enters Edit Mode for the currently-connected PLC's layout bucket,
   /// seeding the draft from the committed config. Force-latches E-STOP as a
@@ -240,6 +312,135 @@ class LayoutEditController extends ChangeNotifier {
   /// Flutter's `DraggableDetails.offset`); [previewSize] is the floating
   /// preview's constant on-screen size throughout the drag.
   ///
+  /// Called on every pointer move while [CustomizationInteractionMode.placingWidget]
+  /// is active (see the `onDragUpdate` wiring in `_DraggableCatalogCard`):
+  /// continuously re-predicts the least-disruptive arrangement for landing
+  /// the pending entry exactly under [globalOffset] (the floating preview's
+  /// current top-left, in the same coordinate space as
+  /// [PlacementSurface.canvasRect]/[handleCatalogueDrop]'s own offset), and
+  /// runs the edge-hover auto-page-turn check.
+  ///
+  /// Always recomputed from [_draft] — never from a previous prediction —
+  /// so backtracking the pointer (or cancelling) is exactly reversible for
+  /// free: nothing here ever compounds. Short-circuits the (comparatively
+  /// expensive) [predictInsertionLayout] call/[notifyListeners] when the
+  /// pointer hasn't crossed into a new grid cell since the last call.
+  void updatePlacementPreview({
+    required Offset globalOffset,
+    required Size previewSize,
+  }) {
+    if (_interactionMode != CustomizationInteractionMode.placingWidget) {
+      return;
+    }
+    final entry = _pendingCatalogueEntry;
+    final surface = _surface;
+    if (entry == null || surface == null) return;
+
+    final dropCenter =
+        globalOffset + Offset(previewSize.width / 2, previewSize.height / 2);
+    final canvasRect = surface.canvasRect();
+    final currentPageIndex = surface.currentPageIndex();
+
+    final edgeChanged = _handleEdgeHover(
+      dropCenter: dropCenter,
+      canvasRect: canvasRect,
+      currentPageIndex: currentPageIndex,
+    );
+
+    final (colSpan, rowSpan) = entry.gridSize;
+    final effectiveColSpan = colSpan.clamp(1, ButtonConfig.controlGridColumns);
+    final effectiveRowSpan = rowSpan.clamp(1, ButtonConfig.controlGridRows);
+    final anchor = gridAnchorForDropCenter(
+      canvasRect: canvasRect,
+      dropCenter: dropCenter,
+      colSpan: effectiveColSpan,
+      rowSpan: effectiveRowSpan,
+    );
+    final anchorKey = (currentPageIndex, anchor.$1, anchor.$2);
+    if (anchorKey == _lastPreviewAnchor) {
+      if (edgeChanged) notifyListeners();
+      return;
+    }
+    _lastPreviewAnchor = anchorKey;
+
+    final preview = predictInsertionLayout(
+      buttons: _draft.resolvedButtons,
+      colSpan: colSpan,
+      rowSpan: rowSpan,
+      currentPageIndex: currentPageIndex,
+      existingPageCount: _draft.controlPageCount,
+      canvasRect: canvasRect,
+      dropCenter: dropCenter,
+    );
+    if (preview == null) {
+      if (edgeChanged) notifyListeners();
+      return;
+    }
+    _previewMoves = preview.movedButtons;
+    _previewTarget = preview.target;
+    notifyListeners();
+  }
+
+  /// Edge-hover auto-page-turn: while [dropCenter] sits within
+  /// [_kEdgeTurnZonePx] of the canvas's left/right edge, starts a
+  /// [_kEdgeTurnDelay] timer that flips [PlacementSurface.navigateToPage] to
+  /// the adjacent page — restarting itself on each subsequent call so
+  /// holding at the edge keeps flipping — so multi-page reflow stays visible
+  /// live during a single-finger drag instead of only after release. Left
+  /// edge requires an existing previous page; right edge always allows
+  /// advancing one page past the highest existing one (see
+  /// [_rightEdgeHover]/[previewLayoutCfg], which keeps that page reachable).
+  /// Returns whether [_rightEdgeHover] changed, so the caller knows whether
+  /// a rebuild is needed even when the grid prediction itself didn't change.
+  bool _handleEdgeHover({
+    required Offset dropCenter,
+    required Rect canvasRect,
+    required int currentPageIndex,
+  }) {
+    final inRightZone =
+        canvasRect.width > 0 &&
+        dropCenter.dx >= canvasRect.right - _kEdgeTurnZonePx;
+    final changed = inRightZone != _rightEdgeHover;
+    _rightEdgeHover = inRightZone;
+
+    int? direction;
+    if (canvasRect.width > 0) {
+      if (dropCenter.dx <= canvasRect.left + _kEdgeTurnZonePx &&
+          currentPageIndex > 0) {
+        direction = -1;
+      } else if (inRightZone) {
+        direction = 1;
+      }
+    }
+
+    if (direction == null) {
+      _cancelEdgeTurn();
+      return changed;
+    }
+    if (_edgeTurnDirection == direction && _edgeTurnTimer != null) {
+      return changed;
+    }
+    _edgeTurnTimer?.cancel();
+    _edgeTurnDirection = direction;
+    final dir = direction;
+    _edgeTurnTimer = Timer(_kEdgeTurnDelay, () {
+      final surface = _surface;
+      _edgeTurnDirection = null;
+      _edgeTurnTimer = null;
+      if (surface == null) return;
+      final nextPage = currentPageIndex + dir;
+      if (nextPage < 0) return;
+      surface.navigateToPage(nextPage);
+    });
+    return changed;
+  }
+
+  void _cancelEdgeTurn() {
+    _edgeTurnTimer?.cancel();
+    _edgeTurnTimer = null;
+    _edgeTurnDirection = null;
+  }
+
   /// Never adds the widget directly — only finds and validates a target
   /// rectangle, then moves into [CustomizationInteractionMode.settlingWidget]
   /// so the (still-visible) preview can animate into it. See
@@ -258,19 +459,17 @@ class LayoutEditController extends ChangeNotifier {
       return;
     }
 
-    final (colSpan, rowSpan) = entry.gridSize;
-    final dropCenter =
-        globalDropOffset +
-        Offset(previewSize.width / 2, previewSize.height / 2);
-    final target = findDropPlacement(
-      buttons: _draft.resolvedButtons,
-      colSpan: colSpan,
-      rowSpan: rowSpan,
-      currentPageIndex: surface.currentPageIndex(),
-      existingPageCount: _draft.controlPageCount,
-      canvasRect: surface.canvasRect(),
-      dropCenter: dropCenter,
+    // Guarantees _previewTarget/_previewMoves reflect the exact release
+    // position even if updatePlacementPreview never fired for it (e.g. an
+    // instant tap-release with no intervening pointer move).
+    updatePlacementPreview(
+      globalOffset: globalDropOffset,
+      previewSize: previewSize,
     );
+    _cancelEdgeTurn();
+    _rightEdgeHover = false;
+
+    final target = _previewTarget;
     if (target == null) {
       _placementError = 'No available space for this widget.';
       cancelCataloguePlacement();
@@ -298,6 +497,7 @@ class LayoutEditController extends ChangeNotifier {
       target.rowSpan * cellHeight - cellInset * 2,
     );
     _settlingTarget = target;
+    _settlingMoves = _previewMoves;
     _interactionMode = CustomizationInteractionMode.settlingWidget;
     if (target.pageIndex != surface.currentPageIndex()) {
       surface.navigateToPage(target.pageIndex);
@@ -306,9 +506,11 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   /// Called by SettlingPreviewOverlay once its settle animation completes:
-  /// turns the validated [_settlingTarget] into a real ButtonConfig, adds it
-  /// to the draft, selects it, and returns to plain Edit Mode. This is the
-  /// only place a catalogue placement actually mutates the draft layout.
+  /// turns the validated [_settlingTarget] into a real ButtonConfig, applies
+  /// [_settlingMoves] (any existing buttons the insertion preview decided
+  /// must relocate to make room), adds both to the draft, selects the new
+  /// button, and returns to plain Edit Mode. This is the only place a
+  /// catalogue placement actually mutates the draft layout.
   void commitSettledPlacement() {
     if (_interactionMode != CustomizationInteractionMode.settlingWidget) {
       return;
@@ -329,19 +531,39 @@ class LayoutEditController extends ChangeNotifier {
       gridRows: target.rowSpan,
       clearSlotIndex: true,
     );
-    final nextPageCount = (target.pageIndex + 1) > _draft.controlPageCount
-        ? target.pageIndex + 1
+
+    final buttons = {..._draft.resolvedButtons};
+    var maxPage = target.pageIndex;
+    for (final moved in (_settlingMoves ?? const {}).entries) {
+      final current = buttons[moved.key];
+      if (current == null) continue;
+      final placement = moved.value;
+      buttons[moved.key] = current.copyWith(
+        pageIndex: placement.pageIndex,
+        gridX: placement.gridX,
+        gridY: placement.gridY,
+        slotIndex:
+            placement.gridY * ButtonConfig.controlGridColumns +
+            placement.gridX,
+      );
+      if (placement.pageIndex > maxPage) maxPage = placement.pageIndex;
+    }
+    buttons[button.id] = button;
+
+    final nextPageCount = (maxPage + 1) > _draft.controlPageCount
+        ? maxPage + 1
         : _draft.controlPageCount;
-    _draft = _draft.copyWith(
-      buttons: {..._draft.resolvedButtons, button.id: button},
-      controlPageCount: nextPageCount,
-    );
+    _draft = _draft.copyWith(buttons: buttons, controlPageCount: nextPageCount);
     _lastValidation = _validator.validateFullConfig(_draft);
     _selectedButtonId = button.id;
     _pendingCatalogueEntry = null;
     _settlingStartRect = null;
     _settlingEndRect = null;
     _settlingTarget = null;
+    _settlingMoves = null;
+    _previewMoves = const {};
+    _previewTarget = null;
+    _lastPreviewAnchor = null;
     _interactionMode = CustomizationInteractionMode.editing;
     notifyListeners();
   }
@@ -359,12 +581,21 @@ class LayoutEditController extends ChangeNotifier {
   /// default for the lifecycle/interruption cases this is called from (see
   /// call sites in the control screens), since a widget must never be added
   /// to the draft from anywhere other than a clean [commitSettledPlacement].
+  /// Clearing [_previewMoves]/[_previewTarget] here (without touching
+  /// [_draft]) is what makes cancelling restore the original layout exactly
+  /// — [previewLayoutCfg] falls back to [_draft] as soon as both are empty.
   void cancelCataloguePlacement({bool returnToCatalogueBrowsing = false}) {
     if (_interactionMode == CustomizationInteractionMode.editing) return;
     _pendingCatalogueEntry = null;
     _settlingStartRect = null;
     _settlingEndRect = null;
     _settlingTarget = null;
+    _settlingMoves = null;
+    _previewMoves = const {};
+    _previewTarget = null;
+    _lastPreviewAnchor = null;
+    _rightEdgeHover = false;
+    _cancelEdgeTurn();
     _interactionMode =
         returnToCatalogueBrowsing &&
             _interactionMode ==
@@ -523,5 +754,11 @@ class LayoutEditController extends ChangeNotifier {
       notifyListeners();
     }
     return result;
+  }
+
+  @override
+  void dispose() {
+    _cancelEdgeTurn();
+    super.dispose();
   }
 }

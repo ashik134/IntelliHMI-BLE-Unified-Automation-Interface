@@ -1117,29 +1117,15 @@ bool _anchorFits(
     rows: rows,
     slotCount: slotCount,
   );
-  final maxCol = columns - colSpan;
-  final maxRow = rows - rowSpan;
-
-  (int, int)? best;
-  var bestDistance = 0;
-  var bestSlot = 0;
-  for (var row = 0; row <= maxRow; row++) {
-    for (var col = 0; col <= maxCol; col++) {
-      if (!_anchorFits(occupied, col, row, colSpan, rowSpan, columns)) {
-        continue;
-      }
-      final dx = col - anchorCol;
-      final dy = row - anchorRow;
-      final distance = dx * dx + dy * dy;
-      final slot = row * columns + col;
-      if (best == null || distance < bestDistance || (distance == bestDistance && slot < bestSlot)) {
-        best = (col, row);
-        bestDistance = distance;
-        bestSlot = slot;
-      }
-    }
-  }
-  return best;
+  return _nearestFreeAnchorIn(
+    occupied: occupied,
+    seedCol: anchorCol,
+    seedRow: anchorRow,
+    colSpan: colSpan,
+    rowSpan: rowSpan,
+    columns: columns,
+    rows: rows,
+  );
 }
 
 (int, int)? _firstFreeAnchor({
@@ -1158,8 +1144,67 @@ bool _anchorFits(
     rows: rows,
     slotCount: slotCount,
   );
+  return _firstFreeAnchorIn(
+    occupied: occupied,
+    colSpan: colSpan,
+    rowSpan: rowSpan,
+    columns: columns,
+    rows: rows,
+  );
+}
+
+// Anchor-search primitives operating directly on a caller-supplied occupied
+// set, rather than deriving one from a buttons map — shared by the
+// catalogue-drop search above (via _nearestFreeAnchor/_firstFreeAnchor) and
+// by the live insertion-preview candidate generators below, which must
+// mutate a running occupancy snapshot across several evictions/placements
+// within a single predictInsertionLayout call.
+
+(int, int)? _nearestFreeAnchorIn({
+  required Set<int> occupied,
+  required int seedCol,
+  required int seedRow,
+  required int colSpan,
+  required int rowSpan,
+  required int columns,
+  required int rows,
+}) {
   final maxCol = columns - colSpan;
   final maxRow = rows - rowSpan;
+  if (maxCol < 0 || maxRow < 0) return null;
+
+  (int, int)? best;
+  var bestDistance = 0;
+  var bestSlot = 0;
+  for (var row = 0; row <= maxRow; row++) {
+    for (var col = 0; col <= maxCol; col++) {
+      if (!_anchorFits(occupied, col, row, colSpan, rowSpan, columns)) {
+        continue;
+      }
+      final dx = col - seedCol;
+      final dy = row - seedRow;
+      final distance = dx * dx + dy * dy;
+      final slot = row * columns + col;
+      if (best == null || distance < bestDistance || (distance == bestDistance && slot < bestSlot)) {
+        best = (col, row);
+        bestDistance = distance;
+        bestSlot = slot;
+      }
+    }
+  }
+  return best;
+}
+
+(int, int)? _firstFreeAnchorIn({
+  required Set<int> occupied,
+  required int colSpan,
+  required int rowSpan,
+  required int columns,
+  required int rows,
+}) {
+  final maxCol = columns - colSpan;
+  final maxRow = rows - rowSpan;
+  if (maxCol < 0 || maxRow < 0) return null;
   for (var row = 0; row <= maxRow; row++) {
     for (var col = 0; col <= maxCol; col++) {
       if (_anchorFits(occupied, col, row, colSpan, rowSpan, columns)) {
@@ -1168,4 +1213,663 @@ bool _anchorFits(
     }
   }
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live insertion preview — intelligent layout optimization
+//
+// Unlike findDropPlacement above (which only ever finds an already-free
+// rectangle), predictInsertionLayout answers a different question: "what is
+// the least-disruptive valid arrangement of the ENTIRE layout that honors
+// the user's exact intended drop position?" It is a layout optimizer, not a
+// collision resolver — it is explicitly free to relocate buttons that don't
+// even overlap the target rectangle, if doing so scores better overall than
+// only moving direct overlappers (e.g. rippling a couple of untouched
+// buttons forward so an evicted one can stay on the current page instead of
+// spilling to a new one).
+//
+// Implemented as a small, extensible pipeline: [_candidateGenerators] is a
+// fixed list of deterministic strategies, each proposing a full
+// rearrangement of every OTHER button (never the dragged one, whose target
+// cell is a hard constraint computed once up front — see below). Every
+// candidate is validated, run through a bounded local-improvement pass, and
+// scored with the same disruption score; the lowest-scoring valid candidate
+// wins. Adding a new strategy later is purely additive: implement one more
+// function matching [_InsertionCandidateGenerator] and append it to the
+// list — scoring, validation, the hill-climb pass, and every controller/UI
+// call site are strategy-agnostic and need no changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An existing button's proposed new page/grid position. Any button whose
+/// id is absent from [InsertionPreview.movedButtons] keeps its current
+/// position untouched.
+class GridPlacement {
+  const GridPlacement({
+    required this.pageIndex,
+    required this.gridX,
+    required this.gridY,
+  });
+
+  final int pageIndex;
+  final int gridX;
+  final int gridY;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GridPlacement &&
+          other.pageIndex == pageIndex &&
+          other.gridX == gridX &&
+          other.gridY == gridY;
+
+  @override
+  int get hashCode => Object.hash(pageIndex, gridX, gridY);
+}
+
+/// Which candidate generator produced the winning arrangement — carried
+/// purely for tests/debugging; no UI or controller logic branches on this.
+enum InsertionStrategy { directDisplacement, rowMajorReflow }
+
+/// The winning arrangement from [predictInsertionLayout].
+class InsertionPreview {
+  const InsertionPreview({
+    required this.movedButtons,
+    required this.target,
+    required this.strategy,
+    required this.disruptionScore,
+  });
+
+  final Map<String, GridPlacement> movedButtons;
+  final DropPlacementTarget target;
+  final InsertionStrategy strategy;
+  final int disruptionScore;
+}
+
+// Disruption score weights. Higher-priority spec concerns get larger
+// weights so they dominate the sum regardless of how the lower-priority
+// terms land:
+//   - page changes matter most (the spec calls this out both as the FIRST
+//     priority — "rearrange on the current page" — and the LAST — "avoid
+//     unnecessary page changes" — so it's weighted above everything else).
+//   - creating a brand-new page is worse than reusing one that already
+//     exists, hence the extra bonus on top of the plain page-change weight.
+//   - moving fewer widgets beats moving widgets shorter distances.
+//   - reading-order preservation is the lowest-priority, pure tie-break
+//     term.
+const int _kMovedWidgetWeight = 100;
+const int _kPageChangeWeight = 1000;
+const int _kNewPageBonus = 500;
+const int _kDistanceWeight = 10;
+const int _kReadingOrderWeight = 1;
+
+class _InsertionCandidate {
+  _InsertionCandidate({
+    required this.movedButtons,
+    required this.strategy,
+    required this.createsNewPage,
+  });
+
+  final Map<String, GridPlacement> movedButtons;
+  final InsertionStrategy strategy;
+  final bool createsNewPage;
+}
+
+/// Immutable snapshot every candidate generator reads from — adding a new
+/// generator never requires plumbing new parameters through
+/// [predictInsertionLayout]'s own signature, only reading more of this.
+class _InsertionContext {
+  _InsertionContext({
+    required this.buttons,
+    required this.normalizedById,
+    required this.target,
+    required this.currentPageIndex,
+    required this.existingMaxPage,
+    required this.columns,
+    required this.rows,
+    required this.slotCount,
+  });
+
+  final Map<String, ButtonConfig> buttons;
+  final Map<String, ButtonConfig> normalizedById;
+  final DropPlacementTarget target;
+  final int currentPageIndex;
+  final int existingMaxPage;
+  final int columns;
+  final int rows;
+  final int slotCount;
+}
+
+typedef _InsertionCandidateGenerator = _InsertionCandidate? Function(
+  _InsertionContext ctx,
+);
+
+// Additional deterministic strategies can be appended here later (e.g. a
+// column-major reflow, or a "pack toward the dragged widget" strategy)
+// without touching scoring, validation, the hill-climb pass, or any call
+// site — every generator produces the same _InsertionCandidate shape and is
+// scored/validated identically by predictInsertionLayout below.
+const List<_InsertionCandidateGenerator> _candidateGenerators = [
+  _directDisplacementCandidate,
+  _rowMajorReflowCandidate,
+];
+
+/// The grid anchor (col, row) [dropCenter] resolves to over [canvasRect] for
+/// a widget spanning [colSpan] x [rowSpan] — floor + clamp to the span's
+/// valid range, identical to the math [findDropPlacement] and
+/// [predictInsertionLayout] both need. Shared so a caller (see
+/// LayoutEditController.updatePlacementPreview) can cheaply detect "the
+/// pointer hasn't crossed into a new cell yet" without duplicating this math
+/// or paying for a full [predictInsertionLayout] call just to check.
+///
+/// Callers must only pass a [colSpan]/[rowSpan] that already fits
+/// [columns]/[rows] (i.e. after the same guard [findDropPlacement] and
+/// [predictInsertionLayout] both perform) — this function assumes that and
+/// does not re-validate it.
+(int, int) gridAnchorForDropCenter({
+  required Rect canvasRect,
+  required Offset dropCenter,
+  required int colSpan,
+  required int rowSpan,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+}) {
+  final maxCol = columns - colSpan;
+  final maxRow = rows - rowSpan;
+  final cellWidth = canvasRect.width / columns;
+  final cellHeight = canvasRect.height / rows;
+  final rawCol = cellWidth <= 0
+      ? 0.0
+      : (dropCenter.dx - canvasRect.left) / cellWidth;
+  final rawRow = cellHeight <= 0
+      ? 0.0
+      : (dropCenter.dy - canvasRect.top) / cellHeight;
+  return (rawCol.floor().clamp(0, maxCol), rawRow.floor().clamp(0, maxRow));
+}
+
+/// Predicts the least-disruptive full-layout arrangement that lands a
+/// widget spanning [colSpan] x [rowSpan] exactly at the grid cell under
+/// [dropCenter] on [currentPageIndex] (same math as [findDropPlacement]'s
+/// own anchor computation) — see this section's doc comment for the overall
+/// design. Returns null only when the requested span itself cannot fit the
+/// grid at all (mirroring [findDropPlacement]'s own contract).
+InsertionPreview? predictInsertionLayout({
+  required Map<String, ButtonConfig> buttons,
+  required int colSpan,
+  required int rowSpan,
+  required int currentPageIndex,
+  required int existingPageCount,
+  required Rect canvasRect,
+  required Offset dropCenter,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+  int slotCount = ButtonConfig.controlSlotCount,
+}) {
+  final effectiveColSpan = colSpan.clamp(1, columns);
+  final effectiveRowSpan = rowSpan.clamp(1, rows);
+  final maxCol = columns - effectiveColSpan;
+  final maxRow = rows - effectiveRowSpan;
+  if (maxCol < 0 || maxRow < 0) return null;
+
+  final anchor = gridAnchorForDropCenter(
+    canvasRect: canvasRect,
+    dropCenter: dropCenter,
+    colSpan: effectiveColSpan,
+    rowSpan: effectiveRowSpan,
+    columns: columns,
+    rows: rows,
+  );
+
+  final target = DropPlacementTarget(
+    pageIndex: currentPageIndex,
+    gridX: anchor.$1,
+    gridY: anchor.$2,
+    colSpan: effectiveColSpan,
+    rowSpan: effectiveRowSpan,
+  );
+
+  final normalizedById = <String, ButtonConfig>{
+    for (final entry in buttons.entries)
+      if (_isPageControl(entry.value))
+        entry.key: normalizeButtonPlacement(
+          entry.value,
+          slotCount: slotCount,
+          columns: columns,
+          rows: rows,
+        ),
+  };
+
+  final existingMaxPage = normalizedById.values.fold<int>(
+    existingPageCount - 1,
+    (max, button) => button.pageIndex > max ? button.pageIndex : max,
+  );
+
+  final targetSlots = _rectSlots(
+    anchor.$1,
+    anchor.$2,
+    effectiveColSpan,
+    effectiveRowSpan,
+    columns,
+  );
+  final hasOverlap = normalizedById.values.any((b) {
+    if (b.pageIndex != currentPageIndex) return false;
+    final slots = occupiedGridSlotsFor(
+      b,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    return slots != null && slots.any(targetSlots.contains);
+  });
+  if (!hasOverlap) {
+    // Zero-cost fast path: nothing needs to move, so there is nothing to
+    // generate/score.
+    return InsertionPreview(
+      movedButtons: const {},
+      target: target,
+      strategy: InsertionStrategy.directDisplacement,
+      disruptionScore: 0,
+    );
+  }
+
+  final ctx = _InsertionContext(
+    buttons: buttons,
+    normalizedById: normalizedById,
+    target: target,
+    currentPageIndex: currentPageIndex,
+    existingMaxPage: existingMaxPage,
+    columns: columns,
+    rows: rows,
+    slotCount: slotCount,
+  );
+
+  _InsertionCandidate? best;
+  var bestScore = 0;
+  for (final generate in _candidateGenerators) {
+    final raw = generate(ctx);
+    if (raw == null || !_isCandidateValid(ctx, raw)) continue;
+    final improved = _localImprovement(ctx, raw);
+    final score = _score(ctx, improved);
+    final isBetter =
+        best == null ||
+        score < bestScore ||
+        (score == bestScore &&
+            improved.movedButtons.length < best.movedButtons.length);
+    if (isBetter) {
+      best = improved;
+      bestScore = score;
+    }
+  }
+
+  // Every real catalogue entry's span fits an empty page, and both shipped
+  // generators always fall back to one when nothing else fits, so `best`
+  // should never actually be null here — this guard only protects against a
+  // future generator that returns non-null but somehow invalid results for
+  // every strategy.
+  if (best == null) return null;
+  return InsertionPreview(
+    movedButtons: best.movedButtons,
+    target: target,
+    strategy: best.strategy,
+    disruptionScore: bestScore,
+  );
+}
+
+Set<int> _rectSlots(int col, int row, int colSpan, int rowSpan, int columns) {
+  final slots = <int>{};
+  for (var r = 0; r < rowSpan; r++) {
+    for (var c = 0; c < colSpan; c++) {
+      slots.add((row + r) * columns + (col + c));
+    }
+  }
+  return slots;
+}
+
+int _flatRank(ButtonConfig button, _InsertionContext ctx) =>
+    button.pageIndex * ctx.slotCount + _slotFor(button.gridX, button.gridY, ctx.columns);
+
+Map<int, Set<int>> _seedOccupancy(_InsertionContext ctx) {
+  final map = <int, Set<int>>{};
+  for (final button in ctx.normalizedById.values) {
+    final slots =
+        occupiedGridSlotsFor(
+          button,
+          slotCount: ctx.slotCount,
+          columns: ctx.columns,
+          rows: ctx.rows,
+        ) ??
+        const [];
+    map.putIfAbsent(button.pageIndex, () => {}).addAll(slots);
+  }
+  return map;
+}
+
+/// Candidate 1: only widgets whose cells actually overlap the target
+/// rectangle are evicted; each searches for the nearest free anchor to its
+/// own original position (current page first, then each subsequent existing
+/// page, then a brand-new page as the final fallback). Typically moves the
+/// fewest widgets and keeps each one closest to home, but can be forced onto
+/// another page even when a broader reshuffle of non-overlapping widgets
+/// could have kept everything on the current page — that's exactly the case
+/// [_rowMajorReflowCandidate] is meant to win in the scorer.
+_InsertionCandidate _directDisplacementCandidate(_InsertionContext ctx) {
+  final occupiedByPage = _seedOccupancy(ctx);
+  final targetSlots = _rectSlots(
+    ctx.target.gridX,
+    ctx.target.gridY,
+    ctx.target.colSpan,
+    ctx.target.rowSpan,
+    ctx.columns,
+  );
+
+  final overlapping = <ButtonConfig>[
+    for (final button in ctx.normalizedById.values)
+      if (button.pageIndex == ctx.currentPageIndex &&
+          (occupiedGridSlotsFor(
+                button,
+                slotCount: ctx.slotCount,
+                columns: ctx.columns,
+                rows: ctx.rows,
+              )?.any(targetSlots.contains) ??
+              false))
+        button,
+  ]..sort((a, b) => _flatRank(a, ctx).compareTo(_flatRank(b, ctx)));
+
+  for (final button in overlapping) {
+    final slots =
+        occupiedGridSlotsFor(
+          button,
+          slotCount: ctx.slotCount,
+          columns: ctx.columns,
+          rows: ctx.rows,
+        ) ??
+        const [];
+    occupiedByPage[button.pageIndex]?.removeAll(slots);
+  }
+  occupiedByPage.putIfAbsent(ctx.currentPageIndex, () => {}).addAll(targetSlots);
+
+  var maxPageUsed = ctx.existingMaxPage;
+  final moved = <String, GridPlacement>{};
+  for (final button in overlapping) {
+    final colSpan = button.gridColumnSpan;
+    final rowSpan = button.gridRowSpan;
+
+    final onCurrentPage = _nearestFreeAnchorIn(
+      occupied: occupiedByPage[ctx.currentPageIndex] ?? {},
+      seedCol: button.gridX,
+      seedRow: button.gridY,
+      colSpan: colSpan,
+      rowSpan: rowSpan,
+      columns: ctx.columns,
+      rows: ctx.rows,
+    );
+
+    GridPlacement placement;
+    if (onCurrentPage != null) {
+      placement = GridPlacement(
+        pageIndex: ctx.currentPageIndex,
+        gridX: onCurrentPage.$1,
+        gridY: onCurrentPage.$2,
+      );
+    } else {
+      GridPlacement? found;
+      for (var page = ctx.currentPageIndex + 1; page <= maxPageUsed; page++) {
+        final anchor = _firstFreeAnchorIn(
+          occupied: occupiedByPage[page] ?? {},
+          colSpan: colSpan,
+          rowSpan: rowSpan,
+          columns: ctx.columns,
+          rows: ctx.rows,
+        );
+        if (anchor != null) {
+          found = GridPlacement(pageIndex: page, gridX: anchor.$1, gridY: anchor.$2);
+          break;
+        }
+      }
+      if (found == null) {
+        maxPageUsed += 1;
+        found = GridPlacement(pageIndex: maxPageUsed, gridX: 0, gridY: 0);
+      }
+      placement = found;
+    }
+
+    moved[button.id] = placement;
+    occupiedByPage
+        .putIfAbsent(placement.pageIndex, () => {})
+        .addAll(_rectSlots(placement.gridX, placement.gridY, colSpan, rowSpan, ctx.columns));
+  }
+
+  return _InsertionCandidate(
+    movedButtons: moved,
+    strategy: InsertionStrategy.directDisplacement,
+    createsNewPage: maxPageUsed > ctx.existingMaxPage,
+  );
+}
+
+/// Candidate 2: flattens every button into one reading-order sequence (page
+/// ascending, then anchor slot ascending), finds the rank the target would
+/// occupy in that sequence, and greedily repacks only the sequence from that
+/// rank onward (CSS-grid-style auto-placement — first free row-major rect on
+/// the current packing page, spilling to the next page when full).
+/// Everything before the insertion rank is left untouched. Unlike
+/// [_directDisplacementCandidate], this can ripple widgets that don't
+/// overlap the target at all, which is exactly what "free to move any
+/// existing widget if it produces a better overall layout" requires — the
+/// scorer decides whether that ripple actually paid off versus Candidate 1.
+_InsertionCandidate _rowMajorReflowCandidate(_InsertionContext ctx) {
+  final all = ctx.normalizedById.values.toList()
+    ..sort((a, b) => _flatRank(a, ctx).compareTo(_flatRank(b, ctx)));
+
+  final targetRank =
+      ctx.currentPageIndex * ctx.slotCount +
+      _slotFor(ctx.target.gridX, ctx.target.gridY, ctx.columns);
+
+  final before = <ButtonConfig>[];
+  final toRepack = <ButtonConfig>[];
+  for (final button in all) {
+    if (_flatRank(button, ctx) < targetRank) {
+      before.add(button);
+    } else {
+      toRepack.add(button);
+    }
+  }
+
+  final occupiedByPage = <int, Set<int>>{};
+  for (final button in before) {
+    final slots =
+        occupiedGridSlotsFor(
+          button,
+          slotCount: ctx.slotCount,
+          columns: ctx.columns,
+          rows: ctx.rows,
+        ) ??
+        const [];
+    occupiedByPage.putIfAbsent(button.pageIndex, () => {}).addAll(slots);
+  }
+  occupiedByPage
+      .putIfAbsent(ctx.currentPageIndex, () => {})
+      .addAll(
+        _rectSlots(
+          ctx.target.gridX,
+          ctx.target.gridY,
+          ctx.target.colSpan,
+          ctx.target.rowSpan,
+          ctx.columns,
+        ),
+      );
+
+  var packingPage = ctx.currentPageIndex;
+  var maxPageUsed = ctx.existingMaxPage;
+  final moved = <String, GridPlacement>{};
+
+  for (final button in toRepack) {
+    final colSpan = button.gridColumnSpan;
+    final rowSpan = button.gridRowSpan;
+    var page = packingPage;
+    GridPlacement? placement;
+    while (placement == null) {
+      final occupied = occupiedByPage.putIfAbsent(page, () => {});
+      final anchor = _firstFreeAnchorIn(
+        occupied: occupied,
+        colSpan: colSpan,
+        rowSpan: rowSpan,
+        columns: ctx.columns,
+        rows: ctx.rows,
+      );
+      if (anchor != null) {
+        placement = GridPlacement(pageIndex: page, gridX: anchor.$1, gridY: anchor.$2);
+      } else {
+        page += 1;
+        if (page > maxPageUsed) maxPageUsed = page;
+      }
+    }
+    packingPage = placement.pageIndex;
+    occupiedByPage
+        .putIfAbsent(placement.pageIndex, () => {})
+        .addAll(_rectSlots(placement.gridX, placement.gridY, colSpan, rowSpan, ctx.columns));
+
+    if (placement.pageIndex != button.pageIndex ||
+        placement.gridX != button.gridX ||
+        placement.gridY != button.gridY) {
+      moved[button.id] = placement;
+    }
+  }
+
+  return _InsertionCandidate(
+    movedButtons: moved,
+    strategy: InsertionStrategy.rowMajorReflow,
+    createsNewPage: maxPageUsed > ctx.existingMaxPage,
+  );
+}
+
+bool _fitsOwnSpan(_InsertionContext ctx, String id, GridPlacement placement) {
+  final config = ctx.normalizedById[id];
+  if (config == null) return false;
+  return placement.gridX + config.gridColumnSpan <= ctx.columns &&
+      placement.gridY + config.gridRowSpan <= ctx.rows;
+}
+
+/// Bounded local-improvement pass (a cheap hill-climb, not a general
+/// solver): tries pairwise slot swaps between two moved widgets, keeping any
+/// swap that lowers the candidate's own disruption score, until no improving
+/// swap is found or a small iteration cap is hit. Appropriate for a
+/// 2x3-per-page grid where a candidate's moved set is always small.
+_InsertionCandidate _localImprovement(
+  _InsertionContext ctx,
+  _InsertionCandidate candidate,
+) {
+  if (candidate.movedButtons.length < 2) return candidate;
+
+  var moved = Map<String, GridPlacement>.from(candidate.movedButtons);
+  var bestScore = _score(
+    ctx,
+    _InsertionCandidate(
+      movedButtons: moved,
+      strategy: candidate.strategy,
+      createsNewPage: candidate.createsNewPage,
+    ),
+  );
+  final ids = moved.keys.toList();
+  const iterationCap = 20;
+  var iterations = 0;
+  var improved = true;
+  while (improved && iterations < iterationCap) {
+    improved = false;
+    for (var i = 0; i < ids.length && iterations < iterationCap; i++) {
+      for (var j = i + 1; j < ids.length && iterations < iterationCap; j++) {
+        iterations++;
+        final idA = ids[i];
+        final idB = ids[j];
+        final placementA = moved[idA]!;
+        final placementB = moved[idB]!;
+        if (!_fitsOwnSpan(ctx, idA, placementB) ||
+            !_fitsOwnSpan(ctx, idB, placementA)) {
+          continue;
+        }
+        final swapped = Map<String, GridPlacement>.from(moved)
+          ..[idA] = placementB
+          ..[idB] = placementA;
+        final swappedCandidate = _InsertionCandidate(
+          movedButtons: swapped,
+          strategy: candidate.strategy,
+          createsNewPage: candidate.createsNewPage,
+        );
+        if (!_isCandidateValid(ctx, swappedCandidate)) continue;
+        final swappedScore = _score(ctx, swappedCandidate);
+        if (swappedScore < bestScore) {
+          moved = swapped;
+          bestScore = swappedScore;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return _InsertionCandidate(
+    movedButtons: moved,
+    strategy: candidate.strategy,
+    createsNewPage: candidate.createsNewPage,
+  );
+}
+
+bool _isCandidateValid(_InsertionContext ctx, _InsertionCandidate candidate) {
+  final merged = <String, ButtonConfig>{...ctx.buttons};
+  for (final entry in candidate.movedButtons.entries) {
+    final original = ctx.normalizedById[entry.key];
+    if (original == null) continue;
+    final placement = entry.value;
+    merged[entry.key] = original.copyWith(
+      pageIndex: placement.pageIndex,
+      gridX: placement.gridX,
+      gridY: placement.gridY,
+      slotIndex: _slotFor(placement.gridX, placement.gridY, ctx.columns),
+    );
+  }
+  // A synthetic placeholder for the not-yet-real dragged widget, so an
+  // evicted button that (incorrectly) resolved back onto the target rect is
+  // caught by validation exactly like any other collision.
+  merged['__predicted_target__'] = ButtonConfig(
+    id: '__predicted_target__',
+    type: ButtonType.pushButton,
+    plcMapping: PlcOutputVariant.df2,
+    pageIndex: ctx.target.pageIndex,
+    gridX: ctx.target.gridX,
+    gridY: ctx.target.gridY,
+    gridColumns: ctx.target.colSpan,
+    gridRows: ctx.target.rowSpan,
+  );
+  final errors = validateGridOccupancy(
+    merged,
+    slotCount: ctx.slotCount,
+    columns: ctx.columns,
+    rows: ctx.rows,
+  );
+  return errors.isEmpty;
+}
+
+int _score(_InsertionContext ctx, _InsertionCandidate candidate) {
+  var score = _kMovedWidgetWeight * candidate.movedButtons.length;
+  if (candidate.createsNewPage) score += _kNewPageBonus;
+
+  for (final entry in candidate.movedButtons.entries) {
+    final original = ctx.normalizedById[entry.key];
+    if (original == null) continue;
+    final placement = entry.value;
+
+    if (placement.pageIndex != original.pageIndex) {
+      score += _kPageChangeWeight;
+    } else {
+      final distance =
+          (placement.gridX - original.gridX).abs() +
+          (placement.gridY - original.gridY).abs();
+      score += _kDistanceWeight * distance;
+    }
+
+    final oldRank = _flatRank(original, ctx);
+    final newRank =
+        placement.pageIndex * ctx.slotCount +
+        _slotFor(placement.gridX, placement.gridY, ctx.columns);
+    score += _kReadingOrderWeight * (newRank - oldRank).abs();
+  }
+
+  return score;
 }

@@ -287,7 +287,12 @@ class _ControlScreenState extends State<ControlScreen>
             isEditing: editCtrl.isEditing,
             interactionMode: editCtrl.interactionMode,
             layoutCfg: editCtrl.isEditing
-                ? editCtrl.draft
+                ? (editCtrl.interactionMode ==
+                              CustomizationInteractionMode.placingWidget ||
+                          editCtrl.interactionMode ==
+                              CustomizationInteractionMode.settlingWidget
+                      ? editCtrl.previewLayoutCfg
+                      : editCtrl.draft)
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
             pendingCatalogueEntry: editCtrl.pendingCatalogueEntry,
             settlingStartRect: editCtrl.settlingStartRect,

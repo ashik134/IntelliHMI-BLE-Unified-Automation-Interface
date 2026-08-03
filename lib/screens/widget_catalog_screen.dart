@@ -433,6 +433,22 @@ class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
     _editCtrl.confirmPlacementStarted();
   }
 
+  /// Feeds every pointer move into the live insertion-preview engine (see
+  /// LayoutEditController.updatePlacementPreview) so the canvas can
+  /// continuously predict/animate the least-disruptive arrangement while
+  /// the widget is still attached to the finger. [details.globalPosition] is
+  /// the POINTER's own position (unlike DraggableDetails.offset, which is
+  /// the avatar's top-left) — subtracting the same [_dragAnchor] recorded by
+  /// [_grabAnchor] converts it into that same top-left space, so live
+  /// preview and the final [_handleDragEnd] agree on identical math.
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final anchor = _dragAnchor ?? widget.previewStageSize.center(Offset.zero);
+    _editCtrl.updatePlacementPreview(
+      globalOffset: details.globalPosition - anchor,
+      previewSize: widget.previewStageSize,
+    );
+  }
+
   /// Handles the end of the drag, from wherever the finger actually was.
   /// This State may already be unmounted by this point — the catalogue
   /// overlay stops being built once interactionMode moves past
@@ -481,6 +497,7 @@ class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
       ),
       childWhenDragging: const _CatalogCardPlaceholder(),
       onDragStarted: _handleDragStarted,
+      onDragUpdate: _handleDragUpdate,
       onDragEnd: (details) => _handleDragEnd(details.wasAccepted, details.offset),
       onDraggableCanceled: (_, offset) => _handleDragEnd(false, offset),
       child: _CatalogCard(entry: widget.entry),

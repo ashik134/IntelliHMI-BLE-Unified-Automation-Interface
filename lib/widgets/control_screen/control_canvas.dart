@@ -23,6 +23,11 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // widget this pass, there is no drag/resize yet.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Matches SettlingPreviewOverlay's own settle-animation timing, so a widget
+// displaced by the live insertion preview and the newly-placed widget
+// settling into its target cell read as one consistent motion.
+const Duration _kRepositionDuration = Duration(milliseconds: 220);
+
 class ControlCanvas extends StatefulWidget {
   const ControlCanvas({
     super.key,
@@ -109,7 +114,10 @@ class _ControlCanvasState extends State<ControlCanvas> {
             return Stack(
               children: [
                 for (final item in page?.items ?? const <ControlGridItem>[])
-                  Positioned(
+                  AnimatedPositioned(
+                    key: ValueKey(item.config.id),
+                    duration: _kRepositionDuration,
+                    curve: Curves.easeOutCubic,
                     left: item.gridX * cellWidth,
                     top: item.gridY * cellHeight,
                     width: item.colSpan * cellWidth,
@@ -137,7 +145,10 @@ class _ControlCanvasState extends State<ControlCanvas> {
                     slot++
                   )
                     if (!occupiedSlots.contains(slot))
-                      Positioned(
+                      AnimatedPositioned(
+                        key: ValueKey('vacant_${page?.pageIndex ?? pageIndex}_$slot'),
+                        duration: _kRepositionDuration,
+                        curve: Curves.easeOutCubic,
                         left:
                             (slot % ButtonConfig.controlGridColumns) *
                             cellWidth,

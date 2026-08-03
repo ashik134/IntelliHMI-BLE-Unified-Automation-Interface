@@ -45,7 +45,9 @@ const Map<ButtonType, ButtonTypeStrategy> kButtonTypeStrategies = {
     type: ButtonType.analogJoystick2D,
     dualAxis: true,
   ),
-  ButtonType.analogSliderOT: AnalogSliderStrategy(type: ButtonType.analogSliderOT),
+  ButtonType.analogSliderOT: AnalogSliderStrategy(
+    type: ButtonType.analogSliderOT,
+  ),
   ButtonType.analogSliderTOT: AnalogSliderStrategy(
     type: ButtonType.analogSliderTOT,
   ),
@@ -65,7 +67,6 @@ const Map<ButtonType, ButtonTypeStrategy> kButtonTypeStrategies = {
 // (see plc14_control_screen.dart / plc38_control_screen.dart), keeping this
 // widget reusable in contexts that don't need editing chrome (e.g.
 // CustomizationCanvas's disabled preview tiles).
-// ─────────────────────────────────────────────────────────────────────────────
 
 class ConfigurableButton extends StatelessWidget {
   const ConfigurableButton({
