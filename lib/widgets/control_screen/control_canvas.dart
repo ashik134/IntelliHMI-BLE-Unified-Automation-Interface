@@ -37,6 +37,7 @@ class ControlCanvas extends StatefulWidget {
     this.onSelectButton,
     this.onDeleteButton,
     this.pageTransitionStyle = CanvasPageTransitionStyle.slide,
+    this.pageController,
   });
 
   final ControlLayoutConfig layoutCfg;
@@ -55,16 +56,27 @@ class ControlCanvas extends StatefulWidget {
   /// never allows page-swiping at all (see [isEditing]'s physics below).
   final CanvasPageTransitionStyle pageTransitionStyle;
 
+  /// Externally-owned page controller, so a widget-placement drop landing
+  /// on a different page can animate this PageView there (see
+  /// LayoutEditController.handleCatalogueDrop / PlacementSurface). Falls
+  /// back to an internally-owned one — and only disposes that one, never a
+  /// caller-supplied controller — when omitted (every call site that isn't
+  /// wiring up placement).
+  final PageController? pageController;
+
   @override
   State<ControlCanvas> createState() => _ControlCanvasState();
 }
 
 class _ControlCanvasState extends State<ControlCanvas> {
-  final PageController _pageController = PageController();
+  PageController? _ownedPageController;
+
+  PageController get _pageController =>
+      widget.pageController ?? (_ownedPageController ??= PageController());
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _ownedPageController?.dispose();
     super.dispose();
   }
 

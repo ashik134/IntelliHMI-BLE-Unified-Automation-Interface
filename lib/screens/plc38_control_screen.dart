@@ -10,6 +10,7 @@ import 'package:vibration/vibration.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -22,6 +23,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
@@ -30,6 +32,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/settling_preview.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -62,6 +65,7 @@ class Plc38ControlScreen extends StatefulWidget {
 class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     with WidgetsBindingObserver {
   CraneController? _craneController;
+  LayoutEditController? _editCtrl;
 
   bool _isBackNavigating = false;
   bool _isDismissingResetDialog = false;
@@ -72,15 +76,58 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   // See _CanvasSection._activeStateForButton's doc comment.
   final Map<String, ControlState> _localActive = {};
 
+  // ── Widget-placement drop geometry ───────────────────────────────────────
+  //
+  // _canvasKey locates the grid's on-screen rectangle (see _canvasRect) and
+  // _canvasPageController is handed to ControlCanvas so a drop landing on a
+  // different page can be animated there — both registered with
+  // LayoutEditController as a PlacementSurface (see registerPlacementSurface's
+  // doc comment) so handleCatalogueDrop, which has no BuildContext of its
+  // own, can convert a release point into a grid position.
+  final GlobalKey _canvasKey = GlobalKey();
+  final PageController _canvasPageController = PageController();
+
   void _resetLocalButtonStates() {
     if (_localActive.isEmpty) return;
     setState(_localActive.clear);
+  }
+
+  Rect _canvasRect() {
+    final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return Rect.zero;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  int _currentCanvasPageIndex() {
+    if (!_canvasPageController.hasClients) return 0;
+    return _canvasPageController.page?.round() ?? 0;
+  }
+
+  void _navigateCanvasToPage(int pageIndex) {
+    if (!_canvasPageController.hasClients) return;
+    _canvasPageController.animateToPage(
+      pageIndex,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    final editCtrl = context.read<LayoutEditController>();
+    _editCtrl = editCtrl;
+    editCtrl.registerPlacementSurface(
+      this,
+      PlacementSurface(
+        canvasRect: _canvasRect,
+        currentPageIndex: _currentCanvasPageIndex,
+        navigateToPage: _navigateCanvasToPage,
+      ),
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -92,8 +139,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   @override
   void dispose() {
     FocusManager.instance.primaryFocus?.unfocus();
+    _editCtrl?.unregisterPlacementSurface(this);
     _craneController?.removeListener(_onControllerChange);
     WidgetsBinding.instance.removeObserver(this);
+    _canvasPageController.dispose();
     super.dispose();
   }
 
@@ -197,6 +246,31 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   // canPop is false so didPop is always false; the method handles all navigation.
   Future<void> _onBackAttempted(bool didPop, Object? result) async {
     if (didPop || _isBackNavigating) return;
+
+    final editCtrl = context.read<LayoutEditController>();
+    switch (editCtrl.interactionMode) {
+      case CustomizationInteractionMode.browsingCatalogue:
+        // The catalogue is a sliding overlay within this same route (see
+        // CatalogueOverlayHost), not a pushed route of its own — back must
+        // close it locally instead of falling through to the full
+        // exit-confirmation flow below.
+        editCtrl.closeCatalogueBrowsing();
+        return;
+      case CustomizationInteractionMode.liftingCatalogueWidget:
+      case CustomizationInteractionMode.placingWidget:
+        // Mid-carry: there's no "release" equivalent for a back press, so
+        // treat it as an explicit cancel, same as the Cancel bar.
+        editCtrl.cancelCataloguePlacement();
+        return;
+      case CustomizationInteractionMode.settlingWidget:
+        // Brief and deliberately non-cancelable (see
+        // LayoutEditController.commitSettledPlacement's doc comment) — a
+        // back press here is simply ignored until it settles on its own.
+        return;
+      case CustomizationInteractionMode.editing:
+        break;
+    }
+
     _isBackNavigating = true;
     try {
       final controller = context.read<CraneController>();
@@ -247,12 +321,18 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             layoutCfg: editCtrl.isEditing
                 ? editCtrl.draft
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
+            pendingCatalogueEntry: editCtrl.pendingCatalogueEntry,
+            settlingStartRect: editCtrl.settlingStartRect,
+            settlingEndRect: editCtrl.settlingEndRect,
           ),
           builder: (context, shape, _) => _buildScaffold(
             context,
             shape.isEditing,
             shape.interactionMode,
             shape.layoutCfg,
+            shape.pendingCatalogueEntry,
+            shape.settlingStartRect,
+            shape.settlingEndRect,
           ),
         );
       },
@@ -264,6 +344,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     bool isEditing,
     CustomizationInteractionMode interactionMode,
     ControlLayoutConfig layoutCfg,
+    CatalogEntry? pendingCatalogueEntry,
+    Rect? settlingStartRect,
+    Rect? settlingEndRect,
   ) {
     final labels = layoutCfg.labelConfig;
     final sizing = layoutCfg.sizeConfig;
@@ -323,12 +406,14 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                         // ── Main controls area ─────────────────────────
                         Expanded(
                           child: RepaintBoundary(
+                            key: _canvasKey,
                             child: _CanvasSection(
                               layoutCfg: layoutCfg,
                               isEditing: isEditing,
                               localActive: _localActive,
                               onLocalActiveChanged: (id, state) =>
                                   setState(() => _localActive[id] = state),
+                              pageController: _canvasPageController,
                             ),
                           ),
                         ),
@@ -354,8 +439,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
         EditModeToolbarHost(
           isEditing:
               isEditing &&
-              interactionMode != CustomizationInteractionMode.placingWidget,
+              interactionMode == CustomizationInteractionMode.editing,
         ),
+        if (isEditing) CatalogueOverlayHost(interactionMode: interactionMode),
         if (interactionMode == CustomizationInteractionMode.placingWidget)
           const Positioned(
             top: 0,
@@ -363,8 +449,50 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             right: 0,
             child: PlacementCancelBar(),
           ),
+        if (interactionMode == CustomizationInteractionMode.settlingWidget &&
+            pendingCatalogueEntry != null &&
+            settlingStartRect != null &&
+            settlingEndRect != null)
+          SettlingPreviewOverlay(
+            entry: pendingCatalogueEntry,
+            startRect: settlingStartRect,
+            endRect: settlingEndRect,
+            onSettled: () =>
+                context.read<LayoutEditController>().commitSettledPlacement(),
+          ),
+        const _PlacementErrorListener(),
       ],
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _PlacementErrorListener
+//
+// A one-shot bridge from LayoutEditController.placementError (a plain field,
+// not a Stream — see its doc comment) to a SnackBar: watches the value and,
+// if non-null, clears it and shows the message on the very next frame. Never
+// builds anything visible itself.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PlacementErrorListener extends StatelessWidget {
+  const _PlacementErrorListener();
+
+  @override
+  Widget build(BuildContext context) {
+    final error = context.select<LayoutEditController, String?>(
+      (c) => c.placementError,
+    );
+    if (error != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        context.read<LayoutEditController>().clearPlacementError();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: AppColors.eStopColor),
+        );
+      });
+    }
+    return const SizedBox.shrink();
   }
 }
 
@@ -382,11 +510,17 @@ class _LayoutShape {
     required this.isEditing,
     required this.interactionMode,
     required this.layoutCfg,
+    required this.pendingCatalogueEntry,
+    required this.settlingStartRect,
+    required this.settlingEndRect,
   });
 
   final bool isEditing;
   final CustomizationInteractionMode interactionMode;
   final ControlLayoutConfig layoutCfg;
+  final CatalogEntry? pendingCatalogueEntry;
+  final Rect? settlingStartRect;
+  final Rect? settlingEndRect;
 
   @override
   bool operator ==(Object other) =>
@@ -394,10 +528,20 @@ class _LayoutShape {
       other is _LayoutShape &&
           other.isEditing == isEditing &&
           other.interactionMode == interactionMode &&
-          other.layoutCfg == layoutCfg;
+          other.layoutCfg == layoutCfg &&
+          other.pendingCatalogueEntry == pendingCatalogueEntry &&
+          other.settlingStartRect == settlingStartRect &&
+          other.settlingEndRect == settlingEndRect;
 
   @override
-  int get hashCode => Object.hash(isEditing, interactionMode, layoutCfg);
+  int get hashCode => Object.hash(
+    isEditing,
+    interactionMode,
+    layoutCfg,
+    pendingCatalogueEntry,
+    settlingStartRect,
+    settlingEndRect,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -694,12 +838,18 @@ class _CanvasSection extends StatelessWidget {
     required this.isEditing,
     required this.localActive,
     required this.onLocalActiveChanged,
+    required this.pageController,
   });
 
   final ControlLayoutConfig layoutCfg;
   final bool isEditing;
   final Map<String, ControlState> localActive;
   final void Function(String id, ControlState state) onLocalActiveChanged;
+
+  /// Externally-owned so a widget-placement drop can animate the grid to a
+  /// different page while its floating preview settles (see
+  /// PlacementSurface / ControlCanvas.pageController's doc comments).
+  final PageController pageController;
 
   bool _isMutuallyExcluded(ButtonConfig config) {
     // Cross-travel widgets manage both directions as a single unit; mutual
@@ -760,6 +910,7 @@ class _CanvasSection extends StatelessWidget {
       layoutCfg: layoutCfg,
       isEditing: isEditing,
       pageTransitionStyle: pageTransitionStyle,
+      pageController: pageController,
       activeStateFor: (config) =>
           _activeStateForButton(gate.estopLatched, config),
       isDisabled: (config) =>

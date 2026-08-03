@@ -14,9 +14,14 @@
 //                             its catalogue card, still over the catalogue
 //   placingWidget        -> the lifted preview is attached to the finger,
 //                           floating over the (now revealed) control screen
+//   settlingWidget       -> the finger has released over a validated grid
+//                           rectangle; the preview is animating from the
+//                           release position into that rectangle
 //
-// This stage only reaches placingWidget to mean "attached to the finger" —
-// it does not yet mean a grid slot has been chosen or validated. See
+// placingWidget only means "attached to the finger" — it does not yet mean
+// a grid slot has been chosen or validated. settlingWidget means a target
+// rectangle HAS been chosen and the preview is (briefly, non-cancelably)
+// animating into it, right before it becomes a real committed widget. See
 // LayoutEditController's placement methods for the transitions between
 // these states.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,4 +31,5 @@ enum CustomizationInteractionMode {
   browsingCatalogue,
   liftingCatalogueWidget,
   placingWidget,
+  settlingWidget,
 }

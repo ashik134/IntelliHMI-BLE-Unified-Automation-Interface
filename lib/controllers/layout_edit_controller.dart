@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Offset, Rect, Size;
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
@@ -27,6 +28,32 @@ import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 // controller stays a pure persisted-config store with no transient UI state.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PlacementSurface
+//
+// The geometry a mounted control screen exposes to LayoutEditController so
+// a catalogue drop (handled from LayoutEditController, which has no
+// BuildContext of its own — see handleCatalogueDrop's doc comment) can be
+// converted into a grid position: the on-screen rectangle of the control
+// grid itself (global/overlay coordinates, matching Draggable's own
+// DraggableDetails.offset space), which page is currently displayed, and how
+// to animate the PageView to a different one. Registered once by whichever
+// control screen (PLC14/PLC38) is currently mounted; only one is ever
+// mounted at a time in this app.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class PlacementSurface {
+  const PlacementSurface({
+    required this.canvasRect,
+    required this.currentPageIndex,
+    required this.navigateToPage,
+  });
+
+  final Rect Function() canvasRect;
+  final int Function() currentPageIndex;
+  final void Function(int pageIndex) navigateToPage;
+}
+
 class LayoutEditController extends ChangeNotifier {
   LayoutEditController({
     required LayoutSettingsController layoutSettings,
@@ -50,6 +77,20 @@ class LayoutEditController extends ChangeNotifier {
   CustomizationInteractionMode _interactionMode =
       CustomizationInteractionMode.editing;
   CatalogEntry? _pendingCatalogueEntry;
+
+  // ── Catalogue placement (drop / settle stage) ────────────────────────────
+  PlacementSurface? _surface;
+  Object? _surfaceOwner;
+  Rect? _settlingStartRect;
+  Rect? _settlingEndRect;
+  DropPlacementTarget? _settlingTarget;
+
+  /// One-shot failure message for the mounted control screen to surface as a
+  /// SnackBar (see [clearPlacementError]) — set only when [handleCatalogueDrop]
+  /// cannot find any valid rectangle anywhere, which never happens for any
+  /// real catalogue entry against this app's grid (max span 2x2 inside a 2x3
+  /// grid always fits an empty page) but is handled defensively regardless.
+  String? _placementError;
 
   /// Last known Widgets catalogue scroll offset (pixels). Persisted here —
   /// outside WidgetCatalogScreen's own State — so it survives the screen
@@ -75,6 +116,16 @@ class LayoutEditController extends ChangeNotifier {
   CustomizationInteractionMode get interactionMode => _interactionMode;
   CatalogEntry? get pendingCatalogueEntry => _pendingCatalogueEntry;
   double get catalogueScrollOffset => _catalogueScrollOffset;
+
+  /// The floating preview's rectangle (global/overlay coordinates) at the
+  /// moment the finger released, and the validated grid rectangle it is
+  /// animating into — both non-null only during
+  /// [CustomizationInteractionMode.settlingWidget]. See
+  /// SettlingPreviewOverlay, which tweens between them.
+  Rect? get settlingStartRect => _settlingStartRect;
+  Rect? get settlingEndRect => _settlingEndRect;
+
+  String? get placementError => _placementError;
 
   bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
 
@@ -104,7 +155,11 @@ class LayoutEditController extends ChangeNotifier {
   // race between the lift animation's completion and a Cancel tap) is a
   // harmless no-op rather than corrupting the state machine.
 
-  /// Called when the Widgets catalogue route is pushed. A no-op if Edit Mode
+  /// Called when the Widgets catalogue overlay opens (see
+  /// CatalogueOverlayHost — a sliding Stack layer within the control screen,
+  /// deliberately never a pushed Navigator route; see
+  /// _DraggableCatalogCard's doc comment in widget_catalog_screen.dart for
+  /// why a route would break mid-placement dragging). A no-op if Edit Mode
   /// somehow isn't the current mode (defensive — the catalogue is only ever
   /// reachable from the Edit Mode toolbar).
   void enterCatalogueBrowsing() {
@@ -113,11 +168,12 @@ class LayoutEditController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Called after the catalogue route's push Future resolves. Only resets to
-  /// editing if nothing else already moved the mode on (i.e. the operator
-  /// backed out normally rather than starting a placement) — starting a
-  /// placement pops the same route, so this must not clobber that.
-  void exitCatalogueBrowsingIfIdle() {
+  /// Called from the catalogue overlay's own Back button, or from a system
+  /// back gesture while merely browsing (see the control screens' PopScope
+  /// handling). A no-op once a lift/placement is already underway (i.e. the
+  /// operator backed out normally rather than starting a placement), so a
+  /// stray call can never clobber those later stages.
+  void closeCatalogueBrowsing() {
     if (_interactionMode != CustomizationInteractionMode.browsingCatalogue) {
       return;
     }
@@ -148,13 +204,167 @@ class LayoutEditController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Registers the geometry of the currently-mounted control screen's grid
+  /// — called once from that screen's initState (see PlacementSurface's doc
+  /// comment). [owner] is that screen's own State object, used purely as an
+  /// identity token so a screen that's being disposed can never clobber a
+  /// different screen's still-active registration (see
+  /// [unregisterPlacementSurface]).
+  void registerPlacementSurface(Object owner, PlacementSurface surface) {
+    _surfaceOwner = owner;
+    _surface = surface;
+  }
+
+  /// Clears the registration made by [owner] — a no-op if some other,
+  /// still-mounted screen has since registered itself (see [owner]'s doc
+  /// comment on [registerPlacementSurface]).
+  void unregisterPlacementSurface(Object owner) {
+    if (_surfaceOwner != owner) return;
+    _surfaceOwner = null;
+    _surface = null;
+  }
+
+  /// Called once the finger releases over the control screen without being
+  /// accepted by the Cancel drop target (see PlacementCancelBar) — i.e. an
+  /// attempt to actually place the widget. This — not the Draggable's own
+  /// `onDragEnd` closure — is the single place that decides where the
+  /// widget lands, because it is the only place with both the draft layout
+  /// AND the mounted control screen's grid geometry (via [_surface]); the
+  /// catalogue card that owns the Draggable is very likely already
+  /// unmounted by this point (its route was popped as soon as the lift
+  /// completed), which is exactly why this method lives on the
+  /// long-lived controller instead of that screen's own State.
+  ///
+  /// [globalDropOffset] is the feedback's top-left in the same
+  /// global/overlay coordinate space as [PlacementSurface.canvasRect] (see
+  /// Flutter's `DraggableDetails.offset`); [previewSize] is the floating
+  /// preview's constant on-screen size throughout the drag.
+  ///
+  /// Never adds the widget directly — only finds and validates a target
+  /// rectangle, then moves into [CustomizationInteractionMode.settlingWidget]
+  /// so the (still-visible) preview can animate into it. See
+  /// [commitSettledPlacement] for the actual draft mutation.
+  void handleCatalogueDrop({
+    required Offset globalDropOffset,
+    required Size previewSize,
+  }) {
+    if (_interactionMode != CustomizationInteractionMode.placingWidget) {
+      return;
+    }
+    final entry = _pendingCatalogueEntry;
+    final surface = _surface;
+    if (entry == null || surface == null) {
+      cancelCataloguePlacement();
+      return;
+    }
+
+    final (colSpan, rowSpan) = entry.gridSize;
+    final dropCenter =
+        globalDropOffset +
+        Offset(previewSize.width / 2, previewSize.height / 2);
+    final target = findDropPlacement(
+      buttons: _draft.resolvedButtons,
+      colSpan: colSpan,
+      rowSpan: rowSpan,
+      currentPageIndex: surface.currentPageIndex(),
+      existingPageCount: _draft.controlPageCount,
+      canvasRect: surface.canvasRect(),
+      dropCenter: dropCenter,
+    );
+    if (target == null) {
+      _placementError = 'No available space for this widget.';
+      cancelCataloguePlacement();
+      return;
+    }
+
+    final canvasRect = surface.canvasRect();
+    final cellWidth = canvasRect.width / ButtonConfig.controlGridColumns;
+    final cellHeight = canvasRect.height / ButtonConfig.controlGridRows;
+    _settlingStartRect = Rect.fromLTWH(
+      globalDropOffset.dx,
+      globalDropOffset.dy,
+      previewSize.width,
+      previewSize.height,
+    );
+    // Deflated by the same 4px on every side that _OccupiedCell's own
+    // Padding(EdgeInsets.all(4)) applies around the real button, so the
+    // settle animation's last frame is pixel-identical to the real grid
+    // cell it hands off to — no visible size "pop" at commit.
+    const cellInset = 4.0;
+    _settlingEndRect = Rect.fromLTWH(
+      canvasRect.left + target.gridX * cellWidth + cellInset,
+      canvasRect.top + target.gridY * cellHeight + cellInset,
+      target.colSpan * cellWidth - cellInset * 2,
+      target.rowSpan * cellHeight - cellInset * 2,
+    );
+    _settlingTarget = target;
+    _interactionMode = CustomizationInteractionMode.settlingWidget;
+    if (target.pageIndex != surface.currentPageIndex()) {
+      surface.navigateToPage(target.pageIndex);
+    }
+    notifyListeners();
+  }
+
+  /// Called by SettlingPreviewOverlay once its settle animation completes:
+  /// turns the validated [_settlingTarget] into a real ButtonConfig, adds it
+  /// to the draft, selects it, and returns to plain Edit Mode. This is the
+  /// only place a catalogue placement actually mutates the draft layout.
+  void commitSettledPlacement() {
+    if (_interactionMode != CustomizationInteractionMode.settlingWidget) {
+      return;
+    }
+    final entry = _pendingCatalogueEntry;
+    final target = _settlingTarget;
+    if (entry == null || target == null) {
+      cancelCataloguePlacement();
+      return;
+    }
+
+    final button = entry.buildPreviewConfig().copyWith(
+      id: 'placed_${DateTime.now().microsecondsSinceEpoch}',
+      pageIndex: target.pageIndex,
+      gridX: target.gridX,
+      gridY: target.gridY,
+      gridColumns: target.colSpan,
+      gridRows: target.rowSpan,
+      clearSlotIndex: true,
+    );
+    final nextPageCount = (target.pageIndex + 1) > _draft.controlPageCount
+        ? target.pageIndex + 1
+        : _draft.controlPageCount;
+    _draft = _draft.copyWith(
+      buttons: {..._draft.resolvedButtons, button.id: button},
+      controlPageCount: nextPageCount,
+    );
+    _lastValidation = _validator.validateFullConfig(_draft);
+    _selectedButtonId = button.id;
+    _pendingCatalogueEntry = null;
+    _settlingStartRect = null;
+    _settlingEndRect = null;
+    _settlingTarget = null;
+    _interactionMode = CustomizationInteractionMode.editing;
+    notifyListeners();
+  }
+
+  /// Consumes [placementError] so the same message is never shown twice.
+  void clearPlacementError() {
+    _placementError = null;
+  }
+
   /// Safe exit from any placement sub-state (Cancel tap, drag end/cancel,
   /// route interruption, ...): drops the pending entry and returns to plain
   /// Edit Mode. Idempotent — safe to call more than once for the same
-  /// gesture (e.g. both onDragEnd and a Cancel tap racing).
+  /// gesture (e.g. both onDragEnd and a Cancel tap racing). Also aborts an
+  /// in-flight settle animation without committing anything — safest
+  /// default for the lifecycle/interruption cases this is called from (see
+  /// call sites in the control screens), since a widget must never be added
+  /// to the draft from anywhere other than a clean [commitSettledPlacement].
   void cancelCataloguePlacement({bool returnToCatalogueBrowsing = false}) {
     if (_interactionMode == CustomizationInteractionMode.editing) return;
     _pendingCatalogueEntry = null;
+    _settlingStartRect = null;
+    _settlingEndRect = null;
+    _settlingTarget = null;
     _interactionMode =
         returnToCatalogueBrowsing &&
             _interactionMode ==

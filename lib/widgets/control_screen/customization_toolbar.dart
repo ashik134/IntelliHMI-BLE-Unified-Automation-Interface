@@ -3,8 +3,6 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
-import 'package:rev_crane_control_ops/screens/widget_catalog_screen.dart';
-import 'package:rev_crane_control_ops/utils/page_transitions.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/load_template_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/page_transition_sheet.dart';
@@ -76,14 +74,13 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
     }
   }
 
-  Future<void> _openCatalog(BuildContext context) async {
-    final editCtrl = context.read<LayoutEditController>();
-    editCtrl.enterCatalogueBrowsing();
-    await Navigator.of(
-      context,
-    ).push(buildSlideFadeRoute((_) => const WidgetCatalogScreen()));
-
-    editCtrl.exitCatalogueBrowsingIfIdle();
+  // No Navigator push here by design — the catalogue renders as a sliding
+  // overlay within the control screen's own Stack (see
+  // CatalogueOverlayHost), not as its own route. See
+  // _DraggableCatalogCard's doc comment (widget_catalog_screen.dart) for why
+  // a pushed/popped route silently breaks mid-placement dragging.
+  void _openCatalog(BuildContext context) {
+    context.read<LayoutEditController>().enterCatalogueBrowsing();
   }
 
   Future<void> _saveLayout(BuildContext context) async {
@@ -182,7 +179,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
         id: 'widgets',
         icon: Icons.widgets_rounded,
         label: 'Widgets',
-        onTap: () => _run('widgets', () => _openCatalog(context)),
+        onTap: () => _openCatalog(context),
       ),
       _ToolbarActionSpec(
         id: 'layout',

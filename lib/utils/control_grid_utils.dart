@@ -1,3 +1,5 @@
+import 'package:flutter/painting.dart' show Rect, Offset;
+
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -153,6 +155,25 @@ class LayoutMutationResult {
   final bool isValid;
   final ControlLayoutConfig? layout;
   final String? message;
+}
+
+/// A validated, collision-free grid rectangle for a catalogue drop — the
+/// result of [findDropPlacement]. Distinct from [ControlGridItem]: this is a
+/// candidate slot for a widget that doesn't exist in [buttons] yet.
+class DropPlacementTarget {
+  const DropPlacementTarget({
+    required this.pageIndex,
+    required this.gridX,
+    required this.gridY,
+    required this.colSpan,
+    required this.rowSpan,
+  });
+
+  final int pageIndex;
+  final int gridX;
+  final int gridY;
+  final int colSpan;
+  final int rowSpan;
 }
 
 class ControlGridItem {
@@ -923,4 +944,228 @@ String _messageForErrors(List<String> errors, ButtonConfig changed) {
     return kMultiZoneSpanMessage;
   }
   return errors.isEmpty ? kWidgetPlacementMessage : errors.first;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalogue-drop placement search
+//
+// Finds where a freshly-dropped (not-yet-created) catalogue widget should
+// land: nearest free rectangle to the release point on the page it was
+// dropped on, then the first free rectangle on each subsequent existing
+// page in order, then a guaranteed-empty page right after the last one.
+// Deterministic and collision-free by construction — never overlaps an
+// existing button, and never returns a rectangle that doesn't fully fit the
+// requested span.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Finds the best free grid rectangle for a catalogue drop of a widget
+/// spanning [colSpan] x [rowSpan] cells, given [dropCenter] (global/overlay
+/// coordinates) over a canvas occupying [canvasRect] in that same coordinate
+/// space. Prefers the nearest free anchor to [dropCenter] on
+/// [currentPageIndex]; falls back to the first free anchor (top-left first)
+/// on each subsequent page up to the highest page any button already
+/// occupies; and finally an empty page right after that, which always fits
+/// since [colSpan]/[rowSpan] never exceed the grid's own dimensions for any
+/// real catalogue entry. Returns null only when the requested span itself
+/// cannot fit the grid at all.
+DropPlacementTarget? findDropPlacement({
+  required Map<String, ButtonConfig> buttons,
+  required int colSpan,
+  required int rowSpan,
+  required int currentPageIndex,
+  required int existingPageCount,
+  required Rect canvasRect,
+  required Offset dropCenter,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+  int slotCount = ButtonConfig.controlSlotCount,
+}) {
+  final effectiveColSpan = colSpan.clamp(1, columns);
+  final effectiveRowSpan = rowSpan.clamp(1, rows);
+  final maxCol = columns - effectiveColSpan;
+  final maxRow = rows - effectiveRowSpan;
+  if (maxCol < 0 || maxRow < 0) return null;
+
+  final cellWidth = canvasRect.width / columns;
+  final cellHeight = canvasRect.height / rows;
+  final rawCol = cellWidth <= 0
+      ? 0.0
+      : (dropCenter.dx - canvasRect.left) / cellWidth;
+  final rawRow = cellHeight <= 0
+      ? 0.0
+      : (dropCenter.dy - canvasRect.top) / cellHeight;
+  final anchorCol = rawCol.floor().clamp(0, maxCol);
+  final anchorRow = rawRow.floor().clamp(0, maxRow);
+
+  final existingMaxPage = buttons.values.fold<int>(
+    existingPageCount - 1,
+    (max, button) => button.pageIndex > max ? button.pageIndex : max,
+  );
+
+  final onCurrentPage = _nearestFreeAnchor(
+    buttons: buttons,
+    pageIndex: currentPageIndex,
+    anchorCol: anchorCol,
+    anchorRow: anchorRow,
+    colSpan: effectiveColSpan,
+    rowSpan: effectiveRowSpan,
+    columns: columns,
+    rows: rows,
+    slotCount: slotCount,
+  );
+  if (onCurrentPage != null) {
+    return DropPlacementTarget(
+      pageIndex: currentPageIndex,
+      gridX: onCurrentPage.$1,
+      gridY: onCurrentPage.$2,
+      colSpan: effectiveColSpan,
+      rowSpan: effectiveRowSpan,
+    );
+  }
+
+  for (var page = currentPageIndex + 1; page <= existingMaxPage; page++) {
+    final found = _firstFreeAnchor(
+      buttons: buttons,
+      pageIndex: page,
+      colSpan: effectiveColSpan,
+      rowSpan: effectiveRowSpan,
+      columns: columns,
+      rows: rows,
+      slotCount: slotCount,
+    );
+    if (found != null) {
+      return DropPlacementTarget(
+        pageIndex: page,
+        gridX: found.$1,
+        gridY: found.$2,
+        colSpan: effectiveColSpan,
+        rowSpan: effectiveRowSpan,
+      );
+    }
+  }
+
+  // A fresh page past every existing one is always completely empty, so
+  // (0, 0) always fits — this is the "create a new page" fallback.
+  return DropPlacementTarget(
+    pageIndex: existingMaxPage + 1,
+    gridX: 0,
+    gridY: 0,
+    colSpan: effectiveColSpan,
+    rowSpan: effectiveRowSpan,
+  );
+}
+
+Set<int> _occupiedSlotsOnPage(
+  Map<String, ButtonConfig> buttons,
+  int pageIndex, {
+  required int columns,
+  required int rows,
+  required int slotCount,
+}) {
+  final occupied = <int>{};
+  for (final rawButton in buttons.values) {
+    if (!_isPageControl(rawButton)) continue;
+    final normalized = normalizeButtonPlacement(
+      rawButton,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    if (normalized.pageIndex != pageIndex) continue;
+    final slots = occupiedGridSlotsFor(
+      normalized,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    if (slots != null) occupied.addAll(slots);
+  }
+  return occupied;
+}
+
+bool _anchorFits(
+  Set<int> occupied,
+  int col,
+  int row,
+  int colSpan,
+  int rowSpan,
+  int columns,
+) {
+  for (var r = 0; r < rowSpan; r++) {
+    for (var c = 0; c < colSpan; c++) {
+      if (occupied.contains((row + r) * columns + (col + c))) return false;
+    }
+  }
+  return true;
+}
+
+(int, int)? _nearestFreeAnchor({
+  required Map<String, ButtonConfig> buttons,
+  required int pageIndex,
+  required int anchorCol,
+  required int anchorRow,
+  required int colSpan,
+  required int rowSpan,
+  required int columns,
+  required int rows,
+  required int slotCount,
+}) {
+  final occupied = _occupiedSlotsOnPage(
+    buttons,
+    pageIndex,
+    columns: columns,
+    rows: rows,
+    slotCount: slotCount,
+  );
+  final maxCol = columns - colSpan;
+  final maxRow = rows - rowSpan;
+
+  (int, int)? best;
+  var bestDistance = 0;
+  var bestSlot = 0;
+  for (var row = 0; row <= maxRow; row++) {
+    for (var col = 0; col <= maxCol; col++) {
+      if (!_anchorFits(occupied, col, row, colSpan, rowSpan, columns)) {
+        continue;
+      }
+      final dx = col - anchorCol;
+      final dy = row - anchorRow;
+      final distance = dx * dx + dy * dy;
+      final slot = row * columns + col;
+      if (best == null || distance < bestDistance || (distance == bestDistance && slot < bestSlot)) {
+        best = (col, row);
+        bestDistance = distance;
+        bestSlot = slot;
+      }
+    }
+  }
+  return best;
+}
+
+(int, int)? _firstFreeAnchor({
+  required Map<String, ButtonConfig> buttons,
+  required int pageIndex,
+  required int colSpan,
+  required int rowSpan,
+  required int columns,
+  required int rows,
+  required int slotCount,
+}) {
+  final occupied = _occupiedSlotsOnPage(
+    buttons,
+    pageIndex,
+    columns: columns,
+    rows: rows,
+    slotCount: slotCount,
+  );
+  final maxCol = columns - colSpan;
+  final maxRow = rows - rowSpan;
+  for (var row = 0; row <= maxRow; row++) {
+    for (var col = 0; col <= maxCol; col++) {
+      if (_anchorFits(occupied, col, row, colSpan, rowSpan, columns)) {
+        return (col, row);
+      }
+    }
+  }
+  return null;
 }

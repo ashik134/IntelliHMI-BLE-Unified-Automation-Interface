@@ -4,32 +4,28 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
-import 'package:rev_crane_control_ops/models/app_enums.dart';
-import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/catalog_preview_stage.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WidgetCatalogScreen
 //
-// Reached from the customization toolbar's "Widgets" action. Browsing is
-// pure reference — cards are visually inert (see _CatalogPreviewStage) — but
-// a long press on a card now begins the placement flow: the preview lifts
-// (_LiftingCataloguePreview), this route pops to reveal the control screen
-// beneath it (see LayoutEditController.beginCatalogueLift /
-// confirmPlacementStarted), and the SAME preview keeps following the finger
-// there. Grid snapping/collision/persistence are not implemented yet — this
-// stage only gets the preview attached to the pointer over the control
-// screen (see LayoutEditController.confirmPlacementStarted's doc comment).
+// Reached from the customization toolbar's "Widgets" action — rendered as a
+// sliding overlay INSIDE the control screen's own Stack (see
+// CatalogueOverlayHost), never pushed as its own Navigator route (see
+// _DraggableCatalogCard's doc comment for why that distinction matters).
+// Browsing is pure reference — cards are visually inert (see
+// CatalogPreviewStage) — but a long press on a card begins the full
+// placement flow: the preview lifts (_LiftingCataloguePreview), the
+// catalogue overlay slides away to reveal the control screen beneath it
+// (see LayoutEditController.beginCatalogueLift / confirmPlacementStarted),
+// the SAME preview keeps following the finger there, and releasing it hands
+// off to LayoutEditController.handleCatalogueDrop, which finds a
+// collision-free grid rectangle and animates the widget into it (see
+// SettlingPreviewOverlay).
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Inner padding around the control inside its preview stage — shared by
-// _CatalogPreviewStage's own layout and the screen's preview-stage size
-// computation, so the floating (dragged) preview matches the on-card one
-// pixel-for-pixel rather than just approximately.
-const double _kPreviewInnerPadding = 10;
 
 const double _kPagePadding = 18;
 const double _kColumnGap = 14;
@@ -114,7 +110,7 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
     final cardWidth =
         (width - _kPagePadding * 2 - _kColumnGap * (columns - 1)) / columns;
     final aspectRatio = cardWidth / _kCardHeight;
-    // Exactly matches the outer _CatalogPreviewStage rendered inside the
+    // Exactly matches the outer CatalogPreviewStage rendered inside the
     // card, so the lifted/floating preview's first frame is pixel-identical
     // to what was on the card, never a visible resize.
     final previewStageSize = Size(
@@ -126,7 +122,10 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
       backgroundColor: AppColors.darkBg,
       body: Column(
         children: [
-          _WidgetsAppBar(onBack: () => Navigator.of(context).pop()),
+          _WidgetsAppBar(
+            onBack: () =>
+                context.read<LayoutEditController>().closeCatalogueBrowsing(),
+          ),
           Expanded(
             child: SafeArea(
               top: false,
@@ -335,15 +334,32 @@ class _SubgroupHeading extends StatelessWidget {
 // to scrolling, exactly like any other long-press-draggable list item), its
 // haptic-on-recognize is the same HapticFeedback.selectionClick() convention
 // already used elsewhere in this app (see main.dart's bottom nav), and —
-// critically — its avatar/recognizer are known to survive the *catalogue
-// route being popped out from under it* mid-drag (Draggable's own dispose
-// path only tears down the recognizer once no drag is active), which is
-// exactly what "reverse the transition when placement begins" requires:
-// the operator must be able to keep dragging after this card's route has
-// gone away. Hand-rolling the same guarantee with raw PointerRouter
-// plumbing would reproduce a subtler version of the same mechanism with far
-// more room for the "preview gets stuck/flickers/jumps" failure modes the
-// spec calls out.
+// critically — its avatar/recognizer are explicitly designed to survive the
+// Draggable being removed from the widget tree mid-drag (see
+// _DraggableState's own doc comment in the framework source, drag_target.
+// dart), which is exactly what "reverse the transition when placement
+// begins" needs: the operator must be able to keep dragging after the
+// catalogue slides away underneath.
+//
+// That tree-removal survival is real, but it is NOT sufficient by itself —
+// this is the one thing about this widget that is not optional to
+// understand before touching it. NavigatorState.pop()/push() unconditionally
+// cancels every pointer the Navigator has ever seen go down
+// (_afterNavigation -> _cancelActivePointers, in navigator.dart), which
+// dispatches a synthetic PointerCancelEvent to this drag's own pointer the
+// instant a route changes — regardless of whether the Draggable itself
+// stays mounted. An earlier version of this screen was pushed as its own
+// Navigator route and popped (from _handleLiftComplete, right after the
+// lift animation) to reveal the control screen underneath; that pop silently
+// canceled the in-progress drag within the same frame, landing the widget
+// at whatever the release-point search resolved to from wherever the finger
+// happened to be at that instant — i.e. auto-placement, visually
+// indistinguishable from a real carry-and-drop since both end with "a widget
+// appears in the grid." The catalogue is now rendered as a sliding overlay
+// within the SAME route instead (see CatalogueOverlayHost) — closing it is
+// an ordinary rebuild, never a Navigator transition — which is the only way
+// this drag actually survives from catalogue to release. Do not reintroduce
+// a pushed/popped route for the catalogue without re-solving this.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Duration _kLongPressDelay = Duration(milliseconds: 400);
@@ -402,30 +418,51 @@ class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
     _editCtrl.beginCatalogueLift(widget.entry);
   }
 
+  /// Advances liftingCatalogueWidget -> placingWidget once the preview's own
+  /// lift-off animation finishes. That mode change is the ENTIRE mechanism
+  /// behind "reveal the control screen behind it" — CatalogueOverlayHost
+  /// watches interactionMode and slides the whole catalogue away in
+  /// response — so this deliberately does nothing else. In particular: no
+  /// Navigator call belongs here (see _DraggableCatalogCard's doc comment
+  /// for exactly what goes wrong if one is added back).
   void _handleLiftComplete() {
     if (_editCtrl.interactionMode !=
         CustomizationInteractionMode.liftingCatalogueWidget) {
       return;
     }
     _editCtrl.confirmPlacementStarted();
-    if (!mounted ||
-        _editCtrl.interactionMode !=
-            CustomizationInteractionMode.placingWidget) {
-      return;
-    }
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) navigator.pop();
   }
 
-  void _handleDragFinished() {
+  /// Handles the end of the drag, from wherever the finger actually was.
+  /// This State may already be unmounted by this point — the catalogue
+  /// overlay stops being built once interactionMode moves past
+  /// placingWidget (see CatalogueOverlayHost) — so this deliberately touches
+  /// only [_editCtrl] (a reference to the long-lived controller, captured
+  /// while mounted, not this State's own BuildContext) and never
+  /// `context`/`mounted`-gated UI.
+  ///
+  /// [wasAccepted] mirrors `DraggableDetails.wasAccepted`: true only when a
+  /// DragTarget (PlacementCancelBar) accepted the drop, which already
+  /// canceled the session itself via its own onAcceptWithDetails — this
+  /// method has nothing further to do in that case. Both onDragEnd and
+  /// onDraggableCanceled can fire for the same gesture (Flutter calls
+  /// onDraggableCanceled in addition to onDragEnd when not accepted); the
+  /// guard below makes whichever fires first authoritative.
+  void _handleDragEnd(bool wasAccepted, Offset offset) {
     if (_dragFinishHandled) return;
     _dragFinishHandled = true;
-    final stayInCatalogue =
-        mounted &&
-        _editCtrl.interactionMode ==
-            CustomizationInteractionMode.liftingCatalogueWidget;
-    _editCtrl.cancelCataloguePlacement(
-      returnToCatalogueBrowsing: stayInCatalogue,
+
+    if (_editCtrl.interactionMode ==
+        CustomizationInteractionMode.liftingCatalogueWidget) {
+      // Released before the lift animation even finished separating the
+      // preview from its card — never reached the control screen at all.
+      _editCtrl.cancelCataloguePlacement(returnToCatalogueBrowsing: true);
+      return;
+    }
+    if (wasAccepted) return;
+    _editCtrl.handleCatalogueDrop(
+      globalDropOffset: offset,
+      previewSize: widget.previewStageSize,
     );
   }
 
@@ -444,8 +481,8 @@ class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
       ),
       childWhenDragging: const _CatalogCardPlaceholder(),
       onDragStarted: _handleDragStarted,
-      onDragEnd: (_) => _handleDragFinished(),
-      onDraggableCanceled: (_, _) => _handleDragFinished(),
+      onDragEnd: (details) => _handleDragEnd(details.wasAccepted, details.offset),
+      onDraggableCanceled: (_, offset) => _handleDragEnd(false, offset),
       child: _CatalogCard(entry: widget.entry),
     );
   }
@@ -454,14 +491,15 @@ class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
 // ─────────────────────────────────────────────────────────────────────────────
 // _LiftingCataloguePreview
 //
-// The floating "preview" — exactly the same _CatalogPreviewStage content,
+// The floating "preview" — exactly the same CatalogPreviewStage content,
 // at exactly the size it rendered at on the card, so nothing is destroyed
 // and recreated at a different size. It plays a small one-shot lift
 // animation on its own entrance (scale + soft shadow, ~160ms, easeOutCubic)
 // and then reports completion so the controller can advance
-// liftingCatalogueWidget -> placingWidget; the pop/reveal transition happens
-// from that same completion callback, after the preview has visually
-// separated from its catalogue card.
+// liftingCatalogueWidget -> placingWidget; the catalogue-overlay slide-away
+// reveal happens reactively from that same mode change (see
+// CatalogueOverlayHost), after the preview has visually separated from its
+// catalogue card.
 //
 // Watches LayoutEditController.interactionMode so a Cancel tap elsewhere
 // (the control screen's Cancel bar) can make this preview vanish
@@ -551,7 +589,7 @@ class _LiftingCataloguePreviewState extends State<_LiftingCataloguePreview>
     final stage = SizedBox(
       width: widget.size.width,
       height: widget.size.height,
-      child: _CatalogPreviewStage(entry: widget.entry),
+      child: CatalogPreviewStage(entry: widget.entry),
     );
 
     return Material(
@@ -629,7 +667,7 @@ class _CatalogCard extends StatelessWidget {
           children: [
             SizedBox(
               height: _kPreviewHeight,
-              child: _CatalogPreviewStage(entry: entry),
+              child: CatalogPreviewStage(entry: entry),
             ),
             const SizedBox(height: _kGapAfterPreview),
             SizedBox(
@@ -743,70 +781,7 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// _CatalogPreviewStage
-//
-// Renders the real control widget via ConfigurableButton — the exact same
-// entry point the live control screens use — so the preview is genuinely
-// the control, not a lookalike icon. Layered safety, per the "non-
-// interactive preview" requirement:
-//   1. IgnorePointer blocks every touch before it reaches the control, so
-//      no gesture handler (and therefore no haptic/BLE-triggering callback)
-//      can ever fire.
-//   2. The callbacks passed to ConfigurableButton are no-ops anyway, so
-//      even a hypothetical gesture leak writes nothing.
-//   3. The ButtonConfig backing the preview is thrown away every rebuild —
-//      never read from or written to the saved layout.
-// A future stage may turn this stage into a long-press placement target;
-// the control drawn inside it must stay non-interactive regardless.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _CatalogPreviewStage extends StatelessWidget {
-  const _CatalogPreviewStage({required this.entry});
-
-  final CatalogEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder),
-      ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(_kPreviewInnerPadding),
-          child: RepaintBoundary(
-            child: ExcludeSemantics(
-              child: IgnorePointer(
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: entry.previewSize.width,
-                    height: entry.previewSize.height,
-                    child: ConfigurableButton(
-                      config: entry.buildPreviewConfig(),
-                      activeState: ControlState.idle,
-                      isDisabled: false,
-                      height: entry.previewSize.height,
-                      onCommand: _noOpCommand,
-                      onStateIdCommand: _noOpStateIdCommand,
-                      onAnalogCommand: _noOpAnalogCommand,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-void _noOpCommand(String buttonId, ControlState state) {}
-
-void _noOpStateIdCommand(String buttonId, String stateId) {}
-
-void _noOpAnalogCommand(ButtonConfig config, double value) {}
+// CatalogPreviewStage (the actual inert control preview) now lives in
+// lib/widgets/control_screen/catalog_preview_stage.dart, shared with the
+// dragged feedback avatar above and SettlingPreviewOverlay's grid-settle
+// animation — all three must render the identical visual.
