@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
@@ -10,16 +14,22 @@ import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.
 // ─────────────────────────────────────────────────────────────────────────────
 // WidgetCatalogScreen
 //
-// Reached from the customization toolbar's "Widgets" action. A pure browsing
-// / reference catalogue: every control family IntelliHMI supports, grouped
-// Category -> Subgroup -> two-column preview grid (see widget_catalog.dart
-// for the registry driving this). Cards render a real, live-fidelity miniature
-// of the control (via ConfigurableButton — the same widget the control
-// screen itself uses) wrapped in IgnorePointer so it is strictly non-
-// interactive; nothing here can place a widget, write BLE, or touch the
-// saved layout. That lands in a later stage (see the long-press note on
-// _CatalogPreviewStage).
+// Reached from the customization toolbar's "Widgets" action. Browsing is
+// pure reference — cards are visually inert (see _CatalogPreviewStage) — but
+// a long press on a card now begins the placement flow: the preview lifts
+// (_LiftingCataloguePreview), this route pops to reveal the control screen
+// beneath it (see LayoutEditController.beginCatalogueLift /
+// confirmPlacementStarted), and the SAME preview keeps following the finger
+// there. Grid snapping/collision/persistence are not implemented yet — this
+// stage only gets the preview attached to the pointer over the control
+// screen (see LayoutEditController.confirmPlacementStarted's doc comment).
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Inner padding around the control inside its preview stage — shared by
+// _CatalogPreviewStage's own layout and the screen's preview-stage size
+// computation, so the floating (dragged) preview matches the on-card one
+// pixel-for-pixel rather than just approximately.
+const double _kPreviewInnerPadding = 10;
 
 const double _kPagePadding = 18;
 const double _kColumnGap = 14;
@@ -69,10 +79,29 @@ class WidgetCatalogScreen extends StatefulWidget {
 }
 
 class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
-  final ScrollController _scrollController = ScrollController();
+  late final ScrollController _scrollController;
+  LayoutEditController? _editCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final editCtrl = context.read<LayoutEditController>();
+    _editCtrl = editCtrl;
+    // Resume from wherever the operator last left off — see
+    // LayoutEditController.catalogueScrollOffset's doc comment.
+    _scrollController = ScrollController(
+      initialScrollOffset: editCtrl.catalogueScrollOffset,
+    )..addListener(_persistScrollOffset);
+  }
+
+  void _persistScrollOffset() {
+    if (!_scrollController.hasClients) return;
+    _editCtrl?.updateCatalogueScrollOffset(_scrollController.offset);
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_persistScrollOffset);
     _scrollController.dispose();
     super.dispose();
   }
@@ -85,6 +114,13 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
     final cardWidth =
         (width - _kPagePadding * 2 - _kColumnGap * (columns - 1)) / columns;
     final aspectRatio = cardWidth / _kCardHeight;
+    // Exactly matches the outer _CatalogPreviewStage rendered inside the
+    // card, so the lifted/floating preview's first frame is pixel-identical
+    // to what was on the card, never a visible resize.
+    final previewStageSize = Size(
+      cardWidth - _kCardPadding * 2,
+      _kPreviewHeight,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -111,6 +147,7 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
                           groups: grouped[category]!,
                           columns: columns,
                           aspectRatio: aspectRatio,
+                          previewStageSize: previewStageSize,
                         ),
                     const SliverToBoxAdapter(child: SizedBox(height: 32)),
                   ],
@@ -128,6 +165,7 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
     required Map<String, List<CatalogEntry>> groups,
     required int columns,
     required double aspectRatio,
+    required Size previewStageSize,
   }) {
     final slivers = <Widget>[
       SliverPadding(
@@ -168,7 +206,10 @@ class _WidgetCatalogScreenState extends State<WidgetCatalogScreen> {
                 childAspectRatio: aspectRatio,
               ),
               delegate: SliverChildBuilderDelegate(
-                (context, index) => _CatalogCard(entry: group.value[index]),
+                (context, index) => _DraggableCatalogCard(
+                  entry: group.value[index],
+                  previewStageSize: previewStageSize,
+                ),
                 childCount: group.value.length,
               ),
             ),
@@ -285,12 +326,287 @@ class _SubgroupHeading extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _DraggableCatalogCard
+//
+// Wraps a plain _CatalogCard with long-press-to-lift. LongPressDraggable is
+// deliberately reused rather than hand-rolled: its DelayedMultiDragGesture-
+// Recognizer already arbitrates correctly against the ancestor
+// CustomScrollView (vertical movement before recognition hands the gesture
+// to scrolling, exactly like any other long-press-draggable list item), its
+// haptic-on-recognize is the same HapticFeedback.selectionClick() convention
+// already used elsewhere in this app (see main.dart's bottom nav), and —
+// critically — its avatar/recognizer are known to survive the *catalogue
+// route being popped out from under it* mid-drag (Draggable's own dispose
+// path only tears down the recognizer once no drag is active), which is
+// exactly what "reverse the transition when placement begins" requires:
+// the operator must be able to keep dragging after this card's route has
+// gone away. Hand-rolling the same guarantee with raw PointerRouter
+// plumbing would reproduce a subtler version of the same mechanism with far
+// more room for the "preview gets stuck/flickers/jumps" failure modes the
+// spec calls out.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Duration _kLongPressDelay = Duration(milliseconds: 400);
+
+class _DraggableCatalogCard extends StatefulWidget {
+  const _DraggableCatalogCard({
+    required this.entry,
+    required this.previewStageSize,
+  });
+
+  final CatalogEntry entry;
+  final Size previewStageSize;
+
+  @override
+  State<_DraggableCatalogCard> createState() => _DraggableCatalogCardState();
+}
+
+class _DraggableCatalogCardState extends State<_DraggableCatalogCard> {
+  late LayoutEditController _editCtrl;
+  Offset? _dragAnchor;
+  bool _dragFinishHandled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _editCtrl = context.read<LayoutEditController>();
+  }
+
+  /// Maps the point the operator touched into the preview stage's coordinate
+  /// space. The anchor may sit outside the preview when the touch begins on
+  /// the card text; preserving that offset avoids a visible handoff jump.
+  Offset _grabAnchor(
+    Draggable<Object> draggable,
+    BuildContext context,
+    Offset position,
+  ) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) {
+      final fallback = widget.previewStageSize.center(Offset.zero);
+      _dragAnchor = fallback;
+      return fallback;
+    }
+    final local = renderBox.globalToLocal(position);
+    final anchor = local - const Offset(_kCardPadding, _kCardPadding);
+    _dragAnchor = anchor;
+    return anchor;
+  }
+
+  void _handleDragStarted() {
+    if (_editCtrl.interactionMode !=
+        CustomizationInteractionMode.browsingCatalogue) {
+      return;
+    }
+    _dragFinishHandled = false;
+    HapticFeedback.selectionClick();
+    _editCtrl.beginCatalogueLift(widget.entry);
+  }
+
+  void _handleLiftComplete() {
+    if (_editCtrl.interactionMode !=
+        CustomizationInteractionMode.liftingCatalogueWidget) {
+      return;
+    }
+    _editCtrl.confirmPlacementStarted();
+    if (!mounted ||
+        _editCtrl.interactionMode !=
+            CustomizationInteractionMode.placingWidget) {
+      return;
+    }
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) navigator.pop();
+  }
+
+  void _handleDragFinished() {
+    if (_dragFinishHandled) return;
+    _dragFinishHandled = true;
+    final stayInCatalogue =
+        mounted &&
+        _editCtrl.interactionMode ==
+            CustomizationInteractionMode.liftingCatalogueWidget;
+    _editCtrl.cancelCataloguePlacement(
+      returnToCatalogueBrowsing: stayInCatalogue,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LongPressDraggable<CatalogEntry>(
+      data: widget.entry,
+      delay: _kLongPressDelay,
+      hapticFeedbackOnStart: false,
+      dragAnchorStrategy: _grabAnchor,
+      feedback: _LiftingCataloguePreview(
+        entry: widget.entry,
+        size: widget.previewStageSize,
+        dragAnchor: () => _dragAnchor,
+        onLiftComplete: _handleLiftComplete,
+      ),
+      childWhenDragging: const _CatalogCardPlaceholder(),
+      onDragStarted: _handleDragStarted,
+      onDragEnd: (_) => _handleDragFinished(),
+      onDraggableCanceled: (_, _) => _handleDragFinished(),
+      child: _CatalogCard(entry: widget.entry),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _LiftingCataloguePreview
+//
+// The floating "preview" — exactly the same _CatalogPreviewStage content,
+// at exactly the size it rendered at on the card, so nothing is destroyed
+// and recreated at a different size. It plays a small one-shot lift
+// animation on its own entrance (scale + soft shadow, ~160ms, easeOutCubic)
+// and then reports completion so the controller can advance
+// liftingCatalogueWidget -> placingWidget; the pop/reveal transition happens
+// from that same completion callback, after the preview has visually
+// separated from its catalogue card.
+//
+// Watches LayoutEditController.interactionMode so a Cancel tap elsewhere
+// (the control screen's Cancel bar) can make this preview vanish
+// immediately, even though Draggable's own avatar keeps silently tracking
+// the still-down finger in the background until it actually lifts (see
+// LayoutEditController.cancelCataloguePlacement's doc comment).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LiftingCataloguePreview extends StatefulWidget {
+  const _LiftingCataloguePreview({
+    required this.entry,
+    required this.size,
+    required this.dragAnchor,
+    required this.onLiftComplete,
+  });
+
+  final CatalogEntry entry;
+  final Size size;
+  final Offset? Function() dragAnchor;
+  final VoidCallback onLiftComplete;
+
+  @override
+  State<_LiftingCataloguePreview> createState() =>
+      _LiftingCataloguePreviewState();
+}
+
+class _LiftingCataloguePreviewState extends State<_LiftingCataloguePreview>
+    with SingleTickerProviderStateMixin {
+  static const _liftDuration = Duration(milliseconds: 160);
+
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<int> _shadowAlpha;
+  late final Animation<double> _shadowBlur;
+  late final Animation<double> _shadowDy;
+  late final Alignment _scaleAlignment;
+  bool _liftReported = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: _liftDuration);
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+    _scale = Tween<double>(begin: 1.0, end: 1.03).animate(curved);
+    _shadowAlpha = IntTween(begin: 0, end: 56).animate(curved);
+    _shadowBlur = Tween<double>(begin: 0, end: 10).animate(curved);
+    _shadowDy = Tween<double>(begin: 0, end: 3).animate(curved);
+    _scaleAlignment = _scaleAlignmentFor(widget.dragAnchor());
+    _controller.addStatusListener(_handleStatus);
+    _controller.forward();
+  }
+
+  void _handleStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _liftReported) return;
+    _liftReported = true;
+    widget.onLiftComplete();
+  }
+
+  @override
+  void dispose() {
+    _controller.removeStatusListener(_handleStatus);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Alignment _scaleAlignmentFor(Offset? anchor) {
+    final effectiveAnchor = anchor ?? widget.size.center(Offset.zero);
+    final x = widget.size.width <= 0
+        ? 0.0
+        : (effectiveAnchor.dx / widget.size.width) * 2 - 1;
+    final y = widget.size.height <= 0
+        ? 0.0
+        : (effectiveAnchor.dy / widget.size.height) * 2 - 1;
+    return Alignment(x, y);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = context.watch<LayoutEditController>().interactionMode;
+    final isLive =
+        mode == CustomizationInteractionMode.liftingCatalogueWidget ||
+        mode == CustomizationInteractionMode.placingWidget;
+
+    final stage = SizedBox(
+      width: widget.size.width,
+      height: widget.size.height,
+      child: _CatalogPreviewStage(entry: widget.entry),
+    );
+
+    return Material(
+      type: MaterialType.transparency,
+      child: !isLive
+          ? const SizedBox.shrink()
+          : AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) => Transform.scale(
+                alignment: _scaleAlignment,
+                scale: _scale.value,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(_shadowAlpha.value),
+                        blurRadius: _shadowBlur.value,
+                        spreadRadius: -1,
+                        offset: Offset(0, _shadowDy.value),
+                      ),
+                    ],
+                  ),
+                  child: child,
+                ),
+              ),
+              child: stage,
+            ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // _CatalogCard
 //
 // Every region below the preview stage occupies a fixed height slot
 // (populated or blank) so cards line up row-to-row regardless of which
 // entry has a notation or how many tags it carries.
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _CatalogCardPlaceholder extends StatelessWidget {
+  const _CatalogCardPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.panel.withAlpha(120),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.panelStroke.withAlpha(120)),
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
 
 class _CatalogCard extends StatelessWidget {
   const _CatalogCard({required this.entry});
@@ -460,7 +776,7 @@ class _CatalogPreviewStage extends StatelessWidget {
       ),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(_kPreviewInnerPadding),
           child: RepaintBoundary(
             child: ExcludeSemantics(
               child: IgnorePointer(

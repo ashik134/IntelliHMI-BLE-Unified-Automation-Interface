@@ -7,6 +7,8 @@ import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
@@ -44,6 +46,19 @@ class LayoutEditController extends ChangeNotifier {
   String? _selectedButtonId;
   ValidationResult _lastValidation = const ValidationResult.valid();
 
+  // ── Catalogue placement (long-press selection stage) ────────────────────
+  CustomizationInteractionMode _interactionMode =
+      CustomizationInteractionMode.editing;
+  CatalogEntry? _pendingCatalogueEntry;
+
+  /// Last known Widgets catalogue scroll offset (pixels). Persisted here —
+  /// outside WidgetCatalogScreen's own State — so it survives the screen
+  /// being popped mid-placement and is restored the next time the catalogue
+  /// opens, per the "preserve scroll position" requirement. Never drives
+  /// notifyListeners(): nothing needs to react to it live, it is only read
+  /// back when the catalogue is (re)built.
+  double _catalogueScrollOffset = 0;
+
   /// Session-only UI preference for how ControlCanvas animates between grid
   /// pages while editing — see CanvasPageTransitionStyle's doc comment. Never
   /// part of the draft/persisted layout; reset on every [enter].
@@ -56,6 +71,10 @@ class LayoutEditController extends ChangeNotifier {
   String? get selectedButtonId => _selectedButtonId;
   ValidationResult get lastValidation => _lastValidation;
   CanvasPageTransitionStyle get pageTransitionStyle => _pageTransitionStyle;
+
+  CustomizationInteractionMode get interactionMode => _interactionMode;
+  CatalogEntry? get pendingCatalogueEntry => _pendingCatalogueEntry;
+  double get catalogueScrollOffset => _catalogueScrollOffset;
 
   bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
 
@@ -72,7 +91,83 @@ class LayoutEditController extends ChangeNotifier {
     _lastValidation = const ValidationResult.valid();
     _pageTransitionStyle = CanvasPageTransitionStyle.slide;
     _isEditing = true;
+    _interactionMode = CustomizationInteractionMode.editing;
+    _pendingCatalogueEntry = null;
     notifyListeners();
+  }
+
+  // ── Catalogue placement (long-press selection stage) ────────────────────
+  //
+  // browsingCatalogue -> liftingCatalogueWidget -> placingWidget, mirroring
+  // the interaction sequence the Widgets catalogue drives. Every entry point
+  // guards on the expected current mode so a stray/duplicate call (e.g. a
+  // race between the lift animation's completion and a Cancel tap) is a
+  // harmless no-op rather than corrupting the state machine.
+
+  /// Called when the Widgets catalogue route is pushed. A no-op if Edit Mode
+  /// somehow isn't the current mode (defensive — the catalogue is only ever
+  /// reachable from the Edit Mode toolbar).
+  void enterCatalogueBrowsing() {
+    if (_interactionMode != CustomizationInteractionMode.editing) return;
+    _interactionMode = CustomizationInteractionMode.browsingCatalogue;
+    notifyListeners();
+  }
+
+  /// Called after the catalogue route's push Future resolves. Only resets to
+  /// editing if nothing else already moved the mode on (i.e. the operator
+  /// backed out normally rather than starting a placement) — starting a
+  /// placement pops the same route, so this must not clobber that.
+  void exitCatalogueBrowsingIfIdle() {
+    if (_interactionMode != CustomizationInteractionMode.browsingCatalogue) {
+      return;
+    }
+    _interactionMode = CustomizationInteractionMode.editing;
+    notifyListeners();
+  }
+
+  /// Long-press recognized on [entry]'s catalogue card: the preview begins
+  /// lifting off the card, still over the catalogue.
+  void beginCatalogueLift(CatalogEntry entry) {
+    if (_interactionMode != CustomizationInteractionMode.browsingCatalogue) {
+      return;
+    }
+    _pendingCatalogueEntry = entry;
+    _interactionMode = CustomizationInteractionMode.liftingCatalogueWidget;
+    notifyListeners();
+  }
+
+  /// The lifted preview is now attached to the finger over the (revealed)
+  /// control screen. This stage never finalizes a grid position — it only
+  /// means the preview is floating and following the pointer.
+  void confirmPlacementStarted() {
+    if (_interactionMode !=
+        CustomizationInteractionMode.liftingCatalogueWidget) {
+      return;
+    }
+    _interactionMode = CustomizationInteractionMode.placingWidget;
+    notifyListeners();
+  }
+
+  /// Safe exit from any placement sub-state (Cancel tap, drag end/cancel,
+  /// route interruption, ...): drops the pending entry and returns to plain
+  /// Edit Mode. Idempotent — safe to call more than once for the same
+  /// gesture (e.g. both onDragEnd and a Cancel tap racing).
+  void cancelCataloguePlacement({bool returnToCatalogueBrowsing = false}) {
+    if (_interactionMode == CustomizationInteractionMode.editing) return;
+    _pendingCatalogueEntry = null;
+    _interactionMode =
+        returnToCatalogueBrowsing &&
+            _interactionMode ==
+                CustomizationInteractionMode.liftingCatalogueWidget
+        ? CustomizationInteractionMode.browsingCatalogue
+        : CustomizationInteractionMode.editing;
+    notifyListeners();
+  }
+
+  /// Persists the catalogue's current scroll offset for next time. Never
+  /// notifies listeners — see [catalogueScrollOffset]'s doc comment.
+  void updateCatalogueScrollOffset(double offset) {
+    _catalogueScrollOffset = offset;
   }
 
   void selectButton(String? id) {
@@ -213,6 +308,8 @@ class LayoutEditController extends ChangeNotifier {
     if (result.isValid) {
       _isEditing = false;
       _selectedButtonId = null;
+      _interactionMode = CustomizationInteractionMode.editing;
+      _pendingCatalogueEntry = null;
       notifyListeners();
     }
     return result;

@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
@@ -26,6 +27,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolb
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
@@ -57,7 +59,8 @@ class Plc38ControlScreen extends StatefulWidget {
   State<Plc38ControlScreen> createState() => _Plc38ControlScreenState();
 }
 
-class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
+class _Plc38ControlScreenState extends State<Plc38ControlScreen>
+    with WidgetsBindingObserver {
   CraneController? _craneController;
 
   bool _isBackNavigating = false;
@@ -77,6 +80,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = context.read<CraneController>();
@@ -89,7 +93,22 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
   void dispose() {
     FocusManager.instance.primaryFocus?.unfocus();
     _craneController?.removeListener(_onControllerChange);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // See Plc14's ControlScreen counterpart — a backgrounded app can never
+    // deliver the pointer-up that would normally end an in-progress
+    // catalogue placement drag, so this prevents a permanently stuck
+    // floating preview once the app resumes.
+    if (state != AppLifecycleState.resumed) _cancelActivePlacement();
+  }
+
+  void _cancelActivePlacement() {
+    if (!mounted) return;
+    context.read<LayoutEditController>().cancelCataloguePlacement();
   }
 
   void _dismissResetDialogIfVisible() {
@@ -118,6 +137,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
         controller.isDisconnected) {
       _dismissResetDialogIfVisible();
       _resetLocalButtonStates();
+      _cancelActivePlacement();
     }
     if (controller.isDisconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -223,12 +243,17 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
         >(
           selector: (_, editCtrl, layoutCtrl) => _LayoutShape(
             isEditing: editCtrl.isEditing,
+            interactionMode: editCtrl.interactionMode,
             layoutCfg: editCtrl.isEditing
                 ? editCtrl.draft
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
           ),
-          builder: (context, shape, _) =>
-              _buildScaffold(context, shape.isEditing, shape.layoutCfg),
+          builder: (context, shape, _) => _buildScaffold(
+            context,
+            shape.isEditing,
+            shape.interactionMode,
+            shape.layoutCfg,
+          ),
         );
       },
     );
@@ -237,6 +262,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
   Widget _buildScaffold(
     BuildContext context,
     bool isEditing,
+    CustomizationInteractionMode interactionMode,
     ControlLayoutConfig layoutCfg,
   ) {
     final labels = layoutCfg.labelConfig;
@@ -325,7 +351,18 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
             ),
           ),
         ),
-        EditModeToolbarHost(isEditing: isEditing),
+        EditModeToolbarHost(
+          isEditing:
+              isEditing &&
+              interactionMode != CustomizationInteractionMode.placingWidget,
+        ),
+        if (interactionMode == CustomizationInteractionMode.placingWidget)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: PlacementCancelBar(),
+          ),
       ],
     );
   }
@@ -341,9 +378,14 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LayoutShape {
-  const _LayoutShape({required this.isEditing, required this.layoutCfg});
+  const _LayoutShape({
+    required this.isEditing,
+    required this.interactionMode,
+    required this.layoutCfg,
+  });
 
   final bool isEditing;
+  final CustomizationInteractionMode interactionMode;
   final ControlLayoutConfig layoutCfg;
 
   @override
@@ -351,10 +393,11 @@ class _LayoutShape {
       identical(this, other) ||
       other is _LayoutShape &&
           other.isEditing == isEditing &&
+          other.interactionMode == interactionMode &&
           other.layoutCfg == layoutCfg;
 
   @override
-  int get hashCode => Object.hash(isEditing, layoutCfg);
+  int get hashCode => Object.hash(isEditing, interactionMode, layoutCfg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

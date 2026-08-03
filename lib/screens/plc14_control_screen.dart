@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
@@ -26,33 +27,13 @@ import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolb
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rebuild-scope note
-//
-// The screen used to sit behind one Consumer3<CraneController,
-// LayoutSettingsController, CustomizationModeController> wrapping the entire
-// Scaffold body, so *any* notifyListeners() from any of the three controllers
-// — including a BLE analog/status notification arriving many times a second
-// — rebuilt the AppBar, LED row, sensor row, and status chip together. That
-// was the biggest single rebuild-scope cost on this screen, and it ran
-// concurrently with the BLE heartbeat timer on the same isolate, so heavy
-// rebuild/paint work could delay heartbeat scheduling.
-//
-// Below, the layout selector recomputes only the committed ControlLayoutConfig
-// for the connected PLC type — this changes rarely (settings edits, PLC type
-// change) — and each live-data section (LEDs, sensor row, safety panel,
-// status chip) is its own small widget with its own narrow Selector, so a BLE
-// notification only rebuilds the specific section that actually changed.
-//
-// The customization workflow is a tap-only Edit Mode (no drag/resize this
-// pass — see LayoutEditController): the Customize button starts an edit
-// session, ControlCanvas renders the grid with tap-to-select/delete chrome,
-// and the bottom CustomizationToolbar exposes Widgets/Load Template/Save
-// Layout/Layout Settings/Done.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ControlScreen extends StatefulWidget {
@@ -70,9 +51,6 @@ class _ControlScreenState extends State<ControlScreen>
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
 
-  // Written only by the onCommand callback below, which fires synchronously
-  // from a button's own gesture handler — never from PLC status feedback.
-  // See _CanvasSection._activeStateForButton's doc comment.
   final Map<String, ControlState> _localActive = {};
 
   void _resetLocalButtonStates() {
@@ -99,6 +77,16 @@ class _ControlScreenState extends State<ControlScreen>
     _craneController?.removeListener(_onControllerChange);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _cancelActivePlacement();
+  }
+
+  void _cancelActivePlacement() {
+    if (!mounted) return;
+    context.read<LayoutEditController>().cancelCataloguePlacement();
   }
 
   void _dismissResetDialogIfVisible() {
@@ -128,6 +116,7 @@ class _ControlScreenState extends State<ControlScreen>
         controller.isDisconnected) {
       _dismissResetDialogIfVisible();
       _resetLocalButtonStates();
+      _cancelActivePlacement();
     }
     if (controller.isDisconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -168,10 +157,7 @@ class _ControlScreenState extends State<ControlScreen>
 
   Future<void> _onResetEStopTap() async {
     final controller = context.read<CraneController>();
-    // isEditing is defense-in-depth: SafetyActionPanel already disables the
-    // reset swipe (resetEnabled: !isEditing) while Edit Mode is active, but
-    // gating here too means Reset E-Stop can never fire mid-edit even if
-    // that wiring ever changes.
+
     if (context.read<LayoutEditController>().isEditing ||
         controller.currentScreen != AppScreen.control ||
         !controller.isConnected) {
@@ -183,16 +169,12 @@ class _ControlScreenState extends State<ControlScreen>
     }
   }
 
-  // Called by PopScope when the operator presses the back button or swipes.
-  // canPop is false so didPop is always false; the method handles all navigation.
   Future<void> _onBackAttempted(bool didPop, Object? result) async {
     if (didPop || _isBackNavigating) return;
     _isBackNavigating = true;
     try {
       final controller = context.read<CraneController>();
 
-      // Stop all motion before showing the dialog so the PLC never keeps
-      // moving while the operator is looking at a confirmation prompt.
       await controller.stopAllMotion();
 
       if (!mounted) return;
@@ -200,9 +182,6 @@ class _ControlScreenState extends State<ControlScreen>
       if (!mounted) return;
 
       if (confirmed) {
-        // disconnect() sends a final idle command then drops the BLE link.
-        // The HMIAppShell reacts to isDisconnected and swaps in ConnectionScreen
-        // automatically — no explicit Navigator call needed.
         await controller.disconnect();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -223,11 +202,6 @@ class _ControlScreenState extends State<ControlScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Narrow selector #1: the screen "shape" — recomputed only when the
-    // committed layout changes or the PLC type changes. Deliberately
-    // excludes every live-telemetry field on CraneController (LEDs, sensors,
-    // activeCommand, RSSI, ...) so a BLE notification alone never retriggers
-    // this selector or anything below it in the tree.
     return Selector<CraneController, PlcType>(
       selector: (_, controller) => controller.connectedPlcType,
       builder: (context, plcType, _) {
@@ -238,12 +212,17 @@ class _ControlScreenState extends State<ControlScreen>
         >(
           selector: (_, editCtrl, layoutCtrl) => _LayoutShape(
             isEditing: editCtrl.isEditing,
+            interactionMode: editCtrl.interactionMode,
             layoutCfg: editCtrl.isEditing
                 ? editCtrl.draft
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
           ),
-          builder: (context, shape, _) =>
-              _buildScaffold(context, shape.isEditing, shape.layoutCfg),
+          builder: (context, shape, _) => _buildScaffold(
+            context,
+            shape.isEditing,
+            shape.interactionMode,
+            shape.layoutCfg,
+          ),
         );
       },
     );
@@ -252,6 +231,7 @@ class _ControlScreenState extends State<ControlScreen>
   Widget _buildScaffold(
     BuildContext context,
     bool isEditing,
+    CustomizationInteractionMode interactionMode,
     ControlLayoutConfig layoutCfg,
   ) {
     final labels = layoutCfg.labelConfig;
@@ -330,7 +310,18 @@ class _ControlScreenState extends State<ControlScreen>
             ),
           ),
         ),
-        EditModeToolbarHost(isEditing: isEditing),
+        EditModeToolbarHost(
+          isEditing:
+              isEditing &&
+              interactionMode != CustomizationInteractionMode.placingWidget,
+        ),
+        if (interactionMode == CustomizationInteractionMode.placingWidget)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: PlacementCancelBar(),
+          ),
       ],
     );
   }
@@ -338,17 +329,17 @@ class _ControlScreenState extends State<ControlScreen>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _LayoutShape
-//
-// Value type combining LayoutEditController.isEditing with the layout config
-// that should currently be rendered (the draft while editing, the committed
-// config otherwise), so the screen's Selector2 only rebuilds when either
-// actually changes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LayoutShape {
-  const _LayoutShape({required this.isEditing, required this.layoutCfg});
+  const _LayoutShape({
+    required this.isEditing,
+    required this.interactionMode,
+    required this.layoutCfg,
+  });
 
   final bool isEditing;
+  final CustomizationInteractionMode interactionMode;
   final ControlLayoutConfig layoutCfg;
 
   @override
@@ -356,10 +347,11 @@ class _LayoutShape {
       identical(this, other) ||
       other is _LayoutShape &&
           other.isEditing == isEditing &&
+          other.interactionMode == interactionMode &&
           other.layoutCfg == layoutCfg;
 
   @override
-  int get hashCode => Object.hash(isEditing, layoutCfg);
+  int get hashCode => Object.hash(isEditing, interactionMode, layoutCfg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -390,9 +382,6 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
           ? const EditModeAppBarTitle()
           : _DeviceTitle(labels: labels),
       actions: [
-        // The customize action only makes sense in normal mode — while
-        // editing it would be a duplicate way to (re-)enter a mode already
-        // active, so it's omitted entirely rather than disabled.
         if (!isEditing)
           IconButton(
             icon: const Icon(
@@ -422,8 +411,6 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
-/// Isolated because it watches connection/device-name/RSSI fields that
-/// update independently of (and more often than) the AppBar's other actions.
 class _DeviceTitle extends StatelessWidget {
   const _DeviceTitle({required this.labels});
 
@@ -468,12 +455,6 @@ class _DisconnectButton extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Live-data leaf sections — each owns a narrow Selector so a CraneController
-// notification (BLE status/analog stream, potentially many times a second)
-// only rebuilds the one section whose underlying values actually changed.
-// ─────────────────────────────────────────────────────────────────────────────
-
 class _SafetyPanelSection extends StatelessWidget {
   const _SafetyPanelSection({
     required this.compact,
@@ -492,9 +473,6 @@ class _SafetyPanelSection extends StatelessWidget {
   final String instructionLabel;
   final String resetLabel;
 
-  /// Forces resetEnabled off on SafetyActionPanel while Edit Mode is active
-  /// — the operator must press Done and leave Edit Mode before Reset E-Stop
-  /// becomes swipeable again (see [_onResetEStopTap]'s matching guard).
   final bool isEditing;
   final Future<void> Function() onEStopTap;
   final Future<void> Function() onResetActivated;
@@ -616,11 +594,6 @@ class _StatusChipSection extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _CanvasSection
-//
-// Wraps ControlCanvas with its own narrow watch of exactly the
-// CraneController fields the grid's isDisabled/activeStateFor closures need
-// (estopLatched, isConnected). A BLE status notification that doesn't flip
-// either of those never rebuilds the grid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _GridGateValues {
@@ -654,9 +627,6 @@ class _CanvasSection extends StatelessWidget {
   final void Function(String id, ControlState state) onLocalActiveChanged;
 
   bool _isMutuallyExcluded(ButtonConfig config) {
-    // Cross-travel widgets manage both directions as a single unit; mutual
-    // exclusion with the paired role would incorrectly disable the widget
-    // mid-drag and leave it permanently stuck in the disabled state.
     if (config.type == ButtonType.bidirectionalSlider5Step ||
         config.type == ButtonType.bidirectionalSlider3Step) {
       return false;
@@ -669,11 +639,6 @@ class _CanvasSection extends StatelessWidget {
     return false;
   }
 
-  /// Resolves the VISUAL active state for [config]. Local-touch state only
-  /// (see [localActive]) — PLC feedback intentionally never feeds into a
-  /// button's own visual state; it stays visible only through status/output
-  /// indicators (LEDs, status chip) elsewhere on screen. estop latch forces
-  /// idle regardless of local state.
   ControlState _activeStateForButton(bool estopLatched, ButtonConfig config) {
     if (estopLatched) return ControlState.idle;
     return localActive[config.id] ?? ControlState.idle;
@@ -700,8 +665,7 @@ class _CanvasSection extends StatelessWidget {
             (c) => c.selectedButtonId,
           )
         : null;
-    // Only meaningful while editing — live mode's NeverScrollableScrollPhysics
-    // below never lets the operator page-swipe at all.
+
     final pageTransitionStyle = isEditing
         ? context.select<LayoutEditController, CanvasPageTransitionStyle>(
             (c) => c.pageTransitionStyle,
@@ -715,11 +679,6 @@ class _CanvasSection extends StatelessWidget {
       activeStateFor: (config) =>
           _activeStateForButton(gate.estopLatched, config),
       isDisabled: (config) =>
-          // isEditing is defense-in-depth: ControlCanvas already forces
-          // every occupied cell's ConfigurableButton disabled+AbsorbPointer
-          // while editing, but gating here too means this closure alone
-          // documents and enforces "Edit Mode never sends PLC output" even
-          // if that internal behavior ever changes.
           isEditing ||
           gate.estopLatched ||
           !gate.isConnected ||
@@ -744,13 +703,6 @@ class _CanvasSection extends StatelessWidget {
           activeVariants: resolved.activeVariants,
         );
       },
-      // Generic zone-id path (multi-zone slider): the widget already reports
-      // the REAL logical state id directly (e.g. 'zone1'..'zone5'), so —
-      // unlike onCommand above — there is no ControlState to translate it
-      // back from. [state] here is only a binary idle/non-idle bookkeeping
-      // marker for localActive/mutual-exclusion; the PLC composition is
-      // driven entirely by activeVariants, resolved directly from this exact
-      // (buttonId, stateId) pair's ButtonConfig.stateMappings entry.
       onStateIdCommand: (id, stateId) {
         final isIdle =
             stateId == MultiZoneSliderStateId.center || stateId == 'idle';

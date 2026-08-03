@@ -12,15 +12,6 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties_s
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EditModeToolbarHost
-//
-// Always mounted at the bottom of the control screen's Stack. AnimatedSlide
-// + AnimatedOpacity animate the whole toolbar as a single unit — slide up
-// from just below its final position while fading in, and reverse on exit —
-// rather than driving a manual AnimationController; CustomizationToolbar's
-// own State (scroll position, which sheet is active) is never rebuilt by
-// this, since it stays the same widget instance across the isEditing flip.
-// IgnorePointer-gated when not editing so the (nearly invisible, mid-slide)
-// toolbar can never intercept touches meant for the canvas underneath.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class EditModeToolbarHost extends StatelessWidget {
@@ -41,9 +32,6 @@ class EditModeToolbarHost extends StatelessWidget {
         child: AnimatedSlide(
           duration: _duration,
           curve: Curves.easeOutCubic,
-          // ~48dp below final position for a ~96dp-tall toolbar — within the
-          // requested 40-60dp range, expressed as a fraction of its own size
-          // since AnimatedSlide's offset is relative, not absolute dp.
           offset: isEditing ? Offset.zero : const Offset(0, 0.5),
           child: AnimatedOpacity(
             duration: _duration,
@@ -59,14 +47,6 @@ class EditModeToolbarHost extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CustomizationToolbar
-//
-// Lightweight, floating action row — Realme home-screen-editor inspired:
-// transparent background (no card), each action its own dark-graphite
-// circular icon button, horizontally scrollable with natural
-// (ClampingScrollPhysics) drag-and-fling, no snapping/centering. Done is
-// pinned outside the scrollable strip so it's always visible without
-// scrolling — it's the sole way to leave Edit Mode (see
-// LayoutEditController.exit), not a customization action like the rest.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CustomizationToolbar extends StatefulWidget {
@@ -77,14 +57,8 @@ class CustomizationToolbar extends StatefulWidget {
 }
 
 class _CustomizationToolbarState extends State<CustomizationToolbar> {
-  // Owned here (not recreated per build) so scroll position survives for as
-  // long as this widget stays mounted — which EditModeToolbarHost guarantees
-  // regardless of how many times Edit Mode is toggled on this screen.
   final ScrollController _scrollController = ScrollController();
 
-  // Which action's sheet is currently open, if any. Only one can be active
-  // at a time by construction (_run awaits its action before clearing this),
-  // giving each item its "subtle selected state" while its own sheet is up.
   String? _activeAction;
 
   @override
@@ -103,9 +77,13 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
   }
 
   Future<void> _openCatalog(BuildContext context) async {
+    final editCtrl = context.read<LayoutEditController>();
+    editCtrl.enterCatalogueBrowsing();
     await Navigator.of(
       context,
     ).push(buildSlideFadeRoute((_) => const WidgetCatalogScreen()));
+
+    editCtrl.exitCatalogueBrowsingIfIdle();
   }
 
   Future<void> _saveLayout(BuildContext context) async {
@@ -250,8 +228,6 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
         height: 96,
         child: Stack(
           children: [
-            // Subtle dark scrim, not a card — keeps icons/labels readable
-            // over a busy canvas without boxing the toolbar in.
             const Positioned.fill(
               child: IgnorePointer(child: _ToolbarReadabilityScrim()),
             ),
@@ -329,15 +305,6 @@ class _ToolbarReadabilityScrim extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _ToolbarCircleButton
-//
-// One fixed-width (74dp) slot: a 52dp dark-graphite circle (22-24dp icon)
-// with a centered label below. Press feedback is a background brighten +
-// 1.0 -> 0.96 scale on the circle only, driven by a single GestureDetector —
-// deliberately not a Material InkWell/ripple layered underneath it, since a
-// second nested tap recognizer there would fight the outer one for the same
-// pointer. The scale+brighten combo is the actually-specified feedback
-// (durations below); a literal ink ripple would add motion this toolbar's
-// "lightweight, minimal" brief doesn't call for.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const double _kToolbarSlotWidth = 74;
@@ -435,12 +402,6 @@ class _ToolbarCircleButtonState extends State<_ToolbarCircleButton> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _DoneCircleButton
-//
-// Pinned outside the scrollable strip so it's reachable without swiping —
-// Done is the sole exit from Edit Mode, not a customization action, so it
-// stays permanently visible rather than competing for scroll space. Same
-// press feedback contract as _ToolbarCircleButton, filled with the accent
-// color instead of graphite to read as the primary action.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DoneCircleButton extends StatefulWidget {
@@ -521,10 +482,6 @@ class _DoneCircleButtonState extends State<_DoneCircleButton> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _MoreActionsSheet
-//
-// Overflow for actions that don't need a primary slot in the scrollable
-// row — currently just Save Layout (persist the draft without leaving Edit
-// Mode; Done already saves-and-exits, so this is for "checkpoint now").
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _MoreActionsSheet extends StatelessWidget {
