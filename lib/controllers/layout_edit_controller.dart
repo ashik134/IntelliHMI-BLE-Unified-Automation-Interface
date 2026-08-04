@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
@@ -524,6 +525,7 @@ class LayoutEditController extends ChangeNotifier {
 
     final button = entry.buildPreviewConfig().copyWith(
       id: 'placed_${DateTime.now().microsecondsSinceEpoch}',
+      catalogEntryId: entry.id,
       pageIndex: target.pageIndex,
       gridX: target.gridX,
       gridY: target.gridY,
@@ -695,6 +697,56 @@ class LayoutEditController extends ChangeNotifier {
     final current = _draft.resolvedButtons[id];
     if (current == null) return;
     _applyDraft(_draft.withButton(id, update(current)));
+  }
+
+  /// Resets [id]'s appearance/behavior/customProperties/label/icon/rotation
+  /// to a known default — the Properties sheet's "Reset to default" action.
+  /// Never touches [ButtonConfig.stateMappings]/[ButtonConfig
+  /// .joystickSubButtonMappings]/[ButtonConfig.mutualExclusion]: an
+  /// appearance reset must never silently change what a widget sends to the
+  /// PLC.
+  ///
+  /// If [id] was placed from a known catalogue entry (see
+  /// [ButtonConfig.catalogEntryId]), restores that exact entry's
+  /// style/behavior/customProperties/label — this is the only way to know
+  /// which of several same-[ButtonType] catalogue variants (e.g. the two
+  /// push-button entries) it actually was. Otherwise (pre-existing button
+  /// from before [ButtonConfig.catalogEntryId] existed, or any non-catalogue
+  /// -sourced button) resets appearance only, never guessing at
+  /// behavior/customProperties without a known source.
+  void resetButtonToDefault(String id) {
+    final current = _draft.resolvedButtons[id];
+    if (current == null) return;
+
+    CatalogEntry? source;
+    final catalogEntryId = current.catalogEntryId;
+    if (catalogEntryId != null) {
+      for (final entry in kWidgetCatalog) {
+        if (entry.id == catalogEntryId) {
+          source = entry;
+          break;
+        }
+      }
+    }
+
+    if (source != null) {
+      final resolvedSource = source;
+      updateButton(
+        id,
+        (b) => b.copyWith(
+          label: resolvedSource.name,
+          style: const ButtonStyleConfig(),
+          behavior: resolvedSource.behavior,
+          customProperties: resolvedSource.customProperties,
+          rotation: ButtonRotation.none,
+          clearIcon: true,
+          clearIconKey: true,
+        ),
+      );
+      return;
+    }
+
+    updateButton(id, (b) => b.copyWith(style: const ButtonStyleConfig()));
   }
 
   void toggleArrangement(ArrangementToggle which) {

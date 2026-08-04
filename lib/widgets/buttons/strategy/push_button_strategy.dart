@@ -66,6 +66,9 @@ class PushButtonStrategy extends ButtonTypeStrategy {
         activeColor: activeColor,
         activeColorLight: activeColorLight,
         rotation: config.rotation,
+        pressScale: config.behavior.pressScale,
+        debounceMs: config.behavior.debounceMs,
+        longPressRequiredMs: config.behavior.longPressRequiredMs,
         onStateChanged: (stateId) =>
             onCommand(config.id, _controlStateFor(stateId)),
       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart' show IconData;
 
+import 'package:rev_crane_control_ops/models/button_icon_registry.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
@@ -45,6 +46,8 @@ class ButtonConfig {
     this.role,
     this.label = '',
     this.icon,
+    this.iconKey,
+    this.catalogEntryId,
     this.heightScale = 1.0,
     this.rotation = ButtonRotation.none,
     this.style = const ButtonStyleConfig(),
@@ -115,9 +118,25 @@ class ButtonConfig {
   final String label;
 
   /// Null falls back to the existing hardcoded per-role icon in the widget
-  /// layer (e.g. UpPushControlButton's Icons.arrow_upward_rounded) — no
-  /// change in visual behavior until a "change icon" editor exists.
+  /// layer (e.g. UpPushControlButton's Icons.arrow_upward_rounded).
   final IconData? icon;
+
+  /// Persistence key for [icon] when it was chosen via the customization
+  /// sheet's icon picker (see button_icon_registry.dart) — [icon] itself
+  /// can't safely round-trip through JSON (codePoint alone loses font
+  /// family/package), so [fromJson] resolves [icon] from this key instead.
+  /// Null keeps the pre-existing exact behavior: [icon] round-trips to null
+  /// and the widget layer's hardcoded default applies.
+  final String? iconKey;
+
+  /// The [CatalogEntry.id] this button was placed from, if any — lets
+  /// "Reset to default" restore this exact catalogue variant's behavior/
+  /// customProperties rather than guessing from [type] alone (several
+  /// catalogue entries share one [ButtonType] with different behavior,
+  /// e.g. the two push-button variants). Null for buttons created before
+  /// this field existed, or any non-catalogue-sourced button — "Reset to
+  /// default" falls back to resetting appearance only in that case.
+  final String? catalogEntryId;
 
   final double heightScale;
   final ButtonRotation rotation;
@@ -299,6 +318,8 @@ class ButtonConfig {
     ControlRole? role,
     String? label,
     IconData? icon,
+    String? iconKey,
+    String? catalogEntryId,
     double? heightScale,
     ButtonRotation? rotation,
     ButtonStyleConfig? style,
@@ -324,6 +345,8 @@ class ButtonConfig {
     Map<String, Map<String, ButtonStateOutputMapping>>?
     joystickSubButtonMappings,
     bool clearIcon = false,
+    bool clearIconKey = false,
+    bool clearCatalogEntryId = false,
     bool clearGroup = false,
     bool clearSlotIndex = false,
   }) {
@@ -334,6 +357,10 @@ class ButtonConfig {
       role: role ?? this.role,
       label: label ?? this.label,
       icon: clearIcon ? null : (icon ?? this.icon),
+      iconKey: clearIconKey ? null : (iconKey ?? this.iconKey),
+      catalogEntryId: clearCatalogEntryId
+          ? null
+          : (catalogEntryId ?? this.catalogEntryId),
       heightScale: heightScale ?? this.heightScale,
       rotation: rotation ?? this.rotation,
       style: style ?? this.style,
@@ -368,6 +395,8 @@ class ButtonConfig {
     'role': role?.name,
     'label': label,
     'icon': icon?.codePoint,
+    'iconKey': iconKey,
+    'catalogEntryId': catalogEntryId,
     'heightScale': heightScale,
     'rotation': rotation.degrees,
     'style': style.toJson(),
@@ -445,10 +474,14 @@ class ButtonConfig {
           PlcOutputVariant.df2,
       role: role,
       label: json['label'] as String? ?? '',
-      icon: null, // codePoint-only round trip intentionally not restored to
-      // a renderable IconData (font family/package are lost) — the widget
-      // layer's hardcoded per-role default is used instead, matching
-      // migration's own behavior. See ButtonConfig.icon doc comment.
+      // A bare codePoint (pre-iconKey JSON) intentionally never restores to
+      // a renderable IconData (font family/package are lost) — but an
+      // iconKey from the curated registry resolves to a real, fully-
+      // specified IconData with no ambiguity. See ButtonConfig.iconKey doc
+      // comment.
+      icon: iconForKey(json['iconKey'] as String?),
+      iconKey: json['iconKey'] as String?,
+      catalogEntryId: json['catalogEntryId'] as String?,
       heightScale: (json['heightScale'] as num?)?.toDouble() ?? 1.0,
       rotation: buttonRotationFromJson(json['rotation']),
       style: json['style'] != null
@@ -523,6 +556,8 @@ class ButtonConfig {
           other.role == role &&
           other.label == label &&
           other.icon == icon &&
+          other.iconKey == iconKey &&
+          other.catalogEntryId == catalogEntryId &&
           other.heightScale == heightScale &&
           other.rotation == rotation &&
           other.style == style &&
@@ -558,6 +593,8 @@ class ButtonConfig {
     role,
     label,
     icon,
+    iconKey,
+    catalogEntryId,
     heightScale,
     rotation,
     style,

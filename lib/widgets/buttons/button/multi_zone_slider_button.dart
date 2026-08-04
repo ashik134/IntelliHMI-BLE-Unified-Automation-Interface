@@ -52,6 +52,8 @@ class MultiZoneSliderButton extends StatelessWidget {
     this.farColor,
     this.style,
     this.rotation = ButtonRotation.none,
+    this.deadZone = kMultiZoneSliderDefaultDeadZone,
+    this.farZone = kMultiZoneSliderDefaultFarZone,
     this.isStartZoneBlocked = false,
     this.isEndZoneBlocked = false,
     required this.onStateChanged,
@@ -89,6 +91,15 @@ class MultiZoneSliderButton extends StatelessWidget {
 
   final ButtonRotation rotation;
 
+  /// Fraction of half-track (from centre) treated as the neutral/idle dead
+  /// band. See [kMultiZoneSliderDefaultDeadZone].
+  final double deadZone;
+
+  /// Fraction of half-track beyond which a five-zone slider reports the far
+  /// (zone1/zone5) rather than near (zone2/zone4) state. Unused in
+  /// three-zone mode. See [kMultiZoneSliderDefaultFarZone].
+  final double farZone;
+
   /// True blocks the thumb from entering the negative (start-side) zone(s) —
   /// used when an external owner already claims that zone's output.
   final bool isStartZoneBlocked;
@@ -118,12 +129,22 @@ class MultiZoneSliderButton extends StatelessWidget {
       farColor: farColor,
       style: style,
       rotation: rotation,
+      deadZone: deadZone,
+      farZone: farZone,
       isStartZoneBlocked: isStartZoneBlocked,
       isEndZoneBlocked: isEndZoneBlocked,
       onStateChanged: onStateChanged,
     );
   }
 }
+
+/// Default centre dead-band, matching this widget's original hardcoded
+/// constant — every existing (never-customized) placement renders identically.
+const double kMultiZoneSliderDefaultDeadZone = 0.12;
+
+/// Default near/far zone boundary (five-zone mode only), matching this
+/// widget's original hardcoded constant.
+const double kMultiZoneSliderDefaultFarZone = 0.62;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IndustrialMultiZoneSlider
@@ -153,6 +174,8 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
     this.farColor,
     this.style,
     this.rotation = ButtonRotation.none,
+    this.deadZone = kMultiZoneSliderDefaultDeadZone,
+    this.farZone = kMultiZoneSliderDefaultFarZone,
     this.isStartZoneBlocked = false,
     this.isEndZoneBlocked = false,
     required this.onStateChanged,
@@ -169,6 +192,8 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
   final Color? farColor;
   final ButtonStyleConfig? style;
   final ButtonRotation rotation;
+  final double deadZone;
+  final double farZone;
   final bool isStartZoneBlocked;
   final bool isEndZoneBlocked;
   final ValueChanged<String> onStateChanged;
@@ -192,8 +217,10 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   late final AnimationController _springCtrl;
 
   // ── Thresholds (fraction of half-track from centre) ──────────────────────
-  static const double _deadZone = 0.12; // ±12 % → centre dead band
-  static const double _farZone = 0.62; // beyond ±62 % → far/outer zone
+  // Sourced from widget.deadZone/widget.farZone (see MultiZoneSliderConfig) —
+  // these accessors keep every reference below unchanged in shape.
+  double get _deadZone => widget.deadZone;
+  double get _farZone => widget.farZone;
 
   // Margin applied when clamping to the dead-zone boundary so the value stays
   // strictly INSIDE the centre region (abs < _deadZone), preventing the zone

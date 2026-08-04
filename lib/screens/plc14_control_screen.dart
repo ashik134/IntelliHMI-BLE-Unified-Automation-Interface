@@ -34,6 +34,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/settling_preview.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rebuild-scope note
@@ -809,6 +810,10 @@ class _CanvasSection extends StatelessWidget {
     }
   }
 
+  void _onEdit(BuildContext context, String id) {
+    showWidgetPropertiesSheet(context, id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final gate = context.select<CraneController, _GridGateValues>(
@@ -893,6 +898,7 @@ class _CanvasSection extends StatelessWidget {
           ? (id) => context.read<LayoutEditController>().selectButton(id)
           : null,
       onDeleteButton: isEditing ? (id) => _onDelete(context, id) : null,
+      onEditButton: isEditing ? (id) => _onEdit(context, id) : null,
     );
   }
 }

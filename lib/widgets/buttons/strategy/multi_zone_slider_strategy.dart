@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/multi_zone_slider_config.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 
@@ -141,16 +143,28 @@ Widget buildGenericMultiZoneSlider({
     }
   }
 
+  final zoneConfig = MultiZoneSliderConfig.fromCustomProperties(
+    config.customProperties,
+  );
+
   return MultiZoneSliderButton(
-    startLabel: config.label,
-    endLabel: config.label,
+    startLabel: zoneConfig.startLabel ?? config.label,
+    endLabel: zoneConfig.endLabel ?? config.label,
     startIcon: config.icon ?? Icons.arrow_back_rounded,
     endIcon: config.icon ?? Icons.arrow_forward_rounded,
     isDisabled: isDisabled,
     variant: fiveZone
         ? MultiZoneSliderVariant.fiveZone
         : MultiZoneSliderVariant.threeZone,
+    // Reuses the same primary/active style fields every other strategy
+    // colors from — see ButtonStyleConfig doc comment on why there's no
+    // separate nearColor/farColor model field.
+    nearColor: config.style.primaryColor ?? AppColors.accent,
+    farColor: config.style.activeColor ?? AppColors.fastColor,
+    style: config.style,
     rotation: config.rotation,
+    deadZone: zoneConfig.deadZoneFraction,
+    farZone: zoneConfig.farZoneFraction,
     isStartZoneBlocked: isStartZoneBlocked,
     isEndZoneBlocked: isEndZoneBlocked,
     onStateChanged: (zoneId) {

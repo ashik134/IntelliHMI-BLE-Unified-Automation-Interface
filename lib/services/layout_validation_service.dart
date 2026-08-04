@@ -1,3 +1,4 @@
+import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
@@ -172,6 +173,27 @@ class LayoutValidationService {
     }
 
     final name = config.label.isEmpty ? config.id : config.label;
+    _checkIntRange(
+      '$name debounce',
+      config.behavior.debounceMs,
+      ButtonBehaviorConfig.minDebounceMs,
+      ButtonBehaviorConfig.maxDebounceMs,
+      errors,
+    );
+    _checkIntRange(
+      '$name long-press duration',
+      config.behavior.longPressRequiredMs,
+      ButtonBehaviorConfig.minLongPressRequiredMs,
+      ButtonBehaviorConfig.maxLongPressRequiredMs,
+      errors,
+    );
+    _checkRange(
+      '$name press animation strength',
+      config.behavior.pressAnimationStrength,
+      ButtonBehaviorConfig.minPressAnimationStrength,
+      ButtonBehaviorConfig.maxPressAnimationStrength,
+      errors,
+    );
     // An invisible button occupies no grid cell — its stored gridX/gridY/
     // slotIndex are stale placement data rather than a live conflict, so
     // placement geometry is never checked for it. Mirrors the same
@@ -352,6 +374,21 @@ class LayoutValidationService {
         '$name ${value.toStringAsFixed(1)} must be between '
         '${min.toStringAsFixed(1)} and ${max.toStringAsFixed(1)}.',
       );
+    }
+  }
+
+  /// Same contract as [_checkRange] but for an int field with non-nullable
+  /// bounds (unlike the nullable cosmetic style fields, every
+  /// ButtonBehaviorConfig field always has a concrete value).
+  void _checkIntRange(
+    String name,
+    int value,
+    int min,
+    int max,
+    List<String> errors,
+  ) {
+    if (value < min || value > max) {
+      errors.add('$name $value must be between $min and $max.');
     }
   }
 

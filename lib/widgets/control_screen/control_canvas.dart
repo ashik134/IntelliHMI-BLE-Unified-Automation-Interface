@@ -41,6 +41,7 @@ class ControlCanvas extends StatefulWidget {
     this.selectedButtonId,
     this.onSelectButton,
     this.onDeleteButton,
+    this.onEditButton,
     this.pageTransitionStyle = CanvasPageTransitionStyle.slide,
     this.pageController,
   });
@@ -55,6 +56,11 @@ class ControlCanvas extends StatefulWidget {
   final String? selectedButtonId;
   final ValueChanged<String?>? onSelectButton;
   final ValueChanged<String>? onDeleteButton;
+
+  /// Pencil-badge tap — see _OccupiedCell's always-visible edit affordance.
+  /// Distinct from [onSelectButton]: callers should both select the button
+  /// AND open its properties sheet from this callback.
+  final ValueChanged<String>? onEditButton;
 
   /// Edit Mode-only page-swipe preview style (see
   /// CanvasPageTransitionStyle's doc comment) — inert in live mode, which
@@ -136,6 +142,10 @@ class _ControlCanvasState extends State<ControlCanvas> {
                       onTap: () => widget.onSelectButton?.call(item.config.id),
                       onDelete: () =>
                           widget.onDeleteButton?.call(item.config.id),
+                      onEdit: () {
+                        widget.onSelectButton?.call(item.config.id);
+                        widget.onEditButton?.call(item.config.id);
+                      },
                     ),
                   ),
                 if (widget.isEditing)
@@ -202,6 +212,7 @@ class _OccupiedCell extends StatelessWidget {
     required this.onAnalogCommand,
     required this.onTap,
     required this.onDelete,
+    required this.onEdit,
   });
 
   final ButtonConfig config;
@@ -214,6 +225,13 @@ class _OccupiedCell extends StatelessWidget {
   final AnalogButtonCommandCallback? onAnalogCommand;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+
+  /// Pencil-badge tap — opens the properties sheet for this button. Unlike
+  /// [onDelete] (selected-cell-only, matching today's behavior — deletion
+  /// stays a deliberate two-step action), the pencil badge is always visible
+  /// on every occupied cell while editing: it's non-destructive, so there's
+  /// no accidental-tap risk in making it a one-tap affordance.
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -300,6 +318,29 @@ class _OccupiedCell extends StatelessWidget {
                 ),
               ),
             ),
+          // Always visible (every occupied cell, not just the selected one)
+          // — see [onEdit]'s doc comment for why this differs from the
+          // delete badge's selected-cell-only gating.
+          Positioned(
+            top: -6,
+            left: -6,
+            child: GestureDetector(
+              onTap: onEdit,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: const BoxDecoration(
+                  color: AppColors.selectionViolet,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.edit_rounded,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

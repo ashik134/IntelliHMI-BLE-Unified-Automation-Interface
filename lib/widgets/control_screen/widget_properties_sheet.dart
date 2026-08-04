@@ -4,12 +4,25 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/appearance_tab.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/function_tab.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/general_tab.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/output_tab.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/safety_tab.dart';
 
-/// Opens a bottom sheet for viewing/editing the canvas-selected widget's
-/// basic properties (label, enabled) and deleting it. Every field mutates
-/// the LayoutEditController draft directly — same "nothing persists until
-/// Save Layout / Done" contract as Layout Settings and every other
-/// customization mutation.
+// ─────────────────────────────────────────────────────────────────────────────
+// WidgetPropertiesSheet
+//
+// The type-aware customization sheet: General / Appearance / Function /
+// Output / Safety tabs, each built by widget_properties/*_tab.dart. Every
+// field mutates the LayoutEditController draft directly — same "nothing
+// persists until Save Layout / Done" contract as Layout Settings and every
+// other customization mutation. Reachable both from the canvas's per-widget
+// pencil badge (control_canvas.dart) and the customization toolbar's
+// "Properties" action (customization_toolbar.dart) — both simply call
+// [showWidgetPropertiesSheet] with the target button's id.
+// ─────────────────────────────────────────────────────────────────────────────
+
 Future<void> showWidgetPropertiesSheet(BuildContext context, String buttonId) {
   return showModalBottomSheet<void>(
     context: context,
@@ -19,33 +32,10 @@ Future<void> showWidgetPropertiesSheet(BuildContext context, String buttonId) {
   );
 }
 
-class WidgetPropertiesSheet extends StatefulWidget {
+class WidgetPropertiesSheet extends StatelessWidget {
   const WidgetPropertiesSheet({super.key, required this.buttonId});
 
   final String buttonId;
-
-  @override
-  State<WidgetPropertiesSheet> createState() => _WidgetPropertiesSheetState();
-}
-
-class _WidgetPropertiesSheetState extends State<WidgetPropertiesSheet> {
-  late final TextEditingController _labelController;
-
-  @override
-  void initState() {
-    super.initState();
-    final config = context
-        .read<LayoutEditController>()
-        .draft
-        .resolvedButtons[widget.buttonId];
-    _labelController = TextEditingController(text: config?.label ?? '');
-  }
-
-  @override
-  void dispose() {
-    _labelController.dispose();
-    super.dispose();
-  }
 
   Future<void> _delete(BuildContext context, String id) async {
     final result = context.read<LayoutEditController>().deleteButton(id);
@@ -63,7 +53,7 @@ class _WidgetPropertiesSheetState extends State<WidgetPropertiesSheet> {
   @override
   Widget build(BuildContext context) {
     final editCtrl = context.watch<LayoutEditController>();
-    final config = editCtrl.draft.resolvedButtons[widget.buttonId];
+    final config = editCtrl.draft.resolvedButtons[buttonId];
 
     if (config == null) {
       // Selection was cleared (e.g. deleted elsewhere) while this sheet was
@@ -76,167 +66,206 @@ class _WidgetPropertiesSheetState extends State<WidgetPropertiesSheet> {
       return const SizedBox.shrink();
     }
 
-    final isSafetyControl = config.role != null;
+    if (config.role != null) {
+      return _LockedSheet(typeName: _typeDisplayName(config.type));
+    }
+
+    void onUpdate(ButtonConfig Function(ButtonConfig) update) {
+      context.read<LayoutEditController>().updateButton(buttonId, update);
+    }
+
+    const tabs = [
+      Tab(text: 'General'),
+      Tab(text: 'Appearance'),
+      Tab(text: 'Function'),
+      Tab(text: 'Output'),
+      Tab(text: 'Safety'),
+    ];
 
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Container(
           margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+          height: MediaQuery.of(context).size.height * 0.82,
           decoration: BoxDecoration(
             color: AppColors.panel,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppColors.darkBorder),
             boxShadow: AppMetrics.shadowMd,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.panelStroke,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'Widget Properties',
-                style: TextStyle(
-                  color: AppColors.darkText,
-                  fontSize: 16.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _typeDisplayName(config.type),
-                style: const TextStyle(
-                  color: AppColors.darkTextMuted,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _labelController,
-                enabled: !isSafetyControl,
-                onChanged: (v) => editCtrl.updateButton(
-                  config.id,
-                  (b) => b.copyWith(label: v),
-                ),
-                style: const TextStyle(
-                  color: AppColors.darkText,
-                  fontSize: 13.5,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Label',
-                  labelStyle: const TextStyle(color: AppColors.darkTextMuted),
-                  filled: true,
-                  fillColor: AppColors.darkBg,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.darkBorder),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.darkBorder),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: AppColors.selectionViolet,
-                      width: 1.6,
+          child: DefaultTabController(
+            length: tabs.length,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.panelStroke,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                activeThumbColor: AppColors.selectionViolet,
-                title: const Text(
-                  'Enabled',
-                  style: TextStyle(
-                    color: AppColors.darkText,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text(
-                  'Disabled widgets stay on the grid but never send PLC output.',
-                  style: TextStyle(
-                    color: AppColors.darkTextMuted,
-                    fontSize: 11.5,
-                  ),
-                ),
-                value: config.enabled,
-                onChanged: isSafetyControl
-                    ? null
-                    : (v) => editCtrl.updateButton(
-                        config.id,
-                        (b) => b.copyWith(enabled: v),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Widget Properties',
+                              style: TextStyle(
+                                color: AppColors.darkText,
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _typeDisplayName(config.type),
+                              style: const TextStyle(
+                                color: AppColors.darkTextMuted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-              ),
-              if (isSafetyControl) ...[
-                const SizedBox(height: 4),
-                const Text(
-                  'Safety controls cannot be edited or removed.',
-                  style: TextStyle(
-                    color: AppColors.darkTextMuted,
-                    fontSize: 11.5,
-                    fontStyle: FontStyle.italic,
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: AppColors.darkTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  tabs: tabs,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  labelColor: AppColors.selectionViolet,
+                  unselectedLabelColor: AppColors.darkTextMuted,
+                  indicatorColor: AppColors.selectionViolet,
+                  labelStyle: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Divider(height: 1, color: AppColors.darkBorder),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: TabBarView(
+                      children: [
+                        GeneralTab(
+                          config: config,
+                          onUpdate: onUpdate,
+                          onReset: () => context
+                              .read<LayoutEditController>()
+                              .resetButtonToDefault(buttonId),
+                          onDelete: () => _delete(context, buttonId),
+                        ),
+                        AppearanceTab(config: config, onUpdate: onUpdate),
+                        FunctionTab(config: config, onUpdate: onUpdate),
+                        OutputTab(config: config, onUpdate: onUpdate),
+                        SafetyTab(
+                          config: config,
+                          allButtons: editCtrl.draft.resolvedButtons,
+                          onUpdate: onUpdate,
+                          updateButtonById: context
+                              .read<LayoutEditController>()
+                              .updateButton,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: isSafetyControl
-                          ? null
-                          : () => _delete(context, config.id),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.eStopColor,
-                        side: const BorderSide(color: AppColors.eStopColor),
-                        minimumSize: const Size.fromHeight(44),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.delete_rounded, size: 18),
-                      label: const Text('Delete'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.selectionViolet,
-                        minimumSize: const Size.fromHeight(44),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Close'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LockedSheet extends StatelessWidget {
+  const _LockedSheet({required this.typeName});
+
+  final String typeName;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        decoration: BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.darkBorder),
+          boxShadow: AppMetrics.shadowMd,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.panelStroke,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Widget Properties',
+              style: TextStyle(
+                color: AppColors.darkText,
+                fontSize: 16.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              typeName,
+              style: const TextStyle(
+                color: AppColors.darkTextMuted,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Safety controls cannot be edited or removed.',
+              style: TextStyle(
+                color: AppColors.darkTextMuted,
+                fontSize: 12.5,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.selectionViolet,
+                minimumSize: const Size.fromHeight(44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('Close'),
+            ),
+          ],
         ),
       ),
     );

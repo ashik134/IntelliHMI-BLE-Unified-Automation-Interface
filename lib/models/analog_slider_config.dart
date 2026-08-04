@@ -32,6 +32,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     this.invert = false,
     this.outputEnabled = false,
     this.unit = '',
+    this.showValue = false,
   });
 
   static const String customPropertiesKey = 'analogSlider';
@@ -54,6 +55,11 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
   @override
   final bool outputEnabled;
   final String unit;
+
+  /// Shows the current formatted value alongside the label, mirroring
+  /// PotentiometerConfig.showValue. Defaults to false — today's exact
+  /// behavior (footer shows only the label).
+  final bool showValue;
 
   /// True when [neutralValue] sits at either end of the range rather than
   /// between [minValue] and [maxValue] — the O-T (one-side) shape. Purely
@@ -86,6 +92,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       invert: invert,
       outputEnabled: outputEnabled,
       unit: unit.trim(),
+      showValue: showValue,
     );
   }
 
@@ -102,6 +109,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     bool? invert,
     bool? outputEnabled,
     String? unit,
+    bool? showValue,
   }) {
     return AnalogSliderConfig(
       minValue: minValue ?? this.minValue,
@@ -113,6 +121,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       invert: invert ?? this.invert,
       outputEnabled: outputEnabled ?? this.outputEnabled,
       unit: unit ?? this.unit,
+      showValue: showValue ?? this.showValue,
     ).normalized();
   }
 
@@ -126,6 +135,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     'invert': invert,
     'outputEnabled': outputEnabled,
     'unit': unit,
+    'showValue': showValue,
   };
 
   Map<String, dynamic> applyToCustomProperties(
@@ -167,6 +177,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       invert: json['invert'] as bool? ?? false,
       outputEnabled: json['outputEnabled'] as bool? ?? false,
       unit: json['unit'] as String? ?? '',
+      showValue: json['showValue'] as bool? ?? false,
     ).normalized();
   }
 
@@ -182,7 +193,8 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
           other.orientation == orientation &&
           other.invert == invert &&
           other.outputEnabled == outputEnabled &&
-          other.unit == unit;
+          other.unit == unit &&
+          other.showValue == showValue;
 
   @override
   int get hashCode => Object.hash(
@@ -195,5 +207,6 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     invert,
     outputEnabled,
     unit,
+    showValue,
   );
 }

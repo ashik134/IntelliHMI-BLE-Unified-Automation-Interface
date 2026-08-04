@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -34,6 +35,9 @@ class PushControlButton extends StatelessWidget {
     this.activeColorLight,
     this.hapticFeedback = true,
     this.rotation = ButtonRotation.none,
+    this.pressScale = 0.965,
+    this.debounceMs = 0,
+    this.longPressRequiredMs = 0,
     required this.onStateChanged,
   });
 
@@ -46,6 +50,15 @@ class PushControlButton extends StatelessWidget {
   final Color? activeColorLight;
   final bool hapticFeedback;
   final ButtonRotation rotation;
+
+  /// See ButtonBehaviorConfig.pressAnimationStrength/pressScale.
+  final double pressScale;
+
+  /// See ButtonBehaviorConfig.debounceMs.
+  final int debounceMs;
+
+  /// See ButtonBehaviorConfig.longPressRequiredMs.
+  final int longPressRequiredMs;
   final ValueChanged<String> onStateChanged;
 
   @override
@@ -68,6 +81,9 @@ class PushControlButton extends StatelessWidget {
       enabled: enabled,
       hapticFeedback: hapticFeedback,
       rotation: rotation,
+      pressScale: pressScale,
+      debounceMs: debounceMs,
+      longPressRequiredMs: longPressRequiredMs,
       onPressed: isSpringReturn
           ? () => onStateChanged(PushControlStateId.pressed)
           : null,
@@ -109,6 +125,8 @@ class IndustrialSpringButton extends StatefulWidget {
     this.animationDuration = const Duration(milliseconds: 90),
     this.releaseDuration = const Duration(milliseconds: 150),
     this.rotation = ButtonRotation.none,
+    this.debounceMs = 0,
+    this.longPressRequiredMs = 0,
     this.onChanged,
     this.onPressed,
     this.onReleased,
@@ -127,6 +145,16 @@ class IndustrialSpringButton extends StatefulWidget {
   final double pressScale;
   final Duration animationDuration;
   final Duration releaseDuration;
+
+  /// 0 disables debouncing — a new press right after a release is always
+  /// honored (today's exact behavior). See ButtonBehaviorConfig.debounceMs.
+  final int debounceMs;
+
+  /// Spring-return only: holds the press for this long before it actually
+  /// activates (see _handlePointerDown). 0 disables the requirement — a
+  /// press activates immediately on pointer-down (today's exact behavior).
+  /// See ButtonBehaviorConfig.longPressRequiredMs.
+  final int longPressRequiredMs;
   final ValueChanged<bool>? onChanged;
   final VoidCallback? onPressed;
   final VoidCallback? onReleased;
@@ -147,6 +175,16 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   bool _internalActive = false;
 
   bool _suppressExternalReactivation = false;
+
+  /// True for [widget.debounceMs] after each release — a new press is
+  /// ignored while this is true. A Timer-driven flag rather than comparing
+  /// DateTime.now() timestamps so it advances correctly under
+  /// WidgetTester.pump(duration)'s fake clock, not just real wall-clock time.
+  bool _debounceBlocked = false;
+  Timer? _debounceTimer;
+
+  /// Pending long-press-required activation — see [widget.longPressRequiredMs].
+  Timer? _longPressTimer;
 
   @override
   void initState() {
@@ -193,6 +231,8 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _longPressTimer?.cancel();
     _pressCtrl.dispose();
     super.dispose();
   }
@@ -219,6 +259,9 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
 
   void _handlePointerDown(PointerDownEvent event) {
     if (!widget.enabled || _pointerIsDown) return;
+    // Debounced: too soon after the previous release — ignore this press
+    // entirely (no visual/haptic/dispatch of any kind).
+    if (_debounceBlocked) return;
     _pointerIsDown = true;
     _activePointerId = event.pointer;
     _suppressExternalReactivation = false;
@@ -227,8 +270,24 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
     _pressCtrl.forward();
 
     if (widget.isSpringReturn) {
-      _setActive(true);
-      widget.onPressed?.call();
+      if (widget.longPressRequiredMs > 0) {
+        // Press animation already started above for immediate feedback;
+        // activation itself is deferred until the hold duration elapses —
+        // a release before then (see _finishPress) cancels this timer and
+        // the press never activates at all.
+        _longPressTimer?.cancel();
+        _longPressTimer = Timer(
+          Duration(milliseconds: widget.longPressRequiredMs),
+          () {
+            if (!mounted || !_pointerIsDown) return;
+            _setActive(true);
+            widget.onPressed?.call();
+          },
+        );
+      } else {
+        _setActive(true);
+        widget.onPressed?.call();
+      }
     } else {
       widget.onPressed?.call();
     }
@@ -258,6 +317,15 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
 
   void _finishPress() {
     if (!_pointerIsDown) return;
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+    if (widget.debounceMs > 0) {
+      _debounceBlocked = true;
+      _debounceTimer?.cancel();
+      _debounceTimer = Timer(Duration(milliseconds: widget.debounceMs), () {
+        _debounceBlocked = false;
+      });
+    }
     _pointerIsDown = false;
     _activePointerId = null;
     _pressCtrl.animateBack(

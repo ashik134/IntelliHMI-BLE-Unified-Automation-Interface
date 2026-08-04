@@ -86,10 +86,14 @@ class ToggleSwitchButton extends StatefulWidget {
     this.position,
     this.topLabel,
     this.bottomLabel,
+    this.topIcon,
+    this.bottomIcon,
     this.onPositionChanged,
     this.onReleased,
     this.leftIsSpringReturn,
     this.rightIsSpringReturn,
+    this.topDisabled = false,
+    this.bottomDisabled = false,
   });
 
   // ── Legacy API (preserved) ───────────────────────────────────────────────
@@ -109,10 +113,21 @@ class ToggleSwitchButton extends StatefulWidget {
   final ToggleSwitchPosition? position;
   final String? topLabel;
   final String? bottomLabel;
+
+  /// Shown in place of the top/bottom position-indicator glyph when set —
+  /// see ToggleButtonConfig.leftIconKey/rightIconKey.
+  final IconData? topIcon;
+  final IconData? bottomIcon;
   final ValueChanged<ToggleSwitchPosition>? onPositionChanged;
   final VoidCallback? onReleased;
   final bool? leftIsSpringReturn;
   final bool? rightIsSpringReturn;
+
+  /// Forces the top (left) / bottom (right) lever end permanently inert,
+  /// regardless of [resolvedMode] — see ToggleButtonConfig.disableLeft/
+  /// disableRight. Defaults to false: today's exact behavior.
+  final bool topDisabled;
+  final bool bottomDisabled;
 
   // ── Computed helpers ─────────────────────────────────────────────────────
 
@@ -381,7 +396,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
     final frac = (_dragStartDy! / areaH).clamp(0.0, 1.0);
 
-    if (frac < _kTopZone) {
+    if (frac < _kTopZone && !widget.topDisabled) {
       // ── Top zone ──────────────────────────────────────────────────────────
       if (widget.topSideIsSpring) {
         _topHeld = true;
@@ -392,7 +407,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
         _pendingPos = _latchTopIntent();
         _springTo(_knobYForPos(_pendingPos!)); // animate preview
       }
-    } else if (frac > _kBottomZone) {
+    } else if (frac > _kBottomZone && !widget.bottomDisabled) {
       // ── Bottom zone ───────────────────────────────────────────────────────
       if (widget.bottomSideIsSpring) {
         _bottomHeld = true;
@@ -404,7 +419,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
         _springTo(_knobYForPos(_pendingPos!));
       }
     }
-    // Dead zone: no commit yet; drag will handle it.
+    // Dead zone (or a disabled side): no commit yet; drag will handle it.
   }
 
   void _onPointerMove(PointerMoveEvent event, double areaH, double leverH) {
@@ -418,13 +433,19 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     // ── Spring side: direction-switch mid-drag ─────────────────────────────
     if (_topHeld || _bottomHeld) {
       final frac = (dy / areaH).clamp(0.0, 1.0);
-      if (_topHeld && frac > _kBottomZone && widget.bottomSideIsSpring) {
+      if (_topHeld &&
+          frac > _kBottomZone &&
+          widget.bottomSideIsSpring &&
+          !widget.bottomDisabled) {
         _topHeld = false;
         _bottomHeld = true;
         HapticFeedback.selectionClick();
         _moveTo(ToggleSwitchPosition.right);
         _springTo(_kKnobBotY, velocity: _alignVelocity);
-      } else if (_bottomHeld && frac < _kTopZone && widget.topSideIsSpring) {
+      } else if (_bottomHeld &&
+          frac < _kTopZone &&
+          widget.topSideIsSpring &&
+          !widget.topDisabled) {
         _bottomHeld = false;
         _topHeld = true;
         HapticFeedback.selectionClick();
@@ -448,7 +469,9 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     if (delta.abs() >= _kDragMin) {
       if (delta < 0) {
         // Dragging upward
-        if (widget.topSideIsSpring && !_topHeld) {
+        if (widget.topDisabled) {
+          // No-op: the top side is disabled, drag intent is dropped.
+        } else if (widget.topSideIsSpring && !_topHeld) {
           _topHeld = true;
           HapticFeedback.selectionClick();
           _moveTo(ToggleSwitchPosition.left);
@@ -460,7 +483,9 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
         }
       } else {
         // Dragging downward
-        if (widget.bottomSideIsSpring && !_bottomHeld) {
+        if (widget.bottomDisabled) {
+          // No-op: the bottom side is disabled, drag intent is dropped.
+        } else if (widget.bottomSideIsSpring && !_bottomHeld) {
           _bottomHeld = true;
           HapticFeedback.selectionClick();
           _moveTo(ToggleSwitchPosition.right);
@@ -604,6 +629,8 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                                     position: _pos,
                                     topLabel: widget.resolvedTopLabel,
                                     bottomLabel: widget.resolvedBottomLabel,
+                                    topIcon: widget.topIcon,
+                                    bottomIcon: widget.bottomIcon,
                                   ),
                                 ),
                               );
@@ -670,6 +697,8 @@ class _LeverBody extends StatelessWidget {
     required this.position,
     required this.topLabel,
     required this.bottomLabel,
+    this.topIcon,
+    this.bottomIcon,
   });
 
   final double knobY;
@@ -680,6 +709,8 @@ class _LeverBody extends StatelessWidget {
   final ToggleSwitchPosition position;
   final String topLabel;
   final String bottomLabel;
+  final IconData? topIcon;
+  final IconData? bottomIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -811,6 +842,8 @@ class _LeverBody extends StatelessWidget {
                       position: position,
                       topLabel: topLabel,
                       bottomLabel: bottomLabel,
+                      topIcon: topIcon,
+                      bottomIcon: bottomIcon,
                       activeColor: activeColorLight,
                     ),
                   ),
@@ -830,6 +863,8 @@ class _PositionIndicators extends StatelessWidget {
     required this.position,
     required this.topLabel,
     required this.bottomLabel,
+    this.topIcon,
+    this.bottomIcon,
     required this.activeColor,
   });
 
@@ -837,6 +872,8 @@ class _PositionIndicators extends StatelessWidget {
   final ToggleSwitchPosition position;
   final String topLabel;
   final String bottomLabel;
+  final IconData? topIcon;
+  final IconData? bottomIcon;
   final Color activeColor;
 
   bool get _isThreePosition => switch (mode) {
@@ -862,6 +899,7 @@ class _PositionIndicators extends StatelessWidget {
           children: [
             _alignedLabel(
               label: topLabel,
+              icon: topIcon,
               alignment: const Alignment(1.0, _kKnobTopY),
               size: labelSize,
               right: right,
@@ -879,6 +917,7 @@ class _PositionIndicators extends StatelessWidget {
               ),
             _alignedLabel(
               label: bottomLabel,
+              icon: bottomIcon,
               alignment: const Alignment(1.0, _kKnobBotY),
               size: labelSize,
               right: right,
@@ -892,6 +931,7 @@ class _PositionIndicators extends StatelessWidget {
 
   Widget _alignedLabel({
     required String label,
+    IconData? icon,
     required Alignment alignment,
     required double size,
     required double right,
@@ -903,6 +943,7 @@ class _PositionIndicators extends StatelessWidget {
         padding: EdgeInsets.only(right: right),
         child: _PositionIndicatorLabel(
           label: label,
+          icon: icon,
           size: size,
           isActive: isActive,
           activeColor: activeColor,
@@ -915,12 +956,17 @@ class _PositionIndicators extends StatelessWidget {
 class _PositionIndicatorLabel extends StatelessWidget {
   const _PositionIndicatorLabel({
     required this.label,
+    this.icon,
     required this.size,
     required this.isActive,
     required this.activeColor,
   });
 
   final String label;
+
+  /// When set, replaces the O/T/R text glyph with this icon — see
+  /// ToggleButtonConfig.leftIconKey/rightIconKey.
+  final IconData? icon;
   final double size;
   final bool isActive;
   final Color activeColor;
@@ -941,19 +987,21 @@ class _PositionIndicatorLabel extends StatelessWidget {
           width: 1,
         ),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.clip,
-        softWrap: false,
-        style: TextStyle(
-          color: color,
-          fontSize: fontSize,
-          fontWeight: ControlButtonVisualMetrics.labelFontWeight,
-          letterSpacing: 0,
-          height: 1,
-        ),
-      ),
+      child: icon != null
+          ? Icon(icon, size: fontSize * 1.15, color: color)
+          : Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              softWrap: false,
+              style: TextStyle(
+                color: color,
+                fontSize: fontSize,
+                fontWeight: ControlButtonVisualMetrics.labelFontWeight,
+                letterSpacing: 0,
+                height: 1,
+              ),
+            ),
     );
   }
 }

@@ -209,7 +209,12 @@ class _AnalogSliderControlState extends State<AnalogSliderControl>
                 : 120.0;
             if (width <= 0 || height <= 0) return const SizedBox.shrink();
 
-            final showFooter = widget.label.trim().isNotEmpty && height >= 72;
+            final trimmedLabel = widget.label.trim();
+            final displayLabel = config.showValue
+                ? (trimmedLabel.isEmpty ? valueText : '$trimmedLabel  $valueText')
+                : widget.label;
+            final showFooter =
+                (trimmedLabel.isNotEmpty || config.showValue) && height >= 72;
             // Must match the footer's actual rendered height below exactly
             // (Padding's 4+2 vertical inset + ControlButtonVisualMetrics
             // .rowHeight) — a mismatch here starves/overshoots bodyHeight
@@ -277,7 +282,7 @@ class _AnalogSliderControlState extends State<AnalogSliderControl>
                     child: SizedBox(
                       height: ControlButtonVisualMetrics.rowHeight,
                       child: ControlButtonLabelIcon(
-                        label: widget.label,
+                        label: displayLabel,
                         icon: widget.icon,
                         color: widget.enabled
                             ? AppColors.darkText

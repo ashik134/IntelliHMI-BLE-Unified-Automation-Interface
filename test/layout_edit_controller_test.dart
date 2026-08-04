@@ -5,9 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
+import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
+import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
+import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
@@ -285,5 +290,83 @@ void main() {
         expect(placed.gridY, 0);
       },
     );
+  });
+
+  group('resetButtonToDefault', () {
+    test(
+      'with a valid catalogEntryId, restores that exact entry\'s style/'
+      'behavior/customProperties/label/rotation — not just anything sharing '
+      'the same ButtonType',
+      () async {
+        await editCtrl.enter();
+        final entry = kWidgetCatalog.firstWhere(
+          (e) => e.name == 'Latching Push Button',
+        );
+        final customized = entry.buildPreviewConfig().copyWith(
+          id: 'a',
+          catalogEntryId: entry.id,
+          label: 'Renamed',
+          style: const ButtonStyleConfig(cornerRadius: 30),
+          behavior: entry.behavior.copyWith(debounceMs: 500),
+          rotation: ButtonRotation.deg180,
+          icon: null,
+          iconKey: 'bolt',
+          stateMappings: const {
+            'active': ButtonStateOutputMapping(
+              stateId: 'active',
+              activeVariants: {PlcOutputVariant.df3},
+            ),
+          },
+          mutualExclusion: const MutualExclusionConfig(
+            excludedButtonIds: {'other'},
+          ),
+        );
+        editCtrl.addButton(customized);
+
+        editCtrl.resetButtonToDefault('a');
+        final result = editCtrl.draft.resolvedButtons['a']!;
+
+        expect(result.label, entry.name);
+        expect(result.style, const ButtonStyleConfig());
+        expect(result.behavior, entry.behavior);
+        expect(result.customProperties, entry.customProperties);
+        expect(result.rotation, ButtonRotation.none);
+        expect(result.icon, isNull);
+        expect(result.iconKey, isNull);
+
+        // Never touched — an appearance reset must never silently change
+        // PLC wiring or safety interlocks.
+        expect(result.stateMappings, customized.stateMappings);
+        expect(result.mutualExclusion, customized.mutualExclusion);
+      },
+    );
+
+    test(
+      'with no catalogEntryId, resets style only — behavior/customProperties/'
+      'label are left untouched since the origin variant is unknown',
+      () async {
+        await editCtrl.enter();
+        final customized = _sampleButton('a').copyWith(
+          label: 'Renamed',
+          style: const ButtonStyleConfig(cornerRadius: 30),
+          behavior: const ButtonBehaviorConfig(debounceMs: 500),
+        );
+        editCtrl.addButton(customized);
+
+        editCtrl.resetButtonToDefault('a');
+        final result = editCtrl.draft.resolvedButtons['a']!;
+
+        expect(result.style, const ButtonStyleConfig());
+        expect(result.label, 'Renamed');
+        expect(result.behavior, customized.behavior);
+      },
+    );
+
+    test('is a no-op for an unknown id', () async {
+      await editCtrl.enter();
+      final draftBefore = editCtrl.draft;
+      editCtrl.resetButtonToDefault('does-not-exist');
+      expect(editCtrl.draft, draftBefore);
+    });
   });
 }

@@ -46,6 +46,16 @@ class CatalogEntry {
     required this.previewSize,
   });
 
+  /// Stable identity for a catalogue entry, persisted on any [ButtonConfig]
+  /// placed from it (see `ButtonConfig.catalogEntryId`) so "Reset to
+  /// default" can restore this exact variant later — several entries share
+  /// one [ButtonType] with different `behavior`/`customProperties` (e.g. the
+  /// two push-button variants), so [buttonType] alone is ambiguous.
+  /// Derived from category/group/name, which are unique per entry in
+  /// [kWidgetCatalog] today; never renamed once shipped, since existing
+  /// saved layouts reference it by this exact string.
+  String get id => '${category.name}.$group.$name';
+
   /// Page section, e.g. "Digital Controls".
   final CatalogCategory category;
 
