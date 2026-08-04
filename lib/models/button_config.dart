@@ -221,6 +221,17 @@ class ButtonConfig {
 
   double get resolvedHeight => AxisControlConfig.baseHeight * heightScale;
 
+  /// Generous sentinel ceiling for [gridColumnSpan]/[gridRowSpan] — NOT the
+  /// active grid's real column/row count (that's dynamic per-layout, see
+  /// ControlLayoutConfig.gridLayout, and this getter has no access to it).
+  /// Every real grid-math call site (control_grid_utils.dart,
+  /// LayoutEditController, LayoutValidationService, ...) re-clamps whatever
+  /// this getter returns against the actual dynamic columns/rows immediately
+  /// after reading it, so this only guards against a corrupt/nonsensical
+  /// stored value — it must stay comfortably above the largest supported
+  /// GridLayoutOption preset.
+  static const int _maxSpanCeiling = 16;
+
   int get gridColumnSpan {
     // The 5-zone slider only ever occupies exactly two cells, in one of two
     // fixed shapes: 2x1 (horizontal, default) or 1x2 (vertical). Vertical is
@@ -229,9 +240,9 @@ class ButtonConfig {
     // gridColumns=1 is indistinguishable from "not set".
     if (type == ButtonType.bidirectionalSlider5Step) {
       if (gridRows > 1) return 1;
-      return gridColumns > 1 ? gridColumns.clamp(1, controlGridColumns) : 2;
+      return gridColumns > 1 ? gridColumns.clamp(1, _maxSpanCeiling) : 2;
     }
-    if (gridColumns > 1) return gridColumns.clamp(1, controlGridColumns);
+    if (gridColumns > 1) return gridColumns.clamp(1, _maxSpanCeiling);
     // The 3-zone slider fits a single cell (1x1) by default, honoring an
     // explicit gridColumns override above like any other type.
     if (type == ButtonType.analogJoystick2D ||
@@ -239,11 +250,11 @@ class ButtonConfig {
             JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
       return 2;
     }
-    return columnSpan.clamp(1, controlGridColumns);
+    return columnSpan.clamp(1, _maxSpanCeiling);
   }
 
   int get gridRowSpan {
-    if (gridRows > 1) return gridRows.clamp(1, controlGridRows);
+    if (gridRows > 1) return gridRows.clamp(1, _maxSpanCeiling);
     if (type == ButtonType.analogJoystick2D ||
         (type == ButtonType.joystick &&
             JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
@@ -439,9 +450,10 @@ class ButtonConfig {
     final (defaultX, defaultY) = switch (role) {
       ControlRole.estop => (0.04, 0.02),
       ControlRole.resetEstop => (0.52, 0.02),
-      null => legacyMotionId != null
-          ? legacyCanvasPositionFor(legacyMotionId)
-          : (0.0, 0.0),
+      null =>
+        legacyMotionId != null
+            ? legacyCanvasPositionFor(legacyMotionId)
+            : (0.0, 0.0),
     };
     final slotIndex =
         (json['slotIndex'] as num?)?.toInt() ??
@@ -530,7 +542,10 @@ class ButtonConfig {
       stateMappings: json.containsKey('stateMappings')
           ? _parseStateMappings(json['stateMappings'])
           : (legacyMotionId != null
-                ? legacyMotionStateMappings(legacyId: legacyMotionId, type: type)
+                ? legacyMotionStateMappings(
+                    legacyId: legacyMotionId,
+                    type: type,
+                  )
                 : const <String, ButtonStateOutputMapping>{}),
       joystickSubButtonMappings: json.containsKey('joystickSubButtonMappings')
           ? _parseJoystickSubButtonMappings(json['joystickSubButtonMappings'])
@@ -704,7 +719,11 @@ _parseJoystickSubButtonMappings(dynamic value) {
 int _parseColumnSpan(dynamic value) {
   final parsed = value is num ? value.toInt() : int.tryParse('$value');
   if (parsed == null) return 1;
-  return parsed.clamp(1, ButtonConfig.controlGridColumns);
+  // Same generous sentinel as ButtonConfig.gridColumnSpan/gridRowSpan (see
+  // their doc comment) — NOT the static 2-column default, since a saved
+  // layout may be using any GridLayoutOption preset. Real grid-math call
+  // sites own the authoritative clamp against the real, dynamic columns.
+  return parsed.clamp(1, ButtonConfig._maxSpanCeiling);
 }
 
 int _parseNonNegativeInt(dynamic value, {int fallback = 0}) {

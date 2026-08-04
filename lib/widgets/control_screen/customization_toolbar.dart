@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
+import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/grid_layout_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/load_template_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/page_transition_sheet.dart';
@@ -59,10 +61,48 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
 
   String? _activeAction;
 
+  // ── Grid Layout tool ─────────────────────────────────────────────────────
+  //
+  // The Layout button no longer navigates/opens a sheet — it swaps this
+  // toolbar's own content in place for GridLayoutToolbar (see build()'s
+  // AnimatedSwitcher below), never leaving the control screen or the
+  // current edit session. Pure presentation state, same category as
+  // [_activeAction]: [_pendingGridSelection] only stages a choice (card
+  // highlight) until the operator taps Apply, which is the only place the
+  // draft actually changes (LayoutEditController.applyGridLayout). While
+  // the panel is open, the normal action row (including Done) isn't
+  // present, so there is no way to lose a staged-but-unapplied selection
+  // through an unrelated action — Back/Apply are the only two ways out.
+  bool _showGridLayoutPanel = false;
+  GridLayoutOption? _pendingGridSelection;
+
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _openGridLayoutPanel(BuildContext context) {
+    final current = context.read<LayoutEditController>().draft.gridLayout;
+    setState(() {
+      _pendingGridSelection = current;
+      _showGridLayoutPanel = true;
+    });
+  }
+
+  void _closeGridLayoutPanel() {
+    setState(() {
+      _showGridLayoutPanel = false;
+      _pendingGridSelection = null;
+    });
+  }
+
+  void _applyGridLayout(BuildContext context) {
+    final option = _pendingGridSelection;
+    if (option != null) {
+      context.read<LayoutEditController>().applyGridLayout(option);
+    }
+    _closeGridLayoutPanel();
   }
 
   Future<void> _run(String id, Future<void> Function() action) async {
@@ -132,8 +172,10 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          _MoreActionsSheet(onSaveLayout: () => _saveLayout(context)),
+      builder: (_) => _MoreActionsSheet(
+        onSaveLayout: () => _saveLayout(context),
+        onOpenLayoutSettings: () => showLayoutSettingsSheet(context),
+      ),
     );
   }
 
@@ -183,9 +225,9 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       ),
       _ToolbarActionSpec(
         id: 'layout',
-        icon: Icons.tune_rounded,
+        icon: Icons.grid_view_rounded,
         label: 'Layout',
-        onTap: () => _run('layout', () => showLayoutSettingsSheet(context)),
+        onTap: () => _openGridLayoutPanel(context),
       ),
       _ToolbarActionSpec(
         id: 'template',
@@ -219,6 +261,11 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       ),
     ];
 
+    final currentGridLayout = context
+        .select<LayoutEditController, GridLayoutOption>(
+          (c) => c.draft.gridLayout,
+        );
+
     return SafeArea(
       top: false,
       child: SizedBox(
@@ -228,42 +275,73 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
             const Positioned.fill(
               child: IgnorePointer(child: _ToolbarReadabilityScrim()),
             ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(
-                      context,
-                    ).copyWith(scrollbars: false),
-                    child: ListView.separated(
-                      controller: _scrollController,
-                      scrollDirection: Axis.horizontal,
-                      physics: const ClampingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: items.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 2),
-                      itemBuilder: (context, i) {
-                        final spec = items[i];
-                        return _ToolbarCircleButton(
-                          icon: spec.icon,
-                          label: spec.label,
-                          selected: _activeAction == spec.id,
-                          onTap: spec.onTap,
-                        );
-                      },
-                    ),
-                  ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.15),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 14),
-                  child: _DoneCircleButton(onTap: () => _done(context)),
-                ),
-              ],
+              ),
+              child: _showGridLayoutPanel
+                  ? GridLayoutToolbar(
+                      key: const ValueKey('gridLayoutPanel'),
+                      selected: _pendingGridSelection ?? currentGridLayout,
+                      onSelect: (option) =>
+                          setState(() => _pendingGridSelection = option),
+                      onCancel: _closeGridLayoutPanel,
+                      onApply: () => _applyGridLayout(context),
+                    )
+                  : _buildActionsRow(context, items, key: const ValueKey('actionsRow')),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildActionsRow(
+    BuildContext context,
+    List<_ToolbarActionSpec> items, {
+    required Key key,
+  }) {
+    return Row(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: ListView.separated(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 2),
+              itemBuilder: (context, i) {
+                final spec = items[i];
+                return _ToolbarCircleButton(
+                  icon: spec.icon,
+                  label: spec.label,
+                  selected: _activeAction == spec.id,
+                  onTap: spec.onTap,
+                );
+              },
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 14),
+          child: _DoneCircleButton(onTap: () => _done(context)),
+        ),
+      ],
     );
   }
 }
@@ -482,9 +560,13 @@ class _DoneCircleButtonState extends State<_DoneCircleButton> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _MoreActionsSheet extends StatelessWidget {
-  const _MoreActionsSheet({required this.onSaveLayout});
+  const _MoreActionsSheet({
+    required this.onSaveLayout,
+    required this.onOpenLayoutSettings,
+  });
 
   final VoidCallback onSaveLayout;
+  final VoidCallback onOpenLayoutSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -543,6 +625,29 @@ class _MoreActionsSheet extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).pop();
                 onSaveLayout();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
+                Icons.tune_rounded,
+                color: AppColors.selectionViolet,
+              ),
+              title: const Text(
+                'Layout Settings',
+                style: TextStyle(
+                  color: AppColors.darkText,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: const Text(
+                'E-Stop instructions, arrangement, and sizing.',
+                style: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                onOpenLayoutSettings();
               },
             ),
           ],

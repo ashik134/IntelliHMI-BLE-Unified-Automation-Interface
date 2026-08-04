@@ -12,6 +12,7 @@ import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
@@ -164,6 +165,107 @@ void main() {
     final template = const LayoutTemplateService().templates.first;
     editCtrl.applyTemplate(template);
     expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+  });
+
+  test(
+    "applyTemplate preserves the draft's current gridLayout instead of "
+    'resetting it to default',
+    () async {
+      await editCtrl.enter();
+      editCtrl.applyGridLayout(GridLayoutOption.threeByThree);
+      final template = const LayoutTemplateService().templates.first;
+      editCtrl.applyTemplate(template);
+      expect(editCtrl.draft.gridLayout, GridLayoutOption.threeByThree);
+    },
+  );
+
+  group('applyGridLayout', () {
+    test('is a no-op when re-applying the currently active option', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      final draftBefore = editCtrl.draft;
+      editCtrl.applyGridLayout(GridLayoutOption.twoByThree);
+      expect(editCtrl.draft, draftBefore);
+    });
+
+    test('switches the draft to the new shape', () async {
+      await editCtrl.enter();
+      editCtrl.applyGridLayout(GridLayoutOption.fourByFour);
+      expect(editCtrl.draft.gridLayout, GridLayoutOption.fourByFour);
+    });
+
+    test(
+      'reflows buttons that no longer fit a smaller grid instead of leaving '
+      'them out of bounds',
+      () async {
+        await editCtrl.enter();
+        editCtrl.applyGridLayout(GridLayoutOption.fourByFour);
+        // Row-major placement on a 4-wide grid: a,b,c,d fill row 0
+        // (cols 0-3), e starts row 1 — none of this fits a 2x2 grid.
+        for (final id in ['a', 'b', 'c', 'd', 'e']) {
+          editCtrl.addButton(_sampleButton(id));
+        }
+
+        editCtrl.applyGridLayout(GridLayoutOption.twoByTwo);
+
+        expect(editCtrl.draft.gridLayout, GridLayoutOption.twoByTwo);
+        final buttons = editCtrl.draft.resolvedButtons;
+        // Nothing was dropped — repair relocates, it never deletes.
+        expect(buttons.keys.toSet(), {
+          'estop',
+          'resetEstop',
+          'a',
+          'b',
+          'c',
+          'd',
+          'e',
+        });
+        for (final button in buttons.values) {
+          if (button.role != null || !button.visible) continue;
+          expect(button.gridX + button.gridColumnSpan <= 2, isTrue);
+          expect(button.gridY + button.gridRowSpan <= 2, isTrue);
+        }
+        // Only 4 slots exist per page on a 2x2 grid, so the 5th button must
+        // have spilled onto a new page rather than overlapping another.
+        expect(
+          buttons.values.any((b) => b.role == null && b.pageIndex > 0),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  group('grid layout persistence', () {
+    test(
+      'a non-default grid layout, and buttons placed beyond the legacy 2x3 '
+      'footprint, survive save() + a fresh cold-start load()',
+      () async {
+        await editCtrl.enter();
+        editCtrl.applyGridLayout(GridLayoutOption.fourByFour);
+        // First two buttons fill columns 0-1 of row 0; the third lands at
+        // column 2 — already outside the legacy fixed 2-column grid's
+        // bounds, so this is a direct regression check for
+        // LayoutSettingsController repairing against the WRONG (static)
+        // grid on load.
+        editCtrl.addButton(_sampleButton('a'));
+        editCtrl.addButton(_sampleButton('b'));
+        editCtrl.addButton(_sampleButton('c'));
+
+        final saveResult = await editCtrl.save();
+        expect(saveResult.isValid, isTrue);
+
+        // A fresh controller reading from the same (mock) SharedPreferences
+        // store simulates a full cold start/app relaunch.
+        final freshSettings = LayoutSettingsController();
+        await freshSettings.load();
+        final reloaded = freshSettings.configFor(editCtrl.activeBucket);
+
+        expect(reloaded.gridLayout, GridLayoutOption.fourByFour);
+        final c = reloaded.resolvedButtons['c']!;
+        expect(c.gridX, 2);
+        expect(c.gridY, 0);
+      },
+    );
   });
 
   group('save / exit', () {

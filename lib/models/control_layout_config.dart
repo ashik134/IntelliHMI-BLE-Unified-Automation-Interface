@@ -6,6 +6,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart'
     show LayoutBucket, PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/legacy_layout_migration.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -651,6 +652,7 @@ class ControlLayoutConfig {
     this.roleStyles = const RoleStyleConfig(),
     this.buttons = const <String, ButtonConfig>{},
     this.controlPageCount = 1,
+    this.gridLayout = GridLayoutOption.fallback,
     bool buttonsAreAuthoritative = false,
   }) : _buttonsAreAuthoritative = buttonsAreAuthoritative;
 
@@ -676,7 +678,14 @@ class ControlLayoutConfig {
   /// Bumped 7 -> 8 by true button deletion: a present `buttons` map is now
   /// authoritative. Missing entries are deleted controls, not legacy defaults
   /// to synthesize back in.
-  static const int schemaVersion = 8;
+  ///
+  /// Bumped 8 -> 9 by the configurable grid layout feature: adds
+  /// `gridLayout` (see [GridLayoutOption]), replacing the previously fixed
+  /// 2-column x 3-row page grid. Old JSON without a `gridLayout` key falls
+  /// back to [GridLayoutOption.fallback] (`twoByThree`) via [fromJson],
+  /// which reproduces the pre-existing fixed grid exactly — no other
+  /// migration is needed.
+  static const int schemaVersion = 9;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
@@ -702,6 +711,11 @@ class ControlLayoutConfig {
   /// User-requested minimum number of horizontal control pages. Extra pages
   /// are also rendered automatically when buttons occupy higher page indexes.
   final int controlPageCount;
+
+  /// The active button-grid shape (columns x rows) for this layout's page
+  /// grid — operator-selectable via the Customization Toolbar's Layout tool
+  /// (see GridLayoutToolbar / LayoutEditController.applyGridLayout).
+  final GridLayoutOption gridLayout;
 
   /// Effective button map. The bare `const ControlLayoutConfig()` constructor
   /// still resolves to synthesized legacy defaults so tests and fallback
@@ -729,6 +743,7 @@ class ControlLayoutConfig {
     RoleStyleConfig? roleStyles,
     Map<String, ButtonConfig>? buttons,
     int? controlPageCount,
+    GridLayoutOption? gridLayout,
   }) {
     return ControlLayoutConfig(
       sizeConfig: sizeConfig ?? this.sizeConfig,
@@ -738,6 +753,7 @@ class ControlLayoutConfig {
       roleStyles: roleStyles ?? this.roleStyles,
       buttons: buttons ?? this.buttons,
       controlPageCount: controlPageCount ?? this.controlPageCount,
+      gridLayout: gridLayout ?? this.gridLayout,
       buttonsAreAuthoritative: buttons != null
           ? true
           : _buttonsAreAuthoritative,
@@ -753,6 +769,7 @@ class ControlLayoutConfig {
     'roleStyles': roleStyles.toJson(),
     'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
     'controlPageCount': controlPageCount,
+    'gridLayout': gridLayout.name,
   };
 
   /// Synthesizes the button-centric `buttons` map from the legacy per-axis/
@@ -848,6 +865,7 @@ class ControlLayoutConfig {
       roleStyles: roleStyles,
       buttons: buttons,
       controlPageCount: _parsePositiveInt(json['controlPageCount']),
+      gridLayout: GridLayoutOption.fromName(json['gridLayout'] as String?),
       buttonsAreAuthoritative: hasButtons && schema >= 8,
     );
   }
@@ -885,7 +903,8 @@ class ControlLayoutConfig {
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
           _buttonsEqual(other.resolvedButtons, resolvedButtons) &&
-          other.controlPageCount == controlPageCount;
+          other.controlPageCount == controlPageCount &&
+          other.gridLayout == gridLayout;
 
   @override
   int get hashCode => Object.hash(
@@ -898,6 +917,7 @@ class ControlLayoutConfig {
       resolvedButtons.entries.map((e) => Object.hash(e.key, e.value)),
     ),
     controlPageCount,
+    gridLayout,
   );
 }
 

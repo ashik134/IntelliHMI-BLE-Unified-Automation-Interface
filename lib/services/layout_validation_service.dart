@@ -92,12 +92,24 @@ class LayoutValidationService {
     if (!labelResult.isValid) errors.addAll(labelResult.errors);
 
     final buttons = config.resolvedButtons;
+    final grid = config.gridLayout;
     for (final entry in buttons.entries) {
-      final buttonResult = validateButtonConfig(entry.value, buttons);
+      final buttonResult = validateButtonConfig(
+        entry.value,
+        buttons,
+        columns: grid.columns,
+        rows: grid.rows,
+        slotCount: grid.slotCount,
+      );
       if (!buttonResult.isValid) errors.addAll(buttonResult.errors);
     }
 
-    final slotResult = validateButtonSlots(buttons);
+    final slotResult = validateButtonSlots(
+      buttons,
+      columns: grid.columns,
+      rows: grid.rows,
+      slotCount: grid.slotCount,
+    );
     if (!slotResult.isValid) errors.addAll(slotResult.errors);
 
     return errors.isEmpty
@@ -105,8 +117,18 @@ class LayoutValidationService {
         : ValidationResult.invalid(errors);
   }
 
-  ValidationResult validateButtonSlots(Map<String, ButtonConfig> buttons) {
-    final errors = validateGridOccupancy(buttons);
+  ValidationResult validateButtonSlots(
+    Map<String, ButtonConfig> buttons, {
+    int columns = ButtonConfig.controlGridColumns,
+    int rows = ButtonConfig.controlGridRows,
+    int slotCount = ButtonConfig.controlSlotCount,
+  }) {
+    final errors = validateGridOccupancy(
+      buttons,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
 
     for (final button in buttons.values) {
       // Safety-role buttons (estop/resetEstop) never occupy a grid slot;
@@ -119,11 +141,11 @@ class LayoutValidationService {
         errors.add('$name must have a control slot.');
         continue;
       }
-      if (slot < ButtonConfig.minSlotIndex ||
-          slot > ButtonConfig.maxSlotIndex) {
+      final maxSlotIndex = slotCount - 1;
+      if (slot < ButtonConfig.minSlotIndex || slot > maxSlotIndex) {
         errors.add(
           '$name slot must be between ${ButtonConfig.minSlotIndex} and '
-          '${ButtonConfig.maxSlotIndex} (got $slot).',
+          '$maxSlotIndex (got $slot).',
         );
         continue;
       }
@@ -142,8 +164,11 @@ class LayoutValidationService {
   /// the operator can't accidentally leave a one-directional interlock.
   ValidationResult validateButtonConfig(
     ButtonConfig config,
-    Map<String, ButtonConfig> allButtons,
-  ) {
+    Map<String, ButtonConfig> allButtons, {
+    int columns = ButtonConfig.controlGridColumns,
+    int rows = ButtonConfig.controlGridRows,
+    int slotCount = ButtonConfig.controlSlotCount,
+  }) {
     final errors = <String>[];
 
     if (config.mutualExclusion.excludedButtonIds.contains(config.id)) {
@@ -214,32 +239,22 @@ class LayoutValidationService {
       ButtonConfig.maxWidthScale,
       errors,
     );
-    if (config.columnSpan < 1 ||
-        config.columnSpan > ButtonConfig.controlGridColumns) {
+    if (config.columnSpan < 1 || config.columnSpan > columns) {
       errors.add(
         '$name column span must be between 1 and '
-        '${ButtonConfig.controlGridColumns} (got ${config.columnSpan}).',
+        '$columns (got ${config.columnSpan}).',
       );
     }
     if (!skipPlacementValidation && config.pageIndex < 0) {
       errors.add('$name page index must be zero or greater.');
     }
     if (!skipPlacementValidation &&
-        (config.gridX < 0 ||
-            config.gridX + config.gridColumnSpan >
-                ButtonConfig.controlGridColumns)) {
-      errors.add(
-        '$name gridX must keep the widget inside '
-        '${ButtonConfig.controlGridColumns} columns.',
-      );
+        (config.gridX < 0 || config.gridX + config.gridColumnSpan > columns)) {
+      errors.add('$name gridX must keep the widget inside $columns columns.');
     }
     if (!skipPlacementValidation &&
-        (config.gridY < 0 ||
-            config.gridY + config.gridRowSpan > ButtonConfig.controlGridRows)) {
-      errors.add(
-        '$name gridY must keep the widget inside '
-        '${ButtonConfig.controlGridRows} rows.',
-      );
+        (config.gridY < 0 || config.gridY + config.gridRowSpan > rows)) {
+      errors.add('$name gridY must keep the widget inside $rows rows.');
     }
     _checkMinTouchTarget(name, config.resolvedHeight, errors);
     _checkUnitRange('$name canvasX', config.canvasX, errors);
@@ -248,13 +263,13 @@ class LayoutValidationService {
     // generic (roleless) buttons need one.
     if (!skipPlacementValidation && config.role == null) {
       final slot = config.slotIndex;
+      final maxSlotIndex = slotCount - 1;
       if (slot == null) {
         errors.add('$name must have a control slot.');
-      } else if (slot < ButtonConfig.minSlotIndex ||
-          slot > ButtonConfig.maxSlotIndex) {
+      } else if (slot < ButtonConfig.minSlotIndex || slot > maxSlotIndex) {
         errors.add(
           '$name slot must be between ${ButtonConfig.minSlotIndex} and '
-          '${ButtonConfig.maxSlotIndex} (got $slot).',
+          '$maxSlotIndex (got $slot).',
         );
       }
     }

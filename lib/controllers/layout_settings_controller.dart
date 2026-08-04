@@ -65,17 +65,17 @@ class LayoutSettingsController extends ChangeNotifier {
       for (final bucket in LayoutBucket.values) {
         final raw = prefs.getString(_prefsKeyFor(bucket));
         if (raw != null && raw.isNotEmpty) {
-          _configs[bucket] = repairControlGridLayout(
+          _configs[bucket] = _repairForOwnGridLayout(
             ControlLayoutConfig.fromJsonString(raw),
           );
         } else {
           final migrationRaw = prefs.getString(_migrationPrefsKeyFor(bucket));
           if (migrationRaw != null && migrationRaw.isNotEmpty) {
-            _configs[bucket] = repairControlGridLayout(
+            _configs[bucket] = _repairForOwnGridLayout(
               ControlLayoutConfig.fromJsonString(migrationRaw),
             );
           } else if (legacyRaw != null && legacyRaw.isNotEmpty) {
-            _configs[bucket] = repairControlGridLayout(
+            _configs[bucket] = _repairForOwnGridLayout(
               ControlLayoutConfig.fromJsonString(legacyRaw),
             );
           }
@@ -90,6 +90,21 @@ class LayoutSettingsController extends ChangeNotifier {
       _loaded = true;
       notifyListeners();
     }
+  }
+
+  /// [repairControlGridLayout] against [config]'s OWN [gridLayout] — never
+  /// the static 2x3 default. Without this, every cold-start load would
+  /// silently re-flatten an already-correctly-saved wider grid (e.g. 4x4)
+  /// back toward 2x3, since [repairControlGridLayout]'s own default
+  /// params fall back to the static constants.
+  ControlLayoutConfig _repairForOwnGridLayout(ControlLayoutConfig config) {
+    final grid = config.gridLayout;
+    return repairControlGridLayout(
+      config,
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
   }
 
   Future<void> _persist(LayoutBucket bucket) async {
@@ -154,7 +169,7 @@ class LayoutSettingsController extends ChangeNotifier {
     LayoutBucket bucket,
     ControlLayoutConfig next,
   ) async {
-    final repaired = repairControlGridLayout(next);
+    final repaired = _repairForOwnGridLayout(next);
     final result = _validator.validateFullConfig(repaired);
     if (!result.isValid) return result;
     _configs[bucket] = repaired;

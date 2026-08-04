@@ -12,6 +12,7 @@ import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
@@ -186,8 +187,7 @@ class LayoutEditController extends ChangeNotifier {
         gridX: placement.gridX,
         gridY: placement.gridY,
         slotIndex:
-            placement.gridY * ButtonConfig.controlGridColumns +
-            placement.gridX,
+            placement.gridY * _draft.gridLayout.columns + placement.gridX,
       );
       if (placement.pageIndex > maxPage) maxPage = placement.pageIndex;
     }
@@ -348,14 +348,17 @@ class LayoutEditController extends ChangeNotifier {
       currentPageIndex: currentPageIndex,
     );
 
+    final grid = _draft.gridLayout;
     final (colSpan, rowSpan) = entry.gridSize;
-    final effectiveColSpan = colSpan.clamp(1, ButtonConfig.controlGridColumns);
-    final effectiveRowSpan = rowSpan.clamp(1, ButtonConfig.controlGridRows);
+    final effectiveColSpan = colSpan.clamp(1, grid.columns);
+    final effectiveRowSpan = rowSpan.clamp(1, grid.rows);
     final anchor = gridAnchorForDropCenter(
       canvasRect: canvasRect,
       dropCenter: dropCenter,
       colSpan: effectiveColSpan,
       rowSpan: effectiveRowSpan,
+      columns: grid.columns,
+      rows: grid.rows,
     );
     final anchorKey = (currentPageIndex, anchor.$1, anchor.$2);
     if (anchorKey == _lastPreviewAnchor) {
@@ -372,6 +375,9 @@ class LayoutEditController extends ChangeNotifier {
       existingPageCount: _draft.controlPageCount,
       canvasRect: canvasRect,
       dropCenter: dropCenter,
+      columns: grid.columns,
+      rows: grid.rows,
+      slotCount: grid.slotCount,
     );
     if (preview == null) {
       if (edgeChanged) notifyListeners();
@@ -478,8 +484,8 @@ class LayoutEditController extends ChangeNotifier {
     }
 
     final canvasRect = surface.canvasRect();
-    final cellWidth = canvasRect.width / ButtonConfig.controlGridColumns;
-    final cellHeight = canvasRect.height / ButtonConfig.controlGridRows;
+    final cellWidth = canvasRect.width / _draft.gridLayout.columns;
+    final cellHeight = canvasRect.height / _draft.gridLayout.rows;
     _settlingStartRect = Rect.fromLTWH(
       globalDropOffset.dx,
       globalDropOffset.dy,
@@ -545,8 +551,7 @@ class LayoutEditController extends ChangeNotifier {
         gridX: placement.gridX,
         gridY: placement.gridY,
         slotIndex:
-            placement.gridY * ButtonConfig.controlGridColumns +
-            placement.gridX,
+            placement.gridY * _draft.gridLayout.columns + placement.gridX,
       );
       if (placement.pageIndex > maxPage) maxPage = placement.pageIndex;
     }
@@ -629,10 +634,14 @@ class LayoutEditController extends ChangeNotifier {
   /// [GridMutationResult] so the caller (Widget Catalog) can show an error
   /// and stay on the catalog page rather than popping on failure.
   GridMutationResult addButton(ButtonConfig button) {
+    final grid = _draft.gridLayout;
     final result = buildButtonAdd(
       buttons: _draft.resolvedButtons,
       button: button,
       preferredPageIndex: 0,
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
     );
     if (result.isValid) {
       final placed = result.buttons![button.id]!;
@@ -770,8 +779,52 @@ class LayoutEditController extends ChangeNotifier {
   /// Replaces the entire draft with [template]'s layout — a full overwrite,
   /// not a merge. Callers (Load Template sheet) are responsible for warning
   /// the operator first when [hasUnsavedChanges] is true.
+  ///
+  /// Preserves the draft's current [ControlLayoutConfig.gridLayout] across
+  /// the swap — templates are about button composition/styling, not grid
+  /// geometry, so applying one must never silently reset an operator's
+  /// chosen grid shape back to default. Repairs+compacts the template's
+  /// (fixed, legacy 2-column-shaped) buttons against that preserved shape
+  /// since it may now be narrower than what the template assumes (e.g. the
+  /// active grid is 2x2 while a template places up to 6 buttons).
   void applyTemplate(LayoutTemplate template) {
-    _applyDraft(template.build(_bucket));
+    final grid = _draft.gridLayout;
+    final merged = template.build(_bucket).copyWith(gridLayout: grid);
+    final repaired = compactControlPages(
+      repairControlGridLayout(
+        merged,
+        slotCount: grid.slotCount,
+        columns: grid.columns,
+        rows: grid.rows,
+      ),
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    _applyDraft(repaired);
+  }
+
+  /// Switches the draft to a new grid shape — the Customization Toolbar's
+  /// Layout tool's Apply action (see GridLayoutToolbar). Reflows any buttons
+  /// that no longer fit [option]'s (possibly smaller) footprint via
+  /// [repairControlGridLayout] — built for exactly this: re-places placeable
+  /// buttons into the first still-free slot honoring the new dimensions,
+  /// spilling to a new page if needed — then [compactControlPages] drops any
+  /// now-empty trailing page. A no-op if [option] is already active.
+  void applyGridLayout(GridLayoutOption option) {
+    if (_draft.gridLayout == option) return;
+    final repaired = compactControlPages(
+      repairControlGridLayout(
+        _draft.copyWith(gridLayout: option),
+        slotCount: option.slotCount,
+        columns: option.columns,
+        rows: option.rows,
+      ),
+      slotCount: option.slotCount,
+      columns: option.columns,
+      rows: option.rows,
+    );
+    _applyDraft(repaired);
   }
 
   void _applyDraft(ControlLayoutConfig next) {

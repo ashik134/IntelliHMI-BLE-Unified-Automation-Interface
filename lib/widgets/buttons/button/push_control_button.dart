@@ -8,7 +8,6 @@ import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
-import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 abstract final class PushControlStateId {
   static const String idle = 'idle';
@@ -364,40 +363,22 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
             builder: (context, _) {
               final press = _pressAnim.value.clamp(0.0, 1.0);
               final isActive = widget.enabled && _internalActive;
-              return LayoutBuilder(
-                builder: (context, constraints) {
-                  final hasBoundedWidth = constraints.hasBoundedWidth;
-                  final hasBoundedHeight = constraints.hasBoundedHeight;
-                  final width = hasBoundedWidth ? constraints.maxWidth : 152.0;
-                  final height = hasBoundedHeight
-                      ? constraints.maxHeight
-                      : 184.0;
-
-                  return SizedBox(
-                    width: hasBoundedWidth ? double.infinity : width,
-                    height: hasBoundedHeight ? double.infinity : height,
-                    child: RepaintBoundary(
-                      child: _IndustrialButtonContent(
-                        label: widget.label,
-                        icon: widget.icon,
-                        activeColor: widget.activeColor,
-                        activeColorLight: widget.activeColorLight,
-                        rotation: widget.rotation,
-                        press: press,
-                        pressScale: widget.pressScale,
-                        isActive: isActive,
-                        isSpringReturn: widget.isSpringReturn,
-                        isLatched: widget.isLatched,
-                        isEnabled: widget.enabled,
-                        isHovered: _hovered,
-                        isFocused: _focused,
-                        onPointerDown: _handlePointerDown,
-                        onPointerUp: _handlePointerUp,
-                        onPointerCancel: _handlePointerCancel,
-                      ),
-                    ),
-                  );
-                },
+              return SizedBox.square(
+                dimension: 96,
+                child: RepaintBoundary(
+                  child: _CircularIndustrialButtonContent(
+                    icon: widget.icon,
+                    activeColor: widget.activeColor,
+                    activeColorLight: widget.activeColorLight,
+                    press: press,
+                    pressScale: widget.pressScale,
+                    isActive: isActive,
+                    isEnabled: widget.enabled,
+                    onPointerDown: _handlePointerDown,
+                    onPointerUp: _handlePointerUp,
+                    onPointerCancel: _handlePointerCancel,
+                  ),
+                ),
               );
             },
           ),
@@ -407,303 +388,100 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   }
 }
 
-class _IndustrialButtonContent extends StatelessWidget {
-  const _IndustrialButtonContent({
-    required this.label,
+/// The complete visible widget and hit target: one 96 x 96 circle.
+class _CircularIndustrialButtonContent extends StatelessWidget {
+  const _CircularIndustrialButtonContent({
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
-    this.rotation = ButtonRotation.none,
     required this.press,
     required this.pressScale,
     required this.isActive,
-    required this.isSpringReturn,
-    required this.isLatched,
     required this.isEnabled,
-    required this.isHovered,
-    required this.isFocused,
     required this.onPointerDown,
     required this.onPointerUp,
     required this.onPointerCancel,
   });
 
-  final String label;
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
-  final ButtonRotation rotation;
   final double press;
   final double pressScale;
   final bool isActive;
-  final bool isSpringReturn;
-  final bool isLatched;
   final bool isEnabled;
-  final bool isHovered;
-  final bool isFocused;
   final void Function(PointerDownEvent) onPointerDown;
   final void Function(PointerUpEvent) onPointerUp;
   final void Function(PointerCancelEvent) onPointerCancel;
 
-  int _alpha(double opacity) {
-    return (opacity.clamp(0.0, 1.0) * 255).round();
-  }
+  int _alpha(double opacity) => (opacity.clamp(0.0, 1.0) * 255).round();
 
   @override
   Widget build(BuildContext context) {
-    final bool isPressed = press > 0.08;
-    final bool isLocked = !isEnabled;
+    final visualScale = 1.0 - ((1.0 - pressScale) * press);
 
-    final statusLabel = isLocked
-        ? 'LOCKED'
-        : isActive
-        ? 'ACTIVE'
-        : isPressed
-        ? 'PRESSED'
-        : 'READY';
-    final modeLabel = isSpringReturn
-        ? 'HOLD'
-        : isLatched
-        ? 'LATCHED'
-        : 'TAP';
-    final labelColor = isLocked
-        ? AppColors.darkTextMuted.withAlpha(_alpha(0.9))
-        : isActive
-        ? activeColorLight
-        : AppColors.darkText;
-    final mutedColor = isLocked
-        ? AppColors.darkTextMuted.withAlpha(_alpha(0.85))
-        : isActive
-        ? activeColorLight
-        : isPressed
-        ? activeColor.withAlpha(_alpha(0.8))
-        : AppColors.darkTextMuted;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact =
-            constraints.maxHeight < 180 || constraints.maxWidth < 150;
-        final padding = compact
-            ? const EdgeInsets.fromLTRB(10, 8, 10, 8)
-            : const EdgeInsets.fromLTRB(16, 12, 16, 12);
-        final double statusFontSize = compact ? 8 : 10;
-        final double modeFontSize = compact ? 8 : 10;
-        final double headerSpacing = compact ? 6 : 8;
-        final double bottomSpacing = compact ? 5 : 7;
-
-        return Padding(
-          padding: padding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: compact ? 20 : 24,
-                child: Row(
-                  children: [
-                    _IndicatorLed(
-                      color: activeColor,
-                      isActive: isActive,
-                      isEnabled: isEnabled,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        statusLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: mutedColor,
-                          fontSize: statusFontSize,
-                          fontWeight: ControlButtonVisualMetrics.labelFontWeight,
-                          letterSpacing: 0.8,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withAlpha(_alpha(0.3)),
-                              blurRadius: 2,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
+    return ClipOval(
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: onPointerDown,
+        onPointerUp: onPointerUp,
+        onPointerCancel: onPointerCancel,
+        child: Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              painter: _IndustrialRoundButtonPainter(
+                press: press,
+                activeColor: activeColor,
+                activeColorLight: activeColorLight,
+                isActive: isActive,
+                isEnabled: isEnabled,
+              ),
+            ),
+            Center(
+              child: Transform.scale(
+                scale: visualScale,
+                child: Icon(
+                  icon,
+                  size: 32,
+                  color: !isEnabled
+                      ? AppColors.darkTextSub.withAlpha(_alpha(0.45))
+                      : isActive
+                      ? Colors.white
+                      : AppColors.darkText,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withAlpha(
+                        isActive ? _alpha(0.6) : _alpha(0.4),
                       ),
-                    ),
-                    Text(
-                      modeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.darkTextSub.withAlpha(
-                          isEnabled ? _alpha(0.95) : _alpha(0.7),
-                        ),
-                        fontSize: modeFontSize,
-                        fontWeight: ControlButtonVisualMetrics.labelFontWeight,
-                        letterSpacing: 0.5,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black.withAlpha(_alpha(0.2)),
-                            blurRadius: 2,
-                            offset: const Offset(0, 1),
-                          ),
-                        ],
-                      ),
+                      blurRadius: isActive ? 8 : 4,
+                      offset: Offset(0, isActive ? 2 : 1),
                     ),
                   ],
                 ),
               ),
-              SizedBox(height: headerSpacing),
-              Expanded(
+            ),
+            if (!isEnabled)
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withAlpha(_alpha(0.25)),
+                  border: Border.all(
+                    color: Colors.white.withAlpha(_alpha(0.08)),
+                    width: 1.5,
+                  ),
+                ),
                 child: Center(
-                  child: LayoutBuilder(
-                    builder: (context, buttonBox) {
-                      final maxDiameter = math.min(
-                        buttonBox.maxWidth,
-                        buttonBox.maxHeight,
-                      );
-                      final diameter = maxDiameter.clamp(
-                        compact ? 74.0 : 88.0,
-                        compact ? 104.0 : 136.0,
-                      );
-                      final visualScale = 1.0 - ((1.0 - pressScale) * press);
-
-                      return SizedBox.square(
-                        dimension: diameter,
-                        child: ClipOval(
-                          child: Listener(
-                            behavior: HitTestBehavior.opaque,
-                            onPointerDown: onPointerDown,
-                            onPointerUp: onPointerUp,
-                            onPointerCancel: onPointerCancel,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                CustomPaint(
-                                  painter: _IndustrialRoundButtonPainter(
-                                    press: press,
-                                    activeColor: activeColor,
-                                    activeColorLight: activeColorLight,
-                                    isActive: isActive,
-                                    isEnabled: isEnabled,
-                                  ),
-                                  size: Size.square(diameter),
-                                ),
-                                Transform.scale(
-                                  scale: visualScale,
-                                  child: Icon(
-                                    icon,
-                                    size:
-                                        ControlButtonVisualMetrics.iconSizeFor(
-                                          Size.square(diameter),
-                                        ),
-                                    color: !isEnabled
-                                        ? AppColors.darkTextSub.withAlpha(
-                                            _alpha(0.45),
-                                          )
-                                        : isActive
-                                        ? Colors.white
-                                        : AppColors.darkText,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black.withAlpha(
-                                          isActive ? _alpha(0.6) : _alpha(0.4),
-                                        ),
-                                        blurRadius: isActive ? 8 : 4,
-                                        offset: Offset(0, isActive ? 2 : 1),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (isLocked)
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.black.withAlpha(
-                                        _alpha(0.25),
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.white.withAlpha(
-                                          _alpha(0.08),
-                                        ),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.lock_outline_rounded,
-                                      size: diameter * 0.2,
-                                      color: Colors.white.withAlpha(
-                                        _alpha(0.3),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+                  child: Icon(
+                    Icons.lock_outline_rounded,
+                    size: 20,
+                    color: Colors.white.withAlpha(_alpha(0.3)),
                   ),
                 ),
               ),
-              SizedBox(height: bottomSpacing),
-              SizedBox(
-                height: ControlButtonVisualMetrics.rowHeight,
-                child: ControlButtonLabelIcon(
-                  label: label,
-                  color: labelColor,
-                  showIcon: false,
-                  rotation: rotation,
-                ),
-              ),
-              SizedBox(height: bottomSpacing * 0.8),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _IndicatorLed extends StatelessWidget {
-  const _IndicatorLed({
-    required this.color,
-    required this.isActive,
-    required this.isEnabled,
-  });
-
-  final Color color;
-  final bool isActive;
-  final bool isEnabled;
-
-  int _alpha(double opacity) {
-    return (opacity.clamp(0.0, 1.0) * 255).round();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final active = isEnabled && isActive;
-    return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: active ? color : AppColors.idleColor,
-        border: Border.all(
-          color: active
-              ? color.withAlpha(_alpha(0.95))
-              : AppColors.darkBorder.withAlpha(_alpha(0.9)),
+          ],
         ),
-        boxShadow: active
-            ? [
-                BoxShadow(
-                  color: color.withAlpha(_alpha(0.75)),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
-              ]
-            : [
-                BoxShadow(
-                  color: Colors.black.withAlpha(_alpha(0.45)),
-                  blurRadius: 4,
-                  offset: const Offset(0, 1),
-                ),
-              ],
       ),
     );
   }

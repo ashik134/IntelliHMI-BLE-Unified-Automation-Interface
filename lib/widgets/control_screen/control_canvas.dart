@@ -93,9 +93,13 @@ class _ControlCanvasState extends State<ControlCanvas> {
 
   @override
   Widget build(BuildContext context) {
+    final grid = widget.layoutCfg.gridLayout;
     final pages = buildControlGridPages(
       layoutCfg: widget.layoutCfg,
       roles: const <ControlRole>[],
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
     );
 
     return PageView.builder(
@@ -108,10 +112,8 @@ class _ControlCanvasState extends State<ControlCanvas> {
         final page = pageIndex < pages.length ? pages[pageIndex] : null;
         final content = LayoutBuilder(
           builder: (context, constraints) {
-            final cellWidth =
-                constraints.maxWidth / ButtonConfig.controlGridColumns;
-            final cellHeight =
-                constraints.maxHeight / ButtonConfig.controlGridRows;
+            final cellWidth = constraints.maxWidth / grid.columns;
+            final cellHeight = constraints.maxHeight / grid.rows;
             final occupiedSlots = <int>{
               for (final item in page?.items ?? const <ControlGridItem>[])
                 ...item.occupiedSlots,
@@ -149,22 +151,14 @@ class _ControlCanvasState extends State<ControlCanvas> {
                     ),
                   ),
                 if (widget.isEditing)
-                  for (
-                    var slot = 0;
-                    slot < ButtonConfig.controlSlotCount;
-                    slot++
-                  )
+                  for (var slot = 0; slot < grid.slotCount; slot++)
                     if (!occupiedSlots.contains(slot))
                       AnimatedPositioned(
                         key: ValueKey('vacant_${page?.pageIndex ?? pageIndex}_$slot'),
                         duration: _kRepositionDuration,
                         curve: Curves.easeOutCubic,
-                        left:
-                            (slot % ButtonConfig.controlGridColumns) *
-                            cellWidth,
-                        top:
-                            (slot ~/ ButtonConfig.controlGridColumns) *
-                            cellHeight,
+                        left: (slot % grid.columns) * cellWidth,
+                        top: (slot ~/ grid.columns) * cellHeight,
                         width: cellWidth,
                         height: cellHeight,
                         child: const _VacantCell(),

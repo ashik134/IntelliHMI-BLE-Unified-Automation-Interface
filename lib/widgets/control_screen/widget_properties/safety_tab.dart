@@ -26,12 +26,20 @@ class SafetyTab extends StatelessWidget {
     required this.allButtons,
     required this.onUpdate,
     required this.updateButtonById,
+    this.gridColumns = ButtonConfig.controlGridColumns,
+    this.gridRows = ButtonConfig.controlGridRows,
   });
 
   final ButtonConfig config;
   final Map<String, ButtonConfig> allButtons;
   final ButtonUpdater onUpdate;
   final void Function(String id, ButtonConfig Function(ButtonConfig)) updateButtonById;
+
+  /// The active layout's grid shape — see ControlLayoutConfig.gridLayout —
+  /// so the live validation panel below checks placement bounds against the
+  /// real grid rather than the old fixed 2x3 default.
+  final int gridColumns;
+  final int gridRows;
 
   List<(String, String)> get _otherButtonOptions => [
     for (final b in allButtons.values)
@@ -82,7 +90,12 @@ class SafetyTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final options = _otherButtonOptions;
-    final validation = _validator.validateButtonConfig(config, allButtons);
+    final validation = _validator.validateButtonConfig(
+      config,
+      allButtons,
+      columns: gridColumns,
+      rows: gridRows,
+    );
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 4),

@@ -182,6 +182,8 @@ class WidgetPropertiesSheet extends StatelessWidget {
                           updateButtonById: context
                               .read<LayoutEditController>()
                               .updateButton,
+                          gridColumns: editCtrl.draft.gridLayout.columns,
+                          gridRows: editCtrl.draft.gridLayout.rows,
                         ),
                       ],
                     ),
