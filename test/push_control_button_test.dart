@@ -15,6 +15,9 @@ import 'package:rev_crane_control_ops/widgets/buttons/button/push_control_button
 
 Widget _harness({
   required bool isSpringReturn,
+  double width = 200,
+  double height = 240,
+  String label = 'Test',
   int debounceMs = 0,
   int longPressRequiredMs = 0,
   required ValueChanged<bool> onChanged,
@@ -25,12 +28,13 @@ Widget _harness({
     home: Scaffold(
       body: Center(
         child: SizedBox(
-          width: 200,
-          height: 240,
+          width: width,
+          height: height,
           child: IndustrialSpringButton(
-            label: 'Test',
+            label: label,
             icon: Icons.circle,
             isSpringReturn: isSpringReturn,
+            hapticFeedback: false,
             debounceMs: debounceMs,
             longPressRequiredMs: longPressRequiredMs,
             onChanged: onChanged,
@@ -44,6 +48,77 @@ Widget _harness({
 }
 
 void main() {
+  testWidgets(
+    'minimum operational size shows aligned icon and label and uses the '
+    'whole panel as its touch target',
+    (tester) async {
+      var pressedCount = 0;
+      await tester.pumpWidget(
+        _harness(
+          isSpringReturn: true,
+          width: PushControlButton.minimumOperationalSize.width,
+          height: PushControlButton.minimumOperationalSize.height,
+          onChanged: (_) {},
+          onPressed: () => pressedCount++,
+        ),
+      );
+
+      expect(find.byIcon(Icons.circle), findsOneWidget);
+      expect(find.text('Test'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      final surface = find.byKey(const ValueKey('push_button_hit_surface'));
+      expect(tester.getSize(surface), PushControlButton.minimumOperationalSize);
+
+      // The visible actuator is circular, but the complete panel is the
+      // intentional hit area so a gloved operator does not need to acquire
+      // the small cap precisely.
+      final topLeft = tester.getTopLeft(surface);
+      final gesture = await tester.startGesture(topLeft + const Offset(6, 6));
+      await tester.pump();
+      expect(pressedCount, 1);
+      await gesture.up();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('tight grid cell falls back to icon-only without overflow', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        isSpringReturn: true,
+        width: 72,
+        height: 72,
+        label: 'A long push button label',
+        onChanged: (_) {},
+      ),
+    );
+
+    expect(find.byIcon(Icons.circle), findsOneWidget);
+    expect(find.text('A long push button label'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('push surface expands cleanly with a larger grid span', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        isSpringReturn: true,
+        width: 280,
+        height: 190,
+        onChanged: (_) {},
+      ),
+    );
+
+    final surface = find.byKey(const ValueKey('push_button_hit_surface'));
+    expect(tester.getSize(surface), const Size(280, 190));
+    expect(find.byIcon(Icons.circle), findsOneWidget);
+    expect(find.text('Test'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'defaults (debounce/long-press off) activate immediately on pointer-down, '
     'exactly like before this feature existed',

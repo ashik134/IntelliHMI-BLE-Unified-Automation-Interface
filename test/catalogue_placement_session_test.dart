@@ -299,7 +299,9 @@ void main() {
         tester,
         editCtrl: editCtrl,
         canvasKey: canvasKey,
-        catalogIndex: 0,
+        // The 3-step slider at index 0 now requires 1x2; use the first true
+        // 1x1 entry so this test remains about drop coordinates.
+        catalogIndex: 3,
         targetCol: ButtonConfig.controlGridColumns - 1,
         targetRow: ButtonConfig.controlGridRows - 1,
       );
@@ -321,15 +323,13 @@ void main() {
 
       // Second widget: release at the TOP-RIGHT cell. The old "next free
       // row" behavior would stack this directly under/after the first
-      // widget regardless of release point. (Index 3, not 1: kWidgetCatalog
-      // is ordered by section, and index 1 is the 5-Step Bidirectional
-      // Slider, a 2x1 widget — index 3, the Latching Push Button, is the
-      // next 1x1 entry.)
+      // widget regardless of release point. Index 4 is the second 1x1 Push
+      // Button entry, so it cannot alias the first catalog selection above.
       await runPlacementSession(
         tester,
         editCtrl: editCtrl,
         canvasKey: canvasKey,
-        catalogIndex: 3,
+        catalogIndex: 4,
         targetCol: ButtonConfig.controlGridColumns - 1,
         targetRow: 0,
       );

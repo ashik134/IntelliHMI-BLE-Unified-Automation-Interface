@@ -8,7 +8,7 @@ import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
 
 const String kMultiZoneSpanMessage =
-    '5-Zone slider requires two adjacent cells. Clear or replace the neighboring control first.';
+    'Multi-zone slider requires adjacent cells for safe travel. Clear a neighboring control or use a larger grid allocation.';
 
 const String kWidgetPlacementMessage =
     'That widget cannot fit there without overlapping another control.';
@@ -658,25 +658,13 @@ GridMutationResult buildButtonResize({
   int columns = ButtonConfig.controlGridColumns,
   int rows = ButtonConfig.controlGridRows,
 }) {
-  int nextColumns;
-  int nextRows;
-  if (selected.type == ButtonType.bidirectionalSlider5Step) {
-    // The 5-zone slider only ever occupies exactly two cells, in one of two
-    // fixed shapes — 2x1 (horizontal) or 1x2 (vertical) — never 1x1 (too
-    // small to show 5 zones) and never a larger span. Orientation is chosen
-    // from the requested shape's own aspect (taller-than-wide -> vertical),
-    // matching how a user drags the resize handle.
-    final wantsVertical = gridRows > gridColumns;
-    nextColumns = wantsVertical ? 1 : 2;
-    nextRows = wantsVertical ? 2 : 1;
-  } else {
-    final minSize = ButtonConfig.defaultGridSizeFor(
-      selected.type,
-      customProperties: selected.customProperties,
-    );
-    nextColumns = gridColumns.clamp(minSize.$1, columns);
-    nextRows = gridRows.clamp(minSize.$2, rows);
-  }
+  final minSize = ButtonConfig.defaultGridSizeFor(
+    selected.type,
+    customProperties: selected.customProperties,
+    rotation: selected.rotation,
+  );
+  final nextColumns = gridColumns.clamp(minSize.$1, columns);
+  final nextRows = gridRows.clamp(minSize.$2, rows);
   final maxX = (columns - nextColumns).clamp(0, columns - 1);
   final maxY = (rows - nextRows).clamp(0, rows - 1);
   final nextX = (anchorX ?? selected.gridX).clamp(0, maxX);

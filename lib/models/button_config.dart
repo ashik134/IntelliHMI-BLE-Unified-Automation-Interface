@@ -89,6 +89,45 @@ class ButtonConfig {
   static const double minButtonWidthPx = 140.0;
   static const double minButtonHeightPx = 96.0;
 
+  /// Minimum full-surface hit area for a push button. Unlike the legacy
+  /// generic slot bounds above, these dimensions describe the push control's
+  /// own operational breakpoint: at or above this size the mechanical cap
+  /// can show both its icon and label comfortably. Tighter grid cells remain
+  /// renderable and interactive, but intentionally fall back to compact or
+  /// icon-only content (see PushControlButton).
+  static const double minPushButtonWidthPx = 144.0;
+  static const double minPushButtonHeightPx = 112.0;
+
+  /// Minimum operational footprint for a three-position toggle. The 220px
+  /// height leaves 190px for the lever after its 30px footer. Together with
+  /// the wider detent alignment this keeps adjacent mechanical state centres
+  /// at least 48px apart while preserving a broad neutral gate.
+  static const double minToggleButtonWidthPx = 112.0;
+  static const double minToggleButtonHeightPx = 220.0;
+
+  /// Minimum operational footprint for the one-direction, three-position
+  /// slider. At 180px high its 28px footer leaves a 152px interaction lane;
+  /// after the 40px thumb is accounted for, Neutral, Step 1, and Step 2 are
+  /// separated by 56px center-to-center. A two-row grid allocation preserves
+  /// that travel when denser grid presets use the standard 96px row minimum.
+  static const double minMultiStepSliderWidthPx = 112.0;
+  static const double minMultiStepSliderHeightPx = 180.0;
+  static const int minMultiStepSliderGridColumns = 1;
+  static const int minMultiStepSliderGridRows = 2;
+
+  /// Horizontal operational footprints for the bidirectional multi-zone
+  /// sliders. Both use a 40px thumb. The 3-zone track leaves 200px of travel
+  /// (50px between its -0.5/0/+0.5 state centers); the 5-zone track leaves
+  /// 240px (at least 42px between its closest adjacent state centers).
+  /// [defaultGridSizeFor] swaps the corresponding 2x1 grid allocation for
+  /// quarter-turn rotations.
+  static const double minThreeZoneSliderWidthPx = 240.0;
+  static const double minThreeZoneSliderHeightPx = 96.0;
+  static const double minFiveZoneSliderWidthPx = 280.0;
+  static const double minFiveZoneSliderHeightPx = 96.0;
+  static const int minMultiZoneSliderGridColumns = 2;
+  static const int minMultiZoneSliderGridRows = 1;
+
   static const int controlSlotCount = 6;
   static const int controlGridColumns = 2;
   static const int controlGridRows = 3;
@@ -233,18 +272,16 @@ class ButtonConfig {
   static const int _maxSpanCeiling = 16;
 
   int get gridColumnSpan {
-    // The 5-zone slider only ever occupies exactly two cells, in one of two
-    // fixed shapes: 2x1 (horizontal, default) or 1x2 (vertical). Vertical is
-    // signaled by an explicit gridRows > 1 (mirroring gridRowSpan's own
-    // check below) — an explicit gridColumns=1 alone can't signal it, since
-    // gridColumns=1 is indistinguishable from "not set".
-    if (type == ButtonType.bidirectionalSlider5Step) {
-      if (gridRows > 1) return 1;
-      return gridColumns > 1 ? gridColumns.clamp(1, _maxSpanCeiling) : 2;
+    // Multi-zone sliders start at 2x1 and swap to 1x2 for quarter-turn
+    // rotations. Explicitly larger spans remain valid for dense grids whose
+    // physical cells need more room to meet the pixel-size contract.
+    if (type == ButtonType.bidirectionalSlider5Step ||
+        type == ButtonType.bidirectionalSlider3Step) {
+      final minimum = defaultGridSizeFor(type, rotation: rotation);
+      final requested = gridColumns > 1 ? gridColumns : columnSpan;
+      return requested.clamp(minimum.$1, _maxSpanCeiling);
     }
     if (gridColumns > 1) return gridColumns.clamp(1, _maxSpanCeiling);
-    // The 3-zone slider fits a single cell (1x1) by default, honoring an
-    // explicit gridColumns override above like any other type.
     if (type == ButtonType.analogJoystick2D ||
         (type == ButtonType.joystick &&
             JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
@@ -254,7 +291,16 @@ class ButtonConfig {
   }
 
   int get gridRowSpan {
+    if (type == ButtonType.bidirectionalSlider5Step ||
+        type == ButtonType.bidirectionalSlider3Step) {
+      final minimum = defaultGridSizeFor(type, rotation: rotation);
+      final requested = gridRows > 1 ? gridRows : 1;
+      return requested.clamp(minimum.$2, _maxSpanCeiling);
+    }
     if (gridRows > 1) return gridRows.clamp(1, _maxSpanCeiling);
+    if (type == ButtonType.sliderButton) {
+      return minMultiStepSliderGridRows;
+    }
     if (type == ButtonType.analogJoystick2D ||
         (type == ButtonType.joystick &&
             JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
@@ -268,12 +314,16 @@ class ButtonConfig {
   static (int, int) defaultGridSizeFor(
     ButtonType type, {
     Map<String, dynamic> customProperties = const <String, dynamic>{},
+    ButtonRotation rotation = ButtonRotation.none,
   }) {
-    if (type == ButtonType.bidirectionalSlider5Step) {
-      return (2, 1);
+    if (type == ButtonType.sliderButton) {
+      return (minMultiStepSliderGridColumns, minMultiStepSliderGridRows);
     }
-    if (type == ButtonType.bidirectionalSlider3Step) {
-      return (1, 1);
+    if (type == ButtonType.bidirectionalSlider5Step ||
+        type == ButtonType.bidirectionalSlider3Step) {
+      return rotation.quarterTurns.isOdd
+          ? (minMultiZoneSliderGridRows, minMultiZoneSliderGridColumns)
+          : (minMultiZoneSliderGridColumns, minMultiZoneSliderGridRows);
     }
     if (type == ButtonType.analogJoystick2D ||
         (type == ButtonType.joystick &&
@@ -471,9 +521,11 @@ class ButtonConfig {
     final customProperties =
         (json['customProperties'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
+    final rotation = buttonRotationFromJson(json['rotation']);
     final (defaultColumns, defaultRows) = defaultGridSizeFor(
       type,
       customProperties: customProperties,
+      rotation: rotation,
     );
 
     return ButtonConfig(
@@ -495,7 +547,7 @@ class ButtonConfig {
       iconKey: json['iconKey'] as String?,
       catalogEntryId: json['catalogEntryId'] as String?,
       heightScale: (json['heightScale'] as num?)?.toDouble() ?? 1.0,
-      rotation: buttonRotationFromJson(json['rotation']),
+      rotation: rotation,
       style: json['style'] != null
           ? ButtonStyleConfig.fromJson(json['style'] as Map<String, dynamic>)
           : const ButtonStyleConfig(),

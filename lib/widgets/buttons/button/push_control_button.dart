@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 abstract final class PushControlStateId {
   static const String idle = 'idle';
@@ -32,6 +34,7 @@ class PushControlButton extends StatelessWidget {
     this.externalStateId = PushControlStateId.idle,
     this.activeColor,
     this.activeColorLight,
+    this.style,
     this.hapticFeedback = true,
     this.rotation = ButtonRotation.none,
     this.pressScale = 0.965,
@@ -47,6 +50,7 @@ class PushControlButton extends StatelessWidget {
   final String externalStateId;
   final Color? activeColor;
   final Color? activeColorLight;
+  final ButtonStyleConfig? style;
   final bool hapticFeedback;
   final ButtonRotation rotation;
 
@@ -59,6 +63,13 @@ class PushControlButton extends StatelessWidget {
   /// See ButtonBehaviorConfig.longPressRequiredMs.
   final int longPressRequiredMs;
   final ValueChanged<String> onStateChanged;
+
+  /// The push button's full-surface operational breakpoint. Grid cells below
+  /// this size still render safely, but use the compact/icon-only layouts.
+  static const Size minimumOperationalSize = Size(
+    ButtonConfig.minPushButtonWidthPx,
+    ButtonConfig.minPushButtonHeightPx,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +85,7 @@ class PushControlButton extends StatelessWidget {
       icon: icon,
       activeColor: activeColor!,
       activeColorLight: activeColorLight!,
+      style: style,
       isActive: isActive && enabled,
       isSpringReturn: isSpringReturn,
       isLatched: latched,
@@ -116,6 +128,7 @@ class IndustrialSpringButton extends StatefulWidget {
     this.enabled = true,
     this.activeColor = AppColors.upColor,
     this.activeColorLight = AppColors.upColorLight,
+    this.style,
     this.isActive = false,
     this.isSpringReturn = true,
     this.isLatched = false,
@@ -135,6 +148,7 @@ class IndustrialSpringButton extends StatefulWidget {
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonStyleConfig? style;
   final ButtonRotation rotation;
   final bool isActive;
   final bool isSpringReturn;
@@ -363,21 +377,23 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
             builder: (context, _) {
               final press = _pressAnim.value.clamp(0.0, 1.0);
               final isActive = widget.enabled && _internalActive;
-              return SizedBox.square(
-                dimension: 96,
-                child: RepaintBoundary(
-                  child: _CircularIndustrialButtonContent(
-                    icon: widget.icon,
-                    activeColor: widget.activeColor,
-                    activeColorLight: widget.activeColorLight,
-                    press: press,
-                    pressScale: widget.pressScale,
-                    isActive: isActive,
-                    isEnabled: widget.enabled,
-                    onPointerDown: _handlePointerDown,
-                    onPointerUp: _handlePointerUp,
-                    onPointerCancel: _handlePointerCancel,
-                  ),
+              return RepaintBoundary(
+                child: _ResponsiveIndustrialButtonContent(
+                  label: widget.label,
+                  icon: widget.icon,
+                  activeColor: widget.activeColor,
+                  activeColorLight: widget.activeColorLight,
+                  style: widget.style,
+                  rotation: widget.rotation,
+                  press: press,
+                  pressScale: widget.pressScale,
+                  isActive: isActive,
+                  isEnabled: widget.enabled,
+                  isHovered: _hovered,
+                  isFocused: _focused,
+                  onPointerDown: _handlePointerDown,
+                  onPointerUp: _handlePointerUp,
+                  onPointerCancel: _handlePointerCancel,
                 ),
               );
             },
@@ -388,28 +404,40 @@ class _IndustrialSpringButtonState extends State<IndustrialSpringButton>
   }
 }
 
-/// The complete visible widget and hit target: one 96 x 96 circle.
-class _CircularIndustrialButtonContent extends StatelessWidget {
-  const _CircularIndustrialButtonContent({
+/// Full-cell push surface. The rectangular panel is the hit target; the
+/// circular actuator is the visual affordance. This keeps the control easy to
+/// acquire in dense grids without stretching the mechanical button artwork.
+class _ResponsiveIndustrialButtonContent extends StatelessWidget {
+  const _ResponsiveIndustrialButtonContent({
+    required this.label,
     required this.icon,
     required this.activeColor,
     required this.activeColorLight,
+    required this.style,
+    required this.rotation,
     required this.press,
     required this.pressScale,
     required this.isActive,
     required this.isEnabled,
+    required this.isHovered,
+    required this.isFocused,
     required this.onPointerDown,
     required this.onPointerUp,
     required this.onPointerCancel,
   });
 
+  final String label;
   final IconData icon;
   final Color activeColor;
   final Color activeColorLight;
+  final ButtonStyleConfig? style;
+  final ButtonRotation rotation;
   final double press;
   final double pressScale;
   final bool isActive;
   final bool isEnabled;
+  final bool isHovered;
+  final bool isFocused;
   final void Function(PointerDownEvent) onPointerDown;
   final void Function(PointerUpEvent) onPointerUp;
   final void Function(PointerCancelEvent) onPointerCancel;
@@ -419,70 +447,151 @@ class _CircularIndustrialButtonContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visualScale = 1.0 - ((1.0 - pressScale) * press);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : PushControlButton.minimumOperationalSize.width;
+        final height = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : PushControlButton.minimumOperationalSize.height;
+        if (width <= 0 || height <= 0) return const SizedBox.shrink();
 
-    return ClipOval(
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: onPointerDown,
-        onPointerUp: onPointerUp,
-        onPointerCancel: onPointerCancel,
-        child: Stack(
-          fit: StackFit.expand,
-          alignment: Alignment.center,
-          children: [
-            CustomPaint(
-              painter: _IndustrialRoundButtonPainter(
-                press: press,
-                activeColor: activeColor,
-                activeColorLight: activeColorLight,
-                isActive: isActive,
-                isEnabled: isEnabled,
-              ),
-            ),
-            Center(
-              child: Transform.scale(
-                scale: visualScale,
-                child: Icon(
-                  icon,
-                  size: 32,
-                  color: !isEnabled
-                      ? AppColors.darkTextSub.withAlpha(_alpha(0.45))
-                      : isActive
-                      ? Colors.white
-                      : AppColors.darkText,
-                  shadows: [
-                    Shadow(
-                      color: Colors.black.withAlpha(
-                        isActive ? _alpha(0.6) : _alpha(0.4),
-                      ),
-                      blurRadius: isActive ? 8 : 4,
-                      offset: Offset(0, isActive ? 2 : 1),
+        final shortest = math.min(width, height);
+        final panelPadding = shortest >= 136
+            ? 10.0
+            : shortest >= 96
+            ? 6.0
+            : 4.0;
+        final availableDiameter = math.max(0.0, shortest - panelPadding * 2);
+        final diameter = math.min(availableDiameter, 148.0);
+        final showLabel =
+            (style?.showLabel ?? true) &&
+            label.trim().isNotEmpty &&
+            diameter >= 82.0;
+        final contentExtent = diameter * (showLabel ? 0.58 : 0.46);
+        final labelColor = !isEnabled
+            ? AppColors.darkTextMuted.withAlpha(_alpha(0.62))
+            : isActive
+            ? Colors.white
+            : AppColors.darkText;
+        final iconColor = !isEnabled
+            ? AppColors.darkTextSub.withAlpha(_alpha(0.5))
+            : isActive
+            ? Colors.white
+            : AppColors.darkText;
+        final cornerRadius = math.min(
+          style?.cornerRadius ?? 12.0,
+          shortest * 0.24,
+        );
+        final elevation = (style?.elevation ?? 2.0).clamp(0.0, 12.0);
+        final borderColor = isFocused
+            ? AppColors.selectionViolet
+            : isActive && isEnabled
+            ? activeColor.withAlpha(_alpha(0.78))
+            : isHovered && isEnabled
+            ? AppColors.panelStroke.withAlpha(_alpha(0.95))
+            : AppColors.panelStroke.withAlpha(_alpha(0.72));
+
+        return SizedBox(
+          width: constraints.hasBoundedWidth ? double.infinity : width,
+          height: constraints.hasBoundedHeight ? double.infinity : height,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: onPointerDown,
+            onPointerUp: onPointerUp,
+            onPointerCancel: onPointerCancel,
+            child: DecoratedBox(
+              key: const ValueKey('push_button_hit_surface'),
+              decoration: BoxDecoration(
+                color: isEnabled
+                    ? AppColors.panel
+                    : AppColors.panel.withAlpha(150),
+                borderRadius: BorderRadius.circular(cornerRadius),
+                border: Border.all(
+                  color: borderColor,
+                  width: isFocused ? 2.0 : 1.2,
+                ),
+                boxShadow: [
+                  if (elevation > 0)
+                    BoxShadow(
+                      color: Colors.black.withAlpha(_alpha(0.34)),
+                      blurRadius: 3 + elevation,
+                      offset: Offset(0, 1 + elevation * 0.35),
                     ),
-                  ],
-                ),
+                  if (isActive && isEnabled)
+                    BoxShadow(
+                      color: activeColor.withAlpha(_alpha(0.22)),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: SizedBox.square(
+                      dimension: diameter,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        alignment: Alignment.center,
+                        children: [
+                          CustomPaint(
+                            painter: _IndustrialRoundButtonPainter(
+                              press: press,
+                              activeColor: activeColor,
+                              activeColorLight: activeColorLight,
+                              isActive: isActive,
+                              isEnabled: isEnabled,
+                            ),
+                          ),
+                          Center(
+                            child: Transform.scale(
+                              scale: visualScale,
+                              child: SizedBox.square(
+                                dimension: contentExtent,
+                                child: ControlButtonLabelIcon(
+                                  label: label,
+                                  icon: icon,
+                                  color: labelColor,
+                                  iconColor: iconColor,
+                                  style: style,
+                                  showLabel: showLabel,
+                                  rotation: rotation,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (!isEnabled && shortest >= 72)
+                    Positioned(
+                      top: panelPadding,
+                      right: panelPadding,
+                      child: Container(
+                        width: shortest >= 112 ? 22 : 18,
+                        height: shortest >= 112 ? 22 : 18,
+                        decoration: BoxDecoration(
+                          color: AppColors.panelAlt,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.darkBorder),
+                        ),
+                        child: Icon(
+                          Icons.lock_outline_rounded,
+                          size: shortest >= 112 ? 13 : 11,
+                          color: AppColors.darkTextMuted,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (!isEnabled)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withAlpha(_alpha(0.25)),
-                  border: Border.all(
-                    color: Colors.white.withAlpha(_alpha(0.08)),
-                    width: 1.5,
-                  ),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.lock_outline_rounded,
-                    size: 20,
-                    color: Colors.white.withAlpha(_alpha(0.3)),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -509,7 +618,9 @@ class _IndustrialRoundButtonPainter extends CustomPainter {
     final outerR = side * 0.49;
     final bezelR = side * 0.455;
     final wellR = side * 0.36;
-    final capR = side * (0.292 - press * 0.012);
+    // Slightly broader than the former icon-only cap so the shared compact
+    // icon/label row stays inside the colored actuator face.
+    final capR = side * (0.31 - press * 0.012);
 
     if (isActive && isEnabled) {
       canvas.drawCircle(

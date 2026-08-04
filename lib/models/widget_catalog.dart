@@ -126,7 +126,7 @@ final List<CatalogEntry> kWidgetCatalog = [
         'each side of a centred neutral position.',
     tags: ['Digital', '5-Step', 'Bidirectional', 'Spring Return'],
     buttonType: ButtonType.bidirectionalSlider5Step,
-    previewSize: Size(260, 120),
+    previewSize: Size(280, 120),
   ),
   const CatalogEntry(
     category: _digital,

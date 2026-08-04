@@ -65,6 +65,7 @@ class PushButtonStrategy extends ButtonTypeStrategy {
         externalStateId: _stateIdFor(activeState, isSpringReturn),
         activeColor: activeColor,
         activeColorLight: activeColorLight,
+        style: config.style,
         rotation: config.rotation,
         pressScale: config.behavior.pressScale,
         debounceMs: config.behavior.debounceMs,

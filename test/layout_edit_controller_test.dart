@@ -121,6 +121,40 @@ void main() {
     });
   });
 
+  test(
+    'rotating a multi-zone slider swaps its grid allocation and repairs it',
+    () async {
+      await editCtrl.enter();
+      final result = editCtrl.addButton(
+        const ButtonConfig(
+          id: 'zones',
+          type: ButtonType.bidirectionalSlider5Step,
+          plcMapping: PlcOutputVariant.df2,
+        ),
+      );
+      expect(result.isValid, isTrue);
+      var slider = editCtrl.draft.resolvedButtons['zones']!;
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (2, 1));
+
+      editCtrl.updateButton(
+        'zones',
+        (button) => button.copyWith(rotation: ButtonRotation.deg90),
+      );
+      slider = editCtrl.draft.resolvedButtons['zones']!;
+      expect(slider.rotation, ButtonRotation.deg90);
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (1, 2));
+      expect(editCtrl.lastValidation.isValid, isTrue);
+
+      editCtrl.updateButton(
+        'zones',
+        (button) => button.copyWith(rotation: ButtonRotation.deg180),
+      );
+      slider = editCtrl.draft.resolvedButtons['zones']!;
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (2, 1));
+      expect(editCtrl.lastValidation.isValid, isTrue);
+    },
+  );
+
   group('deleteButton', () {
     test(
       'removes the button and clears selection if it was selected',

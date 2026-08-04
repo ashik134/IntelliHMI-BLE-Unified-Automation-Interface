@@ -5,6 +5,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
@@ -32,6 +33,11 @@ enum ToggleSwitchMode {
 ///   right  → bottom of the vertical lever (second active direction)
 enum ToggleSwitchPosition { left, center, right }
 
+/// Which end zone (top third / bottom third of the interaction area) a
+/// track-originated (off-knob) pointer landed in. The middle third has no
+/// corresponding value — it is the dead zone and never yields a tap intent.
+enum _TrackZone { top, bottom }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Private constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,16 +48,38 @@ const _kSpring = SpringDescription(mass: 1.0, stiffness: 460.0, damping: 26.0);
 
 const Duration _kColorDur = Duration(milliseconds: 150);
 
-/// Knob y-alignment targets.  ±0.36 keeps the sphere well inside the pill's
-/// rounded end caps.
-const double _kKnobTopY = -0.58;
-const double _kKnobBotY = 0.58;
-const double _kKnobVisualLimit = 0.62;
+/// Mechanical detent centres. The wider ±0.74 travel keeps adjacent states
+/// physically separated by at least 48px at the operational minimum size.
+const double _kKnobTopY = -0.74;
+const double _kKnobBotY = 0.74;
+const double _kKnobVisualLimit = 0.80;
 
 // Interaction zones (fraction of the full Listener area height).
 const double _kTopZone = 0.33; // 0 – 33 %
 const double _kBottomZone = 0.67; // 67 – 100 %
-const double _kDragMin = 14.0; // px before a drag is treated as directional
+const double _kDragMin = 18.0; // minimum px before leaving the current detent
+
+/// Three-position thresholds in lever-alignment coordinates. An end detent
+/// is entered only beyond ±0.50 but is retained until the pointer crosses
+/// back inside ±0.28. The gap between those thresholds is the hysteresis
+/// band; the full -0.50…+0.50 interval is the deliberately wide neutral zone.
+const double _kEndDetentEnter = 0.50; ////////////////////////
+const double _kEndDetentExit = 0.28; ///////////
+const double _kNeutralDwellBand = 0.22; //////////////
+const Duration _kNeutralGateDwell = Duration(milliseconds: 90); ////////////
+
+/// The label row is 22px high with 5px above and 3px below it.
+const double _kFooterExtent = ControlButtonVisualMetrics.rowHeight + 8.0;
+
+/// Below this height the footer yields its space to the lever. Compact grid
+/// cells remain usable, while the documented operational size still provides
+/// three full-size position bands and the complete footer.
+const double _kCompactFooterThreshold = 128.0;
+
+/// The operational-width footer prioritizes the control identity. The
+/// secondary mode hint joins it only once both can fit without hiding the
+/// button label.
+const double _kHintVisibilityWidth = 160.0;
 
 // Lever housing colours
 const _kBodyGradStart = Color(0xFF1A2634);
@@ -95,6 +123,13 @@ class ToggleSwitchButton extends StatefulWidget {
     this.topDisabled = false,
     this.bottomDisabled = false,
   });
+
+  /// Smallest size at which adjacent lever detents remain at least 48px apart
+  /// while the standard icon/label footer remains visible.
+  static const Size minimumOperationalSize = Size(
+    ButtonConfig.minToggleButtonWidthPx,
+    ButtonConfig.minToggleButtonHeightPx,
+  );
 
   // ── Legacy API (preserved) ───────────────────────────────────────────────
   final String label;
@@ -191,14 +226,39 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   ToggleSwitchPosition _pos = ToggleSwitchPosition.center;
 
   // ── Gesture state ─────────────────────────────────────────────────────────
-  bool _topHeld = false;
-  bool _bottomHeld = false;
   double? _dragStartDy; // pointer-down y in Listener coordinates
   double _dragStartKnobY = 0.0; // knob y when drag started
   double _dragVelocityPxS = 0.0; // drag velocity in px/s
   double _lastDragDy = 0.0;
   int _lastDragMicros = 0;
-  ToggleSwitchPosition? _pendingPos;
+
+  // Whether the pointer that is currently down landed on the knob itself.
+  // Only a knob-started pointer may *drag* the lever — a pointer that starts
+  // on the track/housing can still register as a tap (see below) but can
+  // never live-drag the knob (mechanical selectors are moved by the lever,
+  // not by pressing the housing around it).
+  bool _downOnKnob = false;
+
+  // Track (off-knob) gesture bookkeeping. `_trackZone` is the end zone the
+  // pointer went down in (null = dead zone). `_trackVoided` becomes/starts
+  // true once this gesture can no longer commit anything — either because it
+  // already resolved immediately (see _onPointerDown) or because it moved
+  // past the tap tolerance and forfeited its chance to register as a tap.
+  // `_trackSpringHeld` marks a momentary spring end that was activated
+  // immediately on down and must snap back to centre on release/cancel or if
+  // the pointer wanders out of the zone it was pressed in.
+  _TrackZone? _trackZone;
+  bool _trackVoided = true;
+  bool _trackSpringHeld = false;
+
+  // Three-position mechanical gate state. Crossing from one active end to
+  // the other arms a mandatory neutral dwell; until that dwell completes,
+  // the opposite detent is physically and logically unavailable.
+  bool _threePositionDragged = false;
+  ToggleSwitchPosition? _neutralGateBlockedEnd;
+  Duration? _neutralGateEnteredAt;
+  bool _neutralGateArmed = false;
+  bool _springDetentEntered = false;
 
   // Identifies the single pointer currently driving this lever so late/
   // duplicate events from any other pointer can't reactivate or re-release
@@ -219,6 +279,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
   // Stored from the last LayoutBuilder pass; used for velocity conversion.
   double _lastLeverH = 120.0;
+  double _lastLeverW = 64.0;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -250,8 +311,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     // triggered by unrelated buttons (or BLE/status stream ticks feeding the
     // same shared ChangeNotifier) must never yank the lever out from under
     // an active press/drag, and must never be queued to replay afterwards.
-    final gestureInProgress =
-        _topHeld || _bottomHeld || _pendingPos != null || _dragStartDy != null;
+    final gestureInProgress = _dragStartDy != null;
     if (gestureInProgress) return;
 
     // Only resync from external state when it actually changed for *this*
@@ -305,6 +365,38 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     ToggleSwitchPosition.right => _kKnobBotY,
   };
 
+  bool _isSpringPosition(ToggleSwitchPosition position) => switch (position) {
+    ToggleSwitchPosition.left => widget.topSideIsSpring,
+    ToggleSwitchPosition.center => false,
+    ToggleSwitchPosition.right => widget.bottomSideIsSpring,
+  };
+
+  double _pixelsPerAlignmentUnit(double leverH, double leverW) {
+    final knobSize = leverW * 0.58;
+    return math.max(20.0, (leverH - knobSize) / 2.0);
+  }
+
+  double get _currentPixelsPerAlignmentUnit =>
+      _pixelsPerAlignmentUnit(_lastLeverH, _lastLeverW);
+
+  bool _pointerStartsOnKnob(
+    Offset localPosition, {
+    required double areaW,
+    required double areaH,
+    required double leverW,
+    required double leverH,
+  }) {
+    final knobSize = leverW * 0.58;
+    final travel = math.max(0.0, (leverH - knobSize) / 2.0);
+    final knobCenter = Offset(
+      areaW / 2.0,
+      areaH / 2.0 +
+          _knobCtrl.value.clamp(-_kKnobVisualLimit, _kKnobVisualLimit) * travel,
+    );
+    final hitRadius = math.max(24.0, knobSize / 2.0 + 6.0);
+    return (localPosition - knobCenter).distance <= hitRadius;
+  }
+
   // ── Physics ───────────────────────────────────────────────────────────────
 
   void _springTo(double target, {double velocity = 0.0}) {
@@ -331,11 +423,8 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
   }
 
   /// Converts current px/s velocity to alignment-unit/s for SpringSimulation.
-  double get _alignVelocity {
-    // (H - C) / 2 ≈ leverH * 0.35  for knobSz = w * 0.58, w = h * 110/210
-    final pixPerUnit = (_lastLeverH * 0.35).clamp(20.0, 100.0);
-    return _dragVelocityPxS / pixPerUnit;
-  }
+  double get _alignVelocity =>
+      _dragVelocityPxS / _currentPixelsPerAlignmentUnit;
 
   // ── Command dispatch ──────────────────────────────────────────────────────
 
@@ -365,6 +454,160 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
 
   // ── Latch intents ─────────────────────────────────────────────────────────
 
+  void _resetNeutralGate() {
+    _neutralGateBlockedEnd = null;
+    _neutralGateEnteredAt = null;
+    _neutralGateArmed = false;
+  }
+
+  void _beginNeutralGateFrom(ToggleSwitchPosition previousEnd) {
+    _neutralGateBlockedEnd = previousEnd == ToggleSwitchPosition.left
+        ? ToggleSwitchPosition.right
+        : ToggleSwitchPosition.left;
+    _neutralGateEnteredAt = null;
+    _neutralGateArmed = false;
+  }
+
+  void _updateNeutralGate(double pointerY, Duration timeStamp) {
+    if (_neutralGateBlockedEnd == null || _neutralGateArmed) return;
+    if (pointerY.abs() > _kNeutralDwellBand) {
+      _neutralGateEnteredAt = null;
+      return;
+    }
+
+    final enteredAt = _neutralGateEnteredAt;
+    if (enteredAt == null) {
+      _neutralGateEnteredAt = timeStamp;
+      return;
+    }
+    if (timeStamp - enteredAt >= _kNeutralGateDwell) {
+      _neutralGateArmed = true;
+    }
+  }
+
+  bool _enterThreePositionDetent(
+    ToggleSwitchPosition next, {
+    double velocity = 0.0,
+  }) {
+    if (_pos == next) return false;
+    _moveTo(next);
+    HapticFeedback.selectionClick();
+    if (_isSpringPosition(next)) _springDetentEntered = true;
+    _springTo(_knobYForPos(next), velocity: velocity);
+    return true;
+  }
+
+  bool _updateThreePositionDetent(double pointerY, Duration timeStamp) {
+    switch (_pos) {
+      case ToggleSwitchPosition.left:
+        if (pointerY >= -_kEndDetentExit) {
+          _beginNeutralGateFrom(ToggleSwitchPosition.left);
+          final changed = _enterThreePositionDetent(
+            ToggleSwitchPosition.center,
+            velocity: _alignVelocity,
+          );
+          _updateNeutralGate(pointerY, timeStamp);
+          return changed;
+        }
+        return false;
+      case ToggleSwitchPosition.right:
+        if (pointerY <= _kEndDetentExit) {
+          _beginNeutralGateFrom(ToggleSwitchPosition.right);
+          final changed = _enterThreePositionDetent(
+            ToggleSwitchPosition.center,
+            velocity: _alignVelocity,
+          );
+          _updateNeutralGate(pointerY, timeStamp);
+          return changed;
+        }
+        return false;
+      case ToggleSwitchPosition.center:
+        _updateNeutralGate(pointerY, timeStamp);
+        final mayEnterLeft =
+            _neutralGateBlockedEnd != ToggleSwitchPosition.left ||
+            _neutralGateArmed;
+        final mayEnterRight =
+            _neutralGateBlockedEnd != ToggleSwitchPosition.right ||
+            _neutralGateArmed;
+
+        if (widget.isThreePosition &&
+            pointerY <= -_kEndDetentEnter &&
+            mayEnterLeft &&
+            !widget.topDisabled) {
+          _resetNeutralGate();
+          return _enterThreePositionDetent(
+            ToggleSwitchPosition.left,
+            velocity: _alignVelocity,
+          );
+        }
+        if (pointerY >= _kEndDetentEnter &&
+            mayEnterRight &&
+            !widget.bottomDisabled) {
+          _resetNeutralGate();
+          return _enterThreePositionDetent(
+            ToggleSwitchPosition.right,
+            velocity: _alignVelocity,
+          );
+        }
+    }
+    return false;
+  }
+
+  void _onThreePositionPointerMove(
+    PointerMoveEvent event,
+    double leverW,
+    double leverH,
+  ) {
+    final dy = event.localPosition.dy;
+    final delta = dy - _dragStartDy!;
+    _trackVelocity(dy);
+
+    final minimumDrag = math.max(_kDragMin, leverH * 0.10);
+    if (!_threePositionDragged && delta.abs() < minimumDrag) return;
+    _threePositionDragged = true;
+
+    final pointerY =
+        (_dragStartKnobY + delta / _pixelsPerAlignmentUnit(leverH, leverW))
+            .clamp(-1.0, 1.0);
+    _knobCtrl.stop();
+    final changed = _updateThreePositionDetent(pointerY, event.timeStamp);
+    if (changed) return;
+
+    // Keep the lever captured by its current detent, with only a small
+    // elastic deflection to communicate drag direction before the next snap.
+    final detent = _knobYForPos(_pos);
+    final deflection = (pointerY - detent).clamp(-0.18, 0.18);
+    _knobCtrl.value = (detent + deflection).clamp(
+      -_kKnobVisualLimit,
+      _kKnobVisualLimit,
+    );
+  }
+
+  void _finishThreePositionGesture({required bool cancelled}) {
+    final velocity = cancelled ? 0.0 : _alignVelocity;
+    final springPositionOnRelease = _isSpringPosition(_pos);
+
+    if (springPositionOnRelease) {
+      _enterThreePositionDetent(
+        ToggleSwitchPosition.center,
+        velocity: velocity,
+      );
+    } else {
+      _springTo(_knobYForPos(_pos), velocity: velocity);
+    }
+
+    final endedNeutralAfterSpring =
+        _pos == ToggleSwitchPosition.center && _springDetentEntered;
+    if (endedNeutralAfterSpring) {
+      _suppressExternalReactivation = true;
+      widget.onReleased?.call();
+    }
+
+    _threePositionDragged = false;
+    _springDetentEntered = false;
+    _resetNeutralGate();
+  }
+
   ToggleSwitchPosition _latchTopIntent() {
     if (!widget.isThreePosition) return ToggleSwitchPosition.center;
     return _pos == ToggleSwitchPosition.left
@@ -377,13 +620,83 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
       ? ToggleSwitchPosition.center
       : ToggleSwitchPosition.right;
 
+  // ── Track (off-knob) tap intents ─────────────────────────────────────────
+  //
+  // A pointer that lands away from the knob can still register as a tap, but
+  // never as a drag (the lever itself must be grabbed to be dragged). What a
+  // track tap resolves to depends on where it landed and where the lever
+  // currently sits:
+  //   • the opposite end is currently active  → step to centre only (a
+  //     single gesture may never jump straight between the two ends);
+  //   • otherwise                              → the zone's natural target
+  //     (which itself toggles off if that end is already latched active).
+
+  ToggleSwitchPosition _oppositeEnd(ToggleSwitchPosition end) =>
+      end == ToggleSwitchPosition.left
+          ? ToggleSwitchPosition.right
+          : ToggleSwitchPosition.left;
+
+  ToggleSwitchPosition _resolveTapIntent(ToggleSwitchPosition requested) {
+    if (requested == ToggleSwitchPosition.center) return requested;
+    if (_pos == _oppositeEnd(requested)) return ToggleSwitchPosition.center;
+    return requested;
+  }
+
+  ToggleSwitchPosition? _rawZoneIntent(_TrackZone zone) => switch (zone) {
+    _TrackZone.top => widget.topDisabled ? null : _latchTopIntent(),
+    _TrackZone.bottom => widget.bottomDisabled ? null : _latchBottomIntent(),
+  };
+
+  _TrackZone? _classifyTrackZone(double frac) {
+    if (frac < _kTopZone) return _TrackZone.top;
+    if (frac > _kBottomZone) return _TrackZone.bottom;
+    return null;
+  }
+
+  /// Snaps a momentary track-held spring end back to centre — used on
+  /// release, cancel, and when the pointer wanders out of the pressed zone.
+  void _cancelTrackSpringHold() {
+    _trackSpringHeld = false;
+    _trackVoided = true;
+    final wasEntered = _enterThreePositionDetent(ToggleSwitchPosition.center);
+    if (wasEntered) {
+      _suppressExternalReactivation = true;
+      widget.onReleased?.call();
+    }
+  }
+
+  /// Commits a track tap that stayed within tolerance for the whole gesture
+  /// (a clean, deliberate tap rather than an off-knob drag). Only ever
+  /// reached for a *latching* target — spring targets are resolved
+  /// immediately on pointer-down (see _onPointerDown) since they are always
+  /// safe to preview live.
+  void _commitDeferredTrackTap(_TrackZone zone) {
+    final requested = _rawZoneIntent(zone);
+    if (requested == null) return;
+    final resolved = _resolveTapIntent(requested);
+    if (resolved == _pos) return;
+    if (!_enterThreePositionDetent(resolved)) return;
+    if (_isSpringPosition(resolved)) {
+      _enterThreePositionDetent(ToggleSwitchPosition.center);
+      _suppressExternalReactivation = true;
+      widget.onReleased?.call();
+    }
+  }
+
   // ── Pointer handlers ──────────────────────────────────────────────────────
 
-  void _onPointerDown(PointerDownEvent event, double areaH, double leverH) {
+  void _onPointerDown(
+    PointerDownEvent event,
+    double areaW,
+    double areaH,
+    double leverW,
+    double leverH,
+  ) {
     if (!_enabled) return;
     // A pointer already driving this lever owns the gesture; ignore a
     // second/late pointer trying to start a new one on top of it.
     if (_activePointerId != null) return;
+
     _activePointerId = event.pointer;
     _suppressExternalReactivation = false;
     ButtonStateLog.log('USER_DOWN [${widget.label}] pointer=${event.pointer}');
@@ -391,109 +704,92 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     _dragStartKnobY = _knobCtrl.value;
     _dragVelocityPxS = 0.0;
     _lastDragMicros = 0;
-    _pendingPos = null;
     _pressDown();
 
-    final frac = (_dragStartDy! / areaH).clamp(0.0, 1.0);
+    _threePositionDragged = false;
+    _springDetentEntered = _isSpringPosition(_pos);
+    _resetNeutralGate();
 
-    if (frac < _kTopZone && !widget.topDisabled) {
-      // ── Top zone ──────────────────────────────────────────────────────────
-      if (widget.topSideIsSpring) {
-        _topHeld = true;
-        HapticFeedback.selectionClick();
-        _moveTo(ToggleSwitchPosition.left);
-        _springTo(_kKnobTopY);
-      } else {
-        _pendingPos = _latchTopIntent();
-        _springTo(_knobYForPos(_pendingPos!)); // animate preview
-      }
-    } else if (frac > _kBottomZone && !widget.bottomDisabled) {
-      // ── Bottom zone ───────────────────────────────────────────────────────
-      if (widget.bottomSideIsSpring) {
-        _bottomHeld = true;
-        HapticFeedback.selectionClick();
-        _moveTo(ToggleSwitchPosition.right);
-        _springTo(_kKnobBotY);
-      } else {
-        _pendingPos = _latchBottomIntent();
-        _springTo(_knobYForPos(_pendingPos!));
-      }
+    _downOnKnob = _pointerStartsOnKnob(
+      event.localPosition,
+      areaW: areaW,
+      areaH: areaH,
+      leverW: leverW,
+      leverH: leverH,
+    );
+    _trackZone = null;
+    _trackSpringHeld = false;
+    _trackVoided = true; // default inert; a fresh latch-on request re-arms it
+
+    if (_downOnKnob) return; // knob-driven drag: handled by move/up below
+
+    // ── Track (off-knob) press ────────────────────────────────────────────
+    // Dragging must begin from the knob, but a direct tap on a valid end
+    // zone still activates it. Since we can't yet know whether this pointer
+    // will stay a tap or turn into a disallowed off-knob drag, only actions
+    // that are safe to preview immediately (deactivating, or a momentary
+    // spring end) commit right away; a fresh latch-on request waits for a
+    // clean release (see _onPointerUp / _commitDeferredTrackTap).
+    final frac = (_dragStartDy! / areaH).clamp(0.0, 1.0);
+    final zone = _classifyTrackZone(frac);
+    _trackZone = zone;
+    if (zone == null) return; // dead-zone press: inert this gesture
+
+    final requested = _rawZoneIntent(zone);
+    if (requested == null) return; // disabled side: inert
+
+    final resolved = _resolveTapIntent(requested);
+    if (resolved == _pos) return;
+
+    if (resolved == ToggleSwitchPosition.center) {
+      _enterThreePositionDetent(ToggleSwitchPosition.center);
+      return;
     }
-    // Dead zone (or a disabled side): no commit yet; drag will handle it.
+    if (_isSpringPosition(resolved)) {
+      _enterThreePositionDetent(resolved);
+      _trackSpringHeld = true;
+      return;
+    }
+    // A genuinely new latch: defer commitment to a clean pointer-up.
+    _trackVoided = false;
   }
 
-  void _onPointerMove(PointerMoveEvent event, double areaH, double leverH) {
+  void _onPointerMove(
+    PointerMoveEvent event,
+    double areaH,
+    double leverW,
+    double leverH,
+  ) {
     if (!_enabled || _dragStartDy == null) return;
     if (event.pointer != _activePointerId) return;
 
-    final dy = event.localPosition.dy;
-    final delta = dy - _dragStartDy!;
-    _trackVelocity(dy);
-
-    // ── Spring side: direction-switch mid-drag ─────────────────────────────
-    if (_topHeld || _bottomHeld) {
-      final frac = (dy / areaH).clamp(0.0, 1.0);
-      if (_topHeld &&
-          frac > _kBottomZone &&
-          widget.bottomSideIsSpring &&
-          !widget.bottomDisabled) {
-        _topHeld = false;
-        _bottomHeld = true;
-        HapticFeedback.selectionClick();
-        _moveTo(ToggleSwitchPosition.right);
-        _springTo(_kKnobBotY, velocity: _alignVelocity);
-      } else if (_bottomHeld &&
-          frac < _kTopZone &&
-          widget.topSideIsSpring &&
-          !widget.topDisabled) {
-        _bottomHeld = false;
-        _topHeld = true;
-        HapticFeedback.selectionClick();
-        _moveTo(ToggleSwitchPosition.left);
-        _springTo(_kKnobTopY, velocity: _alignVelocity);
-      }
+    if (_downOnKnob) {
+      _onThreePositionPointerMove(event, leverW, leverH);
       return;
     }
 
-    // ── Live drag tracking: knob follows finger ────────────────────────────
-    if (delta.abs() > 2.0) {
-      _knobCtrl.stop(); // cancel preview spring so drag is direct
-      final pixPerUnit = (leverH * 0.35).clamp(20.0, 100.0);
-      _knobCtrl.value = (_dragStartKnobY + delta / pixPerUnit).clamp(
-        _kKnobTopY - 0.10,
-        _kKnobBotY + 0.10,
-      );
+    final dy = event.localPosition.dy;
+
+    // A momentary end stays engaged only while the pointer remains inside
+    // the zone it was pressed in — wandering out cancels it early, exactly
+    // like dragging off a normal button cancels the press. Checked ahead of
+    // `_trackVoided` because entering this state never clears that flag (it
+    // isn't a pending latch-on tap waiting for a clean release).
+    if (_trackSpringHeld) {
+      final frac = (dy / areaH).clamp(0.0, 1.0);
+      final stillInZone = _trackZone == _TrackZone.top
+          ? frac < _kTopZone
+          : frac > _kBottomZone;
+      if (!stillInZone) _cancelTrackSpringHold();
+      return;
     }
 
-    // ── Update direction intent once past threshold ────────────────────────
-    if (delta.abs() >= _kDragMin) {
-      if (delta < 0) {
-        // Dragging upward
-        if (widget.topDisabled) {
-          // No-op: the top side is disabled, drag intent is dropped.
-        } else if (widget.topSideIsSpring && !_topHeld) {
-          _topHeld = true;
-          HapticFeedback.selectionClick();
-          _moveTo(ToggleSwitchPosition.left);
-          _springTo(_kKnobTopY, velocity: _alignVelocity);
-        } else if (!widget.topSideIsSpring) {
-          _pendingPos = widget.isThreePosition
-              ? ToggleSwitchPosition.left
-              : ToggleSwitchPosition.center;
-        }
-      } else {
-        // Dragging downward
-        if (widget.bottomDisabled) {
-          // No-op: the bottom side is disabled, drag intent is dropped.
-        } else if (widget.bottomSideIsSpring && !_bottomHeld) {
-          _bottomHeld = true;
-          HapticFeedback.selectionClick();
-          _moveTo(ToggleSwitchPosition.right);
-          _springTo(_kKnobBotY, velocity: _alignVelocity);
-        } else if (!widget.bottomSideIsSpring) {
-          _pendingPos = ToggleSwitchPosition.right;
-        }
-      }
+    if (_trackVoided) return; // already resolved or disqualified
+
+    // A pending latch-on tap is disqualified the moment it moves enough to
+    // be a deliberate drag — off-knob presses may never drag the lever.
+    if ((dy - _dragStartDy!).abs() > _kDragMin) {
+      _trackVoided = true;
     }
   }
 
@@ -505,38 +801,20 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     ButtonStateLog.log('USER_UP [${widget.label}] pointer=${event.pointer}');
     _activePointerId = null;
     _pressUp();
-    final vel = _alignVelocity;
-    final wasSpringHeld = _topHeld || _bottomHeld;
 
-    if (_topHeld) {
-      _topHeld = false;
-      _moveTo(ToggleSwitchPosition.center);
-      _springTo(_knobYForPos(ToggleSwitchPosition.center), velocity: vel);
-      widget.onReleased?.call();
-    } else if (_bottomHeld) {
-      _bottomHeld = false;
-      _moveTo(ToggleSwitchPosition.center);
-      _springTo(_knobYForPos(ToggleSwitchPosition.center), velocity: vel);
-      widget.onReleased?.call();
-    } else if (_pendingPos != null) {
-      HapticFeedback.selectionClick();
-      _moveTo(_pendingPos!);
-      _springTo(_knobYForPos(_pendingPos!), velocity: vel);
+    if (_downOnKnob) {
+      _finishThreePositionGesture(cancelled: false);
+    } else if (_trackSpringHeld) {
+      _cancelTrackSpringHold();
+    } else if (!_trackVoided && _trackZone != null) {
+      _commitDeferredTrackTap(_trackZone!);
     } else {
-      // Dead-zone tap or no-drag: spring back to committed position.
-      _springTo(_knobYForPos(_pos), velocity: vel);
+      // Dead-zone tap or a voided off-knob drag: nothing committed, just
+      // make sure the knob is visually settled on its actual position.
+      _springTo(_knobYForPos(_pos));
     }
 
-    // Arm the guard only for the spring-return sides: a stale PLC_STATUS
-    // echo for the side just released must not resync the lever off centre
-    // again until a fresh USER_DOWN. Latching sides are untouched — their
-    // position is toggle-driven, not spring-driven.
-    if (wasSpringHeld) _suppressExternalReactivation = true;
-
-    _pendingPos = null;
-    _dragStartDy = null;
-    _dragVelocityPxS = 0.0;
-    _lastDragMicros = 0;
+    _resetGestureTracking();
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
@@ -546,23 +824,26 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     );
     _activePointerId = null;
     _pressUp();
-    final wasSpringHeld = _topHeld || _bottomHeld;
-    if (_topHeld) {
-      _topHeld = false;
-      _moveTo(ToggleSwitchPosition.center);
-      widget.onReleased?.call();
+
+    if (_downOnKnob) {
+      _finishThreePositionGesture(cancelled: true);
+    } else if (_trackSpringHeld) {
+      _cancelTrackSpringHold();
+    } else {
+      // A pending (uncommitted) latch-on tap is simply abandoned.
+      _springTo(_knobYForPos(_pos));
     }
-    if (_bottomHeld) {
-      _bottomHeld = false;
-      _moveTo(ToggleSwitchPosition.center);
-      widget.onReleased?.call();
-    }
-    if (wasSpringHeld) _suppressExternalReactivation = true;
-    _springTo(_knobYForPos(_pos));
-    _pendingPos = null;
+
+    _resetGestureTracking();
+  }
+
+  void _resetGestureTracking() {
     _dragStartDy = null;
     _dragVelocityPxS = 0.0;
     _lastDragMicros = 0;
+    _trackZone = null;
+    _trackVoided = true;
+    _trackSpringHeld = false;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -582,96 +863,117 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
         child: SizedBox(
           width: double.infinity,
           height: double.infinity,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // ── Industrial lever ─────────────────────────────────────────
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (ctx, cons) {
-                    final areaH = cons.maxHeight;
-                    final areaW = cons.maxWidth;
-                    final leverH = areaH.clamp(90.0, 260.0);
-                    final leverW = (leverH * (110.0 / 210.0)).clamp(
-                      56.0,
-                      areaW * 0.92,
-                    );
-                    _lastLeverH = leverH;
+          child: LayoutBuilder(
+            builder: (context, outerConstraints) {
+              final showFooter =
+                  outerConstraints.maxHeight >= _kCompactFooterThreshold &&
+                  outerConstraints.maxWidth >= 80.0;
+              final showHint =
+                  outerConstraints.maxWidth >= _kHintVisibilityWidth;
 
-                    return Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: (e) => _onPointerDown(e, areaH, leverH),
-                      onPointerMove: (e) => _onPointerMove(e, areaH, leverH),
-                      onPointerUp: (e) => _onPointerUp(e, areaH),
-                      onPointerCancel: (e) => _onPointerCancel(e),
-                      child: SizedBox.expand(
-                        child: Center(
-                          // AnimatedBuilder: rebuilds on every spring frame
-                          // AND on every scale-feedback frame.
-                          child: AnimatedBuilder(
-                            animation: Listenable.merge([
-                              _knobCtrl,
-                              _scaleCtrl,
-                            ]),
-                            builder: (ctx, _) {
-                              final scale = 1.0 - _scaleCtrl.value * 0.030;
-                              return Transform.scale(
-                                scale: scale,
-                                child: SizedBox(
-                                  width: leverW,
-                                  height: leverH,
-                                  child: _LeverBody(
-                                    knobY: _knobCtrl.value,
-                                    isOn: isOn,
-                                    activeColor: widget.activeColor,
-                                    activeColorLight: widget.activeColorLight,
-                                    mode: widget.resolvedMode,
-                                    position: _pos,
-                                    topLabel: widget.resolvedTopLabel,
-                                    bottomLabel: widget.resolvedBottomLabel,
-                                    topIcon: widget.topIcon,
-                                    bottomIcon: widget.bottomIcon,
-                                  ),
-                                ),
-                              );
-                            },
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // ── Industrial lever ─────────────────────────────────────────
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (ctx, cons) {
+                        final areaH = cons.maxHeight;
+                        final areaW = cons.maxWidth;
+                        final leverH = math.min(areaH, 260.0);
+                        final leverW = math.min(
+                          math.max(32.0, leverH * (110.0 / 210.0)),
+                          areaW * 0.92,
+                        );
+                        _lastLeverH = leverH;
+                        _lastLeverW = leverW;
+
+                        return Listener(
+                          key: const ValueKey('toggle_lever_interaction_area'),
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (e) =>
+                              _onPointerDown(e, areaW, areaH, leverW, leverH),
+                          onPointerMove: (e) =>
+                              _onPointerMove(e, areaH, leverW, leverH),
+                          onPointerUp: (e) => _onPointerUp(e, areaH),
+                          onPointerCancel: (e) => _onPointerCancel(e),
+                          child: SizedBox.expand(
+                            child: Center(
+                              // AnimatedBuilder: rebuilds on every spring frame
+                              // AND on every scale-feedback frame.
+                              child: AnimatedBuilder(
+                                animation: Listenable.merge([
+                                  _knobCtrl,
+                                  _scaleCtrl,
+                                ]),
+                                builder: (ctx, _) {
+                                  final scale = 1.0 - _scaleCtrl.value * 0.030;
+                                  return Transform.scale(
+                                    scale: scale,
+                                    child: SizedBox(
+                                      width: leverW,
+                                      height: leverH,
+                                      child: _LeverBody(
+                                        knobY: _knobCtrl.value,
+                                        isOn: isOn,
+                                        activeColor: widget.activeColor,
+                                        activeColorLight:
+                                            widget.activeColorLight,
+                                        mode: widget.resolvedMode,
+                                        position: _pos,
+                                        topLabel: widget.resolvedTopLabel,
+                                        bottomLabel: widget.resolvedBottomLabel,
+                                        topIcon: widget.topIcon,
+                                        bottomIcon: widget.bottomIcon,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              // ── Compact footer ────────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.only(top: 5, bottom: 3),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: ControlButtonVisualMetrics.rowHeight,
-                        child: ControlButtonLabelIcon(
-                          label: widget.label,
-                          icon: widget.icon,
-                          style: style,
-                          color: isOn
-                              ? widget.activeColorLight
-                              : AppColors.darkText,
-                          iconColor: isOn
-                              ? widget.activeColorLight
-                              : AppColors.darkTextMuted,
-                          rotation: widget.rotation,
+                        );
+                      },
+                    ),
+                  ),
+                  // ── Compact footer ────────────────────────────────────────────
+                  if (showFooter)
+                    SizedBox(
+                      height: _kFooterExtent,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 5, bottom: 3),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: ControlButtonVisualMetrics.rowHeight,
+                                child: ControlButtonLabelIcon(
+                                  label: widget.label,
+                                  icon: widget.icon,
+                                  style: style,
+                                  color: isOn
+                                      ? widget.activeColorLight
+                                      : AppColors.darkText,
+                                  iconColor: isOn
+                                      ? widget.activeColorLight
+                                      : AppColors.darkTextMuted,
+                                  rotation: widget.rotation,
+                                ),
+                              ),
+                            ),
+                            if (showHint) ...[
+                              const SizedBox(width: 6),
+                              _HintLabel(mode: widget.resolvedMode, pos: _pos),
+                            ],
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    _HintLabel(mode: widget.resolvedMode, pos: _pos),
-                  ],
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -824,6 +1126,7 @@ class _LeverBody extends StatelessWidget {
                   knobY.clamp(-_kKnobVisualLimit, _kKnobVisualLimit),
                 ),
                 child: _Knob(
+                  key: const ValueKey('toggle_lever_knob'),
                   size: knobSz,
                   isOn: isOn,
                   activeColor: activeColor,
@@ -1124,12 +1427,12 @@ class _HintLabel extends StatelessWidget {
     return switch (mode) {
       ToggleSwitchMode.springReturnOneSide => isOn ? 'ACTIVE' : 'HOLD',
       ToggleSwitchMode.latchingOneSide => isOn ? 'ON · TAP' : 'OFF · TAP',
-      ToggleSwitchMode.springReturnBoth => isOn ? 'ACTIVE' : 'HOLD EITHER',
-      ToggleSwitchMode.latchingBoth => isOn ? 'ON · TAP OFF' : 'TAP EITHER',
+      ToggleSwitchMode.springReturnBoth => isOn ? 'ACTIVE' : 'DRAG EITHER',
+      ToggleSwitchMode.latchingBoth => isOn ? 'LATCHED · DRAG' : 'DRAG EITHER',
       ToggleSwitchMode.mixed => switch (pos) {
-        ToggleSwitchPosition.left => 'ON · TAP',
+        ToggleSwitchPosition.left => 'LATCHED · DRAG',
         ToggleSwitchPosition.right => 'ACTIVE',
-        ToggleSwitchPosition.center => 'TAP / HOLD',
+        ToggleSwitchPosition.center => 'DRAG / HOLD',
       },
     };
   }
@@ -1901,6 +2204,7 @@ const _kKnobOffDark = Color(0xFFC0392B);
 
 class _Knob extends StatelessWidget {
   const _Knob({
+    super.key,
     required this.size,
     required this.isOn,
     required this.activeColor,

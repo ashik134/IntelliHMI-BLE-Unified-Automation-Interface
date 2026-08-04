@@ -705,7 +705,39 @@ class LayoutEditController extends ChangeNotifier {
   void updateButton(String id, ButtonConfig Function(ButtonConfig) update) {
     final current = _draft.resolvedButtons[id];
     if (current == null) return;
-    _applyDraft(_draft.withButton(id, update(current)));
+    var updated = update(current);
+    final isMultiZoneSlider =
+        current.type == ButtonType.bidirectionalSlider3Step ||
+        current.type == ButtonType.bidirectionalSlider5Step;
+    final changesFootprintAxis =
+        current.rotation.quarterTurns.isOdd !=
+        updated.rotation.quarterTurns.isOdd;
+
+    if (!isMultiZoneSlider || !changesFootprintAxis) {
+      _applyDraft(_draft.withButton(id, updated));
+      return;
+    }
+
+    // A quarter-turn changes the physical operational contract from W×H to
+    // H×W. Swap the existing allocation at the same time, then let the grid
+    // repairer relocate any collision instead of leaving an invalid draft.
+    updated = updated.copyWith(
+      gridColumns: current.gridRowSpan,
+      gridRows: current.gridColumnSpan,
+    );
+    final grid = _draft.gridLayout;
+    final repaired = compactControlPages(
+      repairControlGridLayout(
+        _draft.withButton(id, updated),
+        slotCount: grid.slotCount,
+        columns: grid.columns,
+        rows: grid.rows,
+      ),
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    _applyDraft(repaired);
   }
 
   /// Resets [id]'s appearance/behavior/customProperties/label/icon/rotation

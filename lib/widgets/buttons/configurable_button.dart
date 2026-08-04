@@ -137,9 +137,15 @@ class ConfigurableButton extends StatelessWidget {
 
           return ClipRect(
             child: Center(
-              child: Transform.rotate(
-                angle: config.rotation.turns * 2 * math.pi,
-                child: button(width: childWidth, childHeight: childHeight),
+              child: OverflowBox(
+                minWidth: childWidth,
+                maxWidth: childWidth,
+                minHeight: childHeight,
+                maxHeight: childHeight,
+                child: Transform.rotate(
+                  angle: config.rotation.turns * 2 * math.pi,
+                  child: button(width: childWidth, childHeight: childHeight),
+                ),
               ),
             ),
           );
