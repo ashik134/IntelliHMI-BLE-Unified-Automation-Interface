@@ -154,7 +154,9 @@ class _ControlCanvasState extends State<ControlCanvas> {
                   for (var slot = 0; slot < grid.slotCount; slot++)
                     if (!occupiedSlots.contains(slot))
                       AnimatedPositioned(
-                        key: ValueKey('vacant_${page?.pageIndex ?? pageIndex}_$slot'),
+                        key: ValueKey(
+                          'vacant_${page?.pageIndex ?? pageIndex}_$slot',
+                        ),
                         duration: _kRepositionDuration,
                         curve: Curves.easeOutCubic,
                         left: (slot % grid.columns) * cellWidth,
@@ -293,19 +295,21 @@ class _OccupiedCell extends StatelessWidget {
             ),
           if (isSelected)
             Positioned(
-              top: -6,
-              right: -6,
+              top: 0,
+              right: 0,
               child: GestureDetector(
                 onTap: onDelete,
                 child: Container(
-                  width: 26,
-                  height: 26,
+                  width: 20,
+                  height: 20,
                   decoration: const BoxDecoration(
                     color: AppColors.eStopColor,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
-                    Icons.delete_rounded,
+                    Icons.remove,
+
+                    fontWeight: FontWeight.bold,
                     color: Colors.white,
                     size: 15,
                   ),
@@ -316,21 +320,21 @@ class _OccupiedCell extends StatelessWidget {
           // — see [onEdit]'s doc comment for why this differs from the
           // delete badge's selected-cell-only gating.
           Positioned(
-            top: -6,
-            left: -6,
+            top: -0,
+            left: 1,
             child: GestureDetector(
               onTap: onEdit,
               child: Container(
-                width: 26,
-                height: 26,
+                width: 20,
+                height: 20,
                 decoration: const BoxDecoration(
                   color: AppColors.selectionViolet,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.edit_rounded,
+                  Icons.edit_square,
                   color: Colors.white,
-                  size: 14,
+                  size: 12,
                 ),
               ),
             ),

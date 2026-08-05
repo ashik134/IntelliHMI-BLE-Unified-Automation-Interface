@@ -220,7 +220,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       _ToolbarActionSpec(
         id: 'widgets',
         icon: Icons.widgets_rounded,
-        label: 'Widgets',
+        label: 'Controls',
         onTap: () => _openCatalog(context),
       ),
       _ToolbarActionSpec(
@@ -298,7 +298,11 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
                       onCancel: _closeGridLayoutPanel,
                       onApply: () => _applyGridLayout(context),
                     )
-                  : _buildActionsRow(context, items, key: const ValueKey('actionsRow')),
+                  : _buildActionsRow(
+                      context,
+                      items,
+                      key: const ValueKey('actionsRow'),
+                    ),
             ),
           ],
         ),
@@ -317,7 +321,9 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       children: [
         Expanded(
           child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            behavior: ScrollConfiguration.of(
+              context,
+            ).copyWith(scrollbars: false),
             child: ListView.separated(
               controller: _scrollController,
               scrollDirection: Axis.horizontal,

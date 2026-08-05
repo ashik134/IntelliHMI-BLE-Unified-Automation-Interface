@@ -3,6 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
@@ -69,28 +70,34 @@ class EditModeAppBarTitle extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Customization Mode',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: AppColors.darkText,
+        // Flexible so this shrinks to whatever width the AppBar's title slot
+        // actually has left — e.g. narrower once Undo/Redo join the actions
+        // row in Edit Mode (see EditModeUndoRedoActions) — letting the Texts'
+        // own ellipsis do its job instead of the Row hard-overflowing.
+        const Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Customization Mode',
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.darkText,
+                ),
               ),
-            ),
-            SizedBox(height: 2),
-            Text(
-              'Tap a widget to select or delete',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10.5, color: AppColors.darkTextSub),
-            ),
-          ],
+              SizedBox(height: 2),
+              Text(
+                'Tap a widget to select or delete',
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                style: TextStyle(fontSize: 10.5, color: AppColors.darkTextSub),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -144,6 +151,69 @@ class CustomizationModeBanner extends StatelessWidget
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EditModeUndoRedoActions
+//
+// AppBar-actions pair for Customization Mode: Undo/Redo over the in-progress
+// draft (LayoutEditController.undo/redo — see that controller's history
+// doc comment for what counts as one undo step). Each button watches only
+// its own enabled flag via context.select, so a draft mutation elsewhere on
+// the canvas only rebuilds this pair when Undo/Redo availability actually
+// flips, not on every notifyListeners tick.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class EditModeUndoRedoActions extends StatelessWidget {
+  const EditModeUndoRedoActions({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [_UndoButton(), _RedoButton()],
+    );
+  }
+}
+
+class _UndoButton extends StatelessWidget {
+  const _UndoButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final canUndo = context.select<LayoutEditController, bool>(
+      (c) => c.canUndo,
+    );
+    return IconButton(
+      icon: const Icon(Icons.undo, size: 20),
+      color: AppColors.darkText,
+      disabledColor: AppColors.darkTextMuted.withAlpha(90),
+      tooltip: 'Undo',
+      onPressed: canUndo
+          ? () => context.read<LayoutEditController>().undo()
+          : null,
+    );
+  }
+}
+
+class _RedoButton extends StatelessWidget {
+  const _RedoButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final canRedo = context.select<LayoutEditController, bool>(
+      (c) => c.canRedo,
+    );
+    return IconButton(
+      icon: const Icon(Icons.redo, size: 20),
+      color: AppColors.darkText,
+      disabledColor: AppColors.darkTextMuted.withAlpha(90),
+      tooltip: 'Redo',
+      onPressed: canRedo
+          ? () => context.read<LayoutEditController>().redo()
+          : null,
     );
   }
 }

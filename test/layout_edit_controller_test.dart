@@ -428,6 +428,223 @@ void main() {
     );
   });
 
+  group('undo / redo', () {
+    test('canUndo/canRedo are both false right after enter', () async {
+      await editCtrl.enter();
+      expect(editCtrl.canUndo, isFalse);
+      expect(editCtrl.canRedo, isFalse);
+    });
+
+    test('undo reverts the most recent completed change', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isTrue);
+
+      editCtrl.undo();
+
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+      expect(editCtrl.canUndo, isFalse);
+      expect(editCtrl.canRedo, isTrue);
+    });
+
+    test('redo reapplies the most recently undone change', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      editCtrl.undo();
+
+      editCtrl.redo();
+
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isTrue);
+      expect(editCtrl.canUndo, isTrue);
+      expect(editCtrl.canRedo, isFalse);
+    });
+
+    test('undo walks back multiple independent changes one at a time', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      editCtrl.addButton(_sampleButton('b'));
+      editCtrl.deleteButton('a');
+      final buttons = editCtrl.draft.resolvedButtons;
+      expect(buttons.containsKey('a'), isFalse);
+      expect(buttons.containsKey('b'), isTrue);
+
+      editCtrl.undo(); // undo the delete of 'a'
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isTrue);
+      expect(editCtrl.draft.resolvedButtons.containsKey('b'), isTrue);
+
+      editCtrl.undo(); // undo adding 'b'
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isTrue);
+      expect(editCtrl.draft.resolvedButtons.containsKey('b'), isFalse);
+
+      editCtrl.undo(); // undo adding 'a'
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+      expect(editCtrl.canUndo, isFalse);
+    });
+
+    test(
+      'making a new change after undo clears the redo history',
+      () async {
+        await editCtrl.enter();
+        editCtrl.addButton(_sampleButton('a'));
+        editCtrl.undo();
+        expect(editCtrl.canRedo, isTrue);
+
+        editCtrl.addButton(_sampleButton('b'));
+
+        expect(editCtrl.canRedo, isFalse);
+        expect(editCtrl.draft.resolvedButtons.containsKey('b'), isTrue);
+      },
+    );
+
+    test('undo/redo cover widget deletion', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      editCtrl.deleteButton('a');
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+
+      editCtrl.undo();
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isTrue);
+
+      editCtrl.redo();
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+    });
+
+    test('undo/redo cover a grid layout change', () async {
+      await editCtrl.enter();
+      final original = editCtrl.draft.gridLayout;
+      editCtrl.applyGridLayout(GridLayoutOption.fourByFour);
+      expect(editCtrl.draft.gridLayout, GridLayoutOption.fourByFour);
+
+      editCtrl.undo();
+      expect(editCtrl.draft.gridLayout, original);
+
+      editCtrl.redo();
+      expect(editCtrl.draft.gridLayout, GridLayoutOption.fourByFour);
+    });
+
+    test(
+      'undo/redo cover the widget movement + addition reflow from a '
+      'catalogue drop',
+      () async {
+        await editCtrl.enter();
+        editCtrl.addButton(_sampleButton('occupant')); // lands at (0,0)
+        editCtrl.registerPlacementSurface(Object(), _fixedSurface());
+        _beginPlacement(editCtrl);
+        editCtrl.handleCatalogueDrop(
+          globalDropOffset: _offsetForCell(0, 0),
+          previewSize: _previewSize,
+        );
+        editCtrl.commitSettledPlacement();
+
+        final afterPlacement = editCtrl.draft;
+        final occupantAfter = afterPlacement.resolvedButtons['occupant']!;
+        expect(
+          occupantAfter.pageIndex == 0 &&
+              occupantAfter.gridX == 0 &&
+              occupantAfter.gridY == 0,
+          isFalse,
+        );
+
+        editCtrl.undo();
+
+        final occupantRestored = editCtrl.draft.resolvedButtons['occupant']!;
+        expect(occupantRestored.gridX, 0);
+        expect(occupantRestored.gridY, 0);
+        expect(
+          editCtrl.draft.resolvedButtons.keys.any(
+            (id) => id.startsWith('placed_'),
+          ),
+          isFalse,
+        );
+
+        editCtrl.redo();
+        expect(editCtrl.draft, afterPlacement);
+      },
+    );
+
+    test(
+      'a history batch coalesces many mutations (e.g. slider drag frames) '
+      'into a single undo entry',
+      () async {
+        await editCtrl.enter();
+        editCtrl.addButton(_sampleButton('a'));
+        final beforeBatch = editCtrl.draft;
+
+        editCtrl.beginHistoryBatch();
+        for (var radius = 1; radius <= 5; radius++) {
+          editCtrl.updateButton(
+            'a',
+            (b) => b.copyWith(
+              style: b.style.copyWith(cornerRadius: radius.toDouble()),
+            ),
+          );
+        }
+        expect(
+          editCtrl.draft.resolvedButtons['a']!.style.cornerRadius,
+          5.0,
+        );
+        // Nothing is pushed onto the undo stack until the batch ends.
+        editCtrl.endHistoryBatch();
+
+        editCtrl.undo();
+        // One undo restores the pre-batch state directly, not one of the
+        // five intermediate slider frames.
+        expect(editCtrl.draft, beforeBatch);
+      },
+    );
+
+    test('an empty history batch pushes no entry', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      final before = editCtrl.draft;
+
+      editCtrl.beginHistoryBatch();
+      editCtrl.endHistoryBatch();
+
+      expect(editCtrl.draft, before);
+      // canUndo still reflects only the earlier addButton entry.
+      editCtrl.undo();
+      expect(editCtrl.draft.resolvedButtons.containsKey('a'), isFalse);
+      expect(editCtrl.canUndo, isFalse);
+    });
+
+    test('history is bounded to avoid unlimited memory growth', () async {
+      await editCtrl.enter();
+      for (var i = 0; i < 60; i++) {
+        editCtrl.addButton(_sampleButton('btn$i'));
+      }
+      var undoCount = 0;
+      while (editCtrl.canUndo) {
+        editCtrl.undo();
+        undoCount++;
+      }
+      expect(undoCount, 50);
+    });
+
+    test('undo/redo are unavailable mid-placement drag', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      expect(editCtrl.canUndo, isTrue);
+
+      editCtrl.registerPlacementSurface(Object(), _fixedSurface());
+      _beginPlacement(editCtrl);
+      expect(editCtrl.canUndo, isFalse);
+
+      editCtrl.cancelCataloguePlacement();
+      expect(editCtrl.canUndo, isTrue);
+    });
+
+    test('enter() resets history from a prior edit session', () async {
+      await editCtrl.enter();
+      editCtrl.addButton(_sampleButton('a'));
+      await editCtrl.exit();
+
+      await editCtrl.enter();
+      expect(editCtrl.canUndo, isFalse);
+      expect(editCtrl.canRedo, isFalse);
+    });
+  });
+
   group('resetButtonToDefault', () {
     test(
       'with a valid catalogEntryId, restores that exact entry\'s style/'

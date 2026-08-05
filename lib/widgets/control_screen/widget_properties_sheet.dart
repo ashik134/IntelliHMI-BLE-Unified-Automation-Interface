@@ -23,13 +23,26 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/s
 // [showWidgetPropertiesSheet] with the target button's id.
 // ─────────────────────────────────────────────────────────────────────────────
 
-Future<void> showWidgetPropertiesSheet(BuildContext context, String buttonId) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => WidgetPropertiesSheet(buttonId: buttonId),
-  );
+Future<void> showWidgetPropertiesSheet(
+  BuildContext context,
+  String buttonId,
+) async {
+  // The whole sheet visit — label edits, appearance sliders, rotation,
+  // reset-to-default, delete — collapses into a single undo entry rather
+  // than one per keystroke/slider frame. See LayoutEditController's
+  // beginHistoryBatch doc comment.
+  final editCtrl = context.read<LayoutEditController>();
+  editCtrl.beginHistoryBatch();
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => WidgetPropertiesSheet(buttonId: buttonId),
+    );
+  } finally {
+    editCtrl.endHistoryBatch();
+  }
 }
 
 class WidgetPropertiesSheet extends StatelessWidget {

@@ -541,6 +541,7 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
             tooltip: 'Customize Layout',
             onPressed: () => context.read<LayoutEditController>().enter(),
           ),
+        if (isEditing) const EditModeUndoRedoActions(),
         const _DisconnectButton(),
       ],
       bottom: isEditing

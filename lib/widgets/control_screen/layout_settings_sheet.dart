@@ -12,13 +12,23 @@ import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 /// immediate-persist update* methods) so nothing here reaches
 /// SharedPreferences until Save Layout / Done, matching every other
 /// mutation in the customization workflow.
-Future<void> showLayoutSettingsSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => const _LayoutSettingsSheet(),
-  );
+Future<void> showLayoutSettingsSheet(BuildContext context) async {
+  // The whole sheet visit — label text fields, arrangement toggles, E-Stop
+  // height/width scale sliders — collapses into a single undo entry rather
+  // than one per keystroke/slider frame. See LayoutEditController's
+  // beginHistoryBatch doc comment.
+  final editCtrl = context.read<LayoutEditController>();
+  editCtrl.beginHistoryBatch();
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _LayoutSettingsSheet(),
+    );
+  } finally {
+    editCtrl.endHistoryBatch();
+  }
 }
 
 class _LayoutSettingsSheet extends StatefulWidget {

@@ -77,6 +77,122 @@ class LayoutEditController extends ChangeNotifier {
   String? _selectedButtonId;
   ValidationResult _lastValidation = const ValidationResult.valid();
 
+  // ── Undo / redo history ──────────────────────────────────────────────────
+  //
+  // Every completed draft mutation (add/delete/duplicate a widget, a
+  // catalogue drop's placement + reflow, a property edit, a template/grid
+  // swap, an arrangement/label/size change) is eligible for exactly one
+  // undo entry, captured as the whole prior [ControlLayoutConfig] rather
+  // than a diff — simplest possible correctness given how varied the
+  // mutations are, and cheap enough at this scale (a handful of buttons per
+  // layout, capped history depth).
+  //
+  // Some UI surfaces (the Widget Properties sheet's sliders/text fields, the
+  // Layout Settings sheet's E-Stop size sliders) call into the draft once
+  // per drag frame / keystroke rather than once per logical edit. Wrapping
+  // such a surface's whole visit in [beginHistoryBatch]/[endHistoryBatch]
+  // (see showWidgetPropertiesSheet / showLayoutSettingsSheet) coalesces
+  // every mutation in between into the single entry the operator actually
+  // perceives as "one change" — the draft as it stood right before the
+  // batch's first mutation. Discrete, single-call mutations made outside a
+  // batch (delete-from-canvas, duplicate, apply template, apply grid
+  // layout, catalogue placement) are unaffected and each get their own
+  // entry immediately.
+  static const int _kMaxHistoryEntries = 50;
+  final List<ControlLayoutConfig> _undoStack = [];
+  final List<ControlLayoutConfig> _redoStack = [];
+  int _historyBatchDepth = 0;
+  ControlLayoutConfig? _historyBatchCheckpoint;
+
+  /// True once there is a prior draft state to restore. Also false while a
+  /// catalogue placement is in flight ([_interactionMode] isn't
+  /// [CustomizationInteractionMode.editing]) so Undo/Redo can never rewrite
+  /// the draft out from under an in-progress drag/settle animation.
+  bool get canUndo =>
+      _undoStack.isNotEmpty &&
+      _interactionMode == CustomizationInteractionMode.editing;
+
+  /// True once a prior [undo] has something to reapply. See [canUndo] for
+  /// why this is also gated on [_interactionMode].
+  bool get canRedo =>
+      _redoStack.isNotEmpty &&
+      _interactionMode == CustomizationInteractionMode.editing;
+
+  /// Snapshots the draft as it stood immediately before [next] takes effect
+  /// so [undo] can restore it later. A no-op when [next] is identical to the
+  /// current draft (nothing to undo). While a history batch is open, only
+  /// the first mutation of the batch captures a checkpoint — see the
+  /// class-level doc comment above.
+  void _recordHistory(ControlLayoutConfig next) {
+    if (next == _draft) return;
+    if (_historyBatchDepth > 0) {
+      _historyBatchCheckpoint ??= _draft;
+      return;
+    }
+    _pushUndoSnapshot(_draft);
+  }
+
+  void _pushUndoSnapshot(ControlLayoutConfig snapshot) {
+    _undoStack.add(snapshot);
+    if (_undoStack.length > _kMaxHistoryEntries) {
+      _undoStack.removeAt(0);
+    }
+    _redoStack.clear();
+  }
+
+  /// Opens a history batch: every draft mutation until the matching
+  /// [endHistoryBatch] collapses into at most one undo entry instead of one
+  /// per call. Reentrant (nested calls just increment a depth counter) so a
+  /// stray double-open can never close the batch early. See the
+  /// class-level doc comment for why this exists and who calls it.
+  void beginHistoryBatch() {
+    _historyBatchDepth++;
+  }
+
+  /// Closes a history batch opened by [beginHistoryBatch], pushing the one
+  /// coalesced entry (if the draft actually changed during the batch) and
+  /// clearing the redo stack. A no-op if nothing was open.
+  void endHistoryBatch() {
+    if (_historyBatchDepth == 0) return;
+    _historyBatchDepth--;
+    if (_historyBatchDepth > 0) return;
+    final checkpoint = _historyBatchCheckpoint;
+    _historyBatchCheckpoint = null;
+    if (checkpoint == null) return;
+    _pushUndoSnapshot(checkpoint);
+    notifyListeners();
+  }
+
+  /// Restores the most recent prior draft state, pushing the current one
+  /// onto the redo stack. Updates the canvas immediately (via
+  /// notifyListeners) without leaving Edit Mode. A no-op if [canUndo] is
+  /// false.
+  void undo() {
+    if (!canUndo) return;
+    _redoStack.add(_draft);
+    _draft = _undoStack.removeLast();
+    _lastValidation = _validator.validateFullConfig(_draft);
+    if (_selectedButtonId != null &&
+        !_draft.resolvedButtons.containsKey(_selectedButtonId)) {
+      _selectedButtonId = null;
+    }
+    notifyListeners();
+  }
+
+  /// Reapplies the most recently undone draft state, pushing the current
+  /// one back onto the undo stack. A no-op if [canRedo] is false.
+  void redo() {
+    if (!canRedo) return;
+    _undoStack.add(_draft);
+    _draft = _redoStack.removeLast();
+    _lastValidation = _validator.validateFullConfig(_draft);
+    if (_selectedButtonId != null &&
+        !_draft.resolvedButtons.containsKey(_selectedButtonId)) {
+      _selectedButtonId = null;
+    }
+    notifyListeners();
+  }
+
   // ── Catalogue placement (long-press selection stage) ────────────────────
   CustomizationInteractionMode _interactionMode =
       CustomizationInteractionMode.editing;
@@ -217,6 +333,10 @@ class LayoutEditController extends ChangeNotifier {
     _isEditing = true;
     _interactionMode = CustomizationInteractionMode.editing;
     _pendingCatalogueEntry = null;
+    _undoStack.clear();
+    _redoStack.clear();
+    _historyBatchDepth = 0;
+    _historyBatchCheckpoint = null;
     notifyListeners();
   }
 
@@ -560,7 +680,12 @@ class LayoutEditController extends ChangeNotifier {
     final nextPageCount = (maxPage + 1) > _draft.controlPageCount
         ? maxPage + 1
         : _draft.controlPageCount;
-    _draft = _draft.copyWith(buttons: buttons, controlPageCount: nextPageCount);
+    final nextDraft = _draft.copyWith(
+      buttons: buttons,
+      controlPageCount: nextPageCount,
+    );
+    _recordHistory(nextDraft);
+    _draft = nextDraft;
     _lastValidation = _validator.validateFullConfig(_draft);
     _selectedButtonId = button.id;
     _pendingCatalogueEntry = null;
@@ -860,6 +985,7 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   void _applyDraft(ControlLayoutConfig next) {
+    _recordHistory(next);
     _draft = next;
     _lastValidation = _validator.validateFullConfig(_draft);
     notifyListeners();
