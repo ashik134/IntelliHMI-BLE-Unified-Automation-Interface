@@ -15,10 +15,15 @@ import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_b
 
 void main() {
   const vibrationChannel = MethodChannel('vibration');
+  late List<MethodCall> vibrationCalls;
 
   setUp(() {
+    vibrationCalls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(vibrationChannel, (call) async => null);
+        .setMockMethodCallHandler(vibrationChannel, (call) async {
+          vibrationCalls.add(call);
+          return null;
+        });
   });
 
   tearDown(() {
@@ -31,6 +36,28 @@ void main() {
   // ≈ 34.27; halfTrack = (300 - 34.27) / 2 ≈ 132.86.
   const halfTrack = 132.86;
   double dxFor(double fraction) => fraction * halfTrack;
+
+  testWidgets('track taps and track-origin drags are ignored', (tester) async {
+    final emitted = <String>[];
+    await tester.pumpWidget(_Harness(onZone: emitted.add));
+
+    final thumbCenter = tester.getCenter(_thumbFinder);
+    final trackPoint = thumbCenter + Offset(dxFor(0.75), 0);
+
+    await tester.tapAt(trackPoint);
+    await tester.pump();
+    expect(emitted, isEmpty);
+    expect(vibrationCalls, isEmpty);
+
+    final trackGesture = await tester.startGesture(trackPoint);
+    await trackGesture.moveBy(Offset(-dxFor(0.5), 0));
+    await tester.pump();
+    await trackGesture.up();
+    await tester.pumpAndSettle();
+
+    expect(emitted, isEmpty);
+    expect(vibrationCalls, isEmpty);
+  });
 
   testWidgets('five-zone: drag reports zone1/zone2/zone4/zone5 by position, '
       'never left/right/slow/fast', (tester) async {
@@ -201,6 +228,8 @@ void main() {
     },
   );
 }
+
+final _thumbFinder = find.byKey(const ValueKey('multi_zone_slider_thumb'));
 
 class _Harness extends StatelessWidget {
   const _Harness({

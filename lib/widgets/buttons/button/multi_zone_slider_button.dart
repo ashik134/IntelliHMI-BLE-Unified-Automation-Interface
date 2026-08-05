@@ -207,9 +207,12 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
 
 class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     with SingleTickerProviderStateMixin {
+  static const double _thumbHitSlop = 12.0;
+
   /// Normalised thumb position: -1.0 = full negative · 0.0 = centre · +1.0 = full positive
   double _value = 0.0;
   bool _isDragging = false;
+  bool _pointerStartedOnThumb = false;
   String _stateId = MultiZoneSliderStateId.center;
 
   bool _suppressExternalReactivation = false;
@@ -256,6 +259,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
       setState(() {
         _value = 0.0;
         _isDragging = false;
+        _pointerStartedOnThumb = false;
         _stateId = MultiZoneSliderStateId.center;
       });
       return;
@@ -305,6 +309,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   void _syncFromExternalStateId(String externalStateId) {
+    _springCtrl.stop();
     final stateId = MultiZoneSliderStateId.normalize(
       externalStateId,
       fiveZone: widget.isFiveZone,
@@ -370,13 +375,15 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
       '${zoneId == MultiZoneSliderStateId.center ? 'VISUAL_IDLE / SEND_IDLE' : 'VISUAL_ACTIVE / SEND_ACTIVE'} '
       '[${widget.startLabel}/${widget.endLabel}] -> $zoneId',
     );
-    if (zoneId != MultiZoneSliderStateId.center) {
+    if (zoneId == MultiZoneSliderStateId.center) {
+      Vibration.vibrate(duration: 15);
+    } else {
       final isFarZone =
           zoneId == MultiZoneSliderStateId.zone1 ||
           zoneId == MultiZoneSliderStateId.zone5;
       Vibration.vibrate(
-        duration: isFarZone ? 28 : 18,
-        amplitude: isFarZone ? 180 : 80,
+        duration: isFarZone ? 55 : 25,
+        amplitude: isFarZone ? 255 : 100,
       );
     }
     widget.onStateChanged(zoneId);
@@ -393,9 +400,14 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   void _springReturn() {
+    if (_value == 0.0) {
+      _springCtrl.stop();
+      return;
+    }
+
     _springCtrl.animateWith(
       SpringSimulation(
-        const SpringDescription(mass: 0.5, stiffness: 280.0, damping: 17.0),
+        const SpringDescription(mass: 0.5, stiffness: 280.0, damping: 20.0),
         _value,
         0.0, // target = centre
         0.0, // initial velocity
@@ -408,7 +420,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   // ─────────────────────────────────────────────────────────────────────────
 
   void _dragStart(DragStartDetails _, double halfTrack) {
-    if (!widget.enabled) return;
+    if (!widget.enabled || !_pointerStartedOnThumb || halfTrack <= 0) return;
     ButtonStateLog.log('USER_DOWN [${widget.startLabel}/${widget.endLabel}]');
     _springCtrl.stop();
     _suppressExternalReactivation = false;
@@ -436,11 +448,19 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   void _dragEnd(DragEndDetails _) {
+    if (!_isDragging) {
+      _pointerStartedOnThumb = false;
+      return;
+    }
     ButtonStateLog.log('USER_UP [${widget.startLabel}/${widget.endLabel}]');
     _release();
   }
 
   void _dragCancel() {
+    if (!_isDragging) {
+      _pointerStartedOnThumb = false;
+      return;
+    }
     ButtonStateLog.log('USER_CANCEL [${widget.startLabel}/${widget.endLabel}]');
     _release();
   }
@@ -448,6 +468,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   void _release() {
     if (!_isDragging) return;
     setState(() => _isDragging = false);
+    _pointerStartedOnThumb = false;
     _emitZone(
       MultiZoneSliderStateId.center,
     ); // Safety: emit centre immediately.
@@ -455,6 +476,52 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     // until the next fresh pointer interaction.
     _suppressExternalReactivation = true;
     _springReturn();
+  }
+
+  Rect _thumbHitRect({
+    required double trackLength,
+    required double laneWidth,
+    required double thumbW,
+    required double thumbH,
+  }) {
+    final travel = (trackLength - thumbW).clamp(0.0, trackLength).toDouble();
+    final thumbCenterX = thumbW / 2.0 + ((_value + 1.0) / 2.0) * travel;
+    final hitWidth = (thumbW + _thumbHitSlop * 2)
+        .clamp(48.0, trackLength)
+        .toDouble();
+    final hitHeight = (thumbH + _thumbHitSlop * 2)
+        .clamp(48.0, laneWidth)
+        .toDouble();
+    return Rect.fromCenter(
+      center: Offset(thumbCenterX, laneWidth / 2.0),
+      width: hitWidth,
+      height: hitHeight,
+    );
+  }
+
+  void _onPointerDown(
+    PointerDownEvent event, {
+    required double trackLength,
+    required double laneWidth,
+    required double thumbW,
+    required double thumbH,
+  }) {
+    _pointerStartedOnThumb =
+        widget.enabled &&
+        _thumbHitRect(
+          trackLength: trackLength,
+          laneWidth: laneWidth,
+          thumbW: thumbW,
+          thumbH: thumbH,
+        ).contains(event.localPosition);
+  }
+
+  void _onPointerUp(PointerUpEvent _) {
+    if (!_isDragging) _pointerStartedOnThumb = false;
+  }
+
+  void _onPointerCancel(PointerCancelEvent _) {
+    _pointerStartedOnThumb = false;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -477,6 +544,16 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   Color get _trackColor {
     if (!widget.enabled) return AppColors.idleColor;
     return _isFarZone ? _farColor : _nearColor;
+  }
+
+  Color get _overlayColor {
+    if (!widget.enabled) return Colors.transparent;
+    if (_stateId == MultiZoneSliderStateId.center) {
+      return AppColors.idleColor.withAlpha(35);
+    }
+    return _isFarZone
+        ? _farColor.withAlpha(55)
+        : _nearColor.withAlpha(50);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -521,87 +598,144 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   Widget _buildCore(double w, double h) {
-    final thumbH = h.clamp(60.0, 200.0) * 0.42;
-    final thumbW = (thumbH * 0.68).clamp(22.0, 36.0);
-    final trackH = (h * 0.14).clamp(8.0, 16.0);
-    final halfTrack = (w - thumbW) / 2.0;
-    final thumbCX = w / 2.0 + _value * halfTrack;
+    final laneWidth = h.clamp(56.0, 72.0).toDouble();
+    final thumbW = (laneWidth * 0.58).clamp(0.0, 36.0).toDouble();
+    final thumbH = (laneWidth * 0.82).clamp(0.0, 52.0).toDouble();
+    final trackH = (laneWidth * 0.28).clamp(0.0, 16.0).toDouble();
     const footerHeight = ControlButtonVisualMetrics.rowHeight;
-    final bodyHeight = (h - footerHeight - 6).clamp(thumbH, h);
+    final bodyHeight = math.max(0.0, h - footerHeight - 6);
 
     return Opacity(
-      opacity: widget.enabled ? 1.0 : 0.6,
+      opacity: widget.enabled ? 1.0 : 0.55,
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: w,
+              height: bodyHeight,
+              child: Center(
+                child: SizedBox(
+                  width: w,
+                  height: laneWidth,
+                  child: _buildSliderStage(
+                    trackLength: w,
+                    laneWidth: laneWidth,
+                    thumbW: thumbW,
+                    thumbH: thumbH,
+                    trackH: trackH,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // ── Endpoint labels (configurable) ──────────────────────────
+            SizedBox(
+              height: footerHeight,
+              child: Row(
+                children: [
+                  _endpointLabel(
+                    widget.startLabel,
+                    widget.startIcon,
+                    _isStartActive,
+                  ),
+                  const SizedBox(width: 6),
+                  _statusDot(),
+                  const SizedBox(width: 6),
+                  _endpointLabel(
+                    widget.endLabel,
+                    widget.endIcon,
+                    _isEndActive,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSliderStage({
+    required double trackLength,
+    required double laneWidth,
+    required double thumbW,
+    required double thumbH,
+    required double trackH,
+  }) {
+    if (trackLength <= 0 || laneWidth <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final trackWidth = (trackLength - thumbW)
+        .clamp(0.0, trackLength)
+        .toDouble();
+    final halfTrack = trackWidth / 2.0;
+    final thumbCenterX =
+        thumbW / 2.0 + ((_value + 1.0) / 2.0) * trackWidth;
+    final hitWidth = (thumbW + _thumbHitSlop * 2)
+        .clamp(48.0, trackLength)
+        .toDouble();
+    final hitHeight = (thumbH + _thumbHitSlop * 2)
+        .clamp(48.0, laneWidth)
+        .toDouble();
+
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) => _onPointerDown(
+        event,
+        trackLength: trackLength,
+        laneWidth: laneWidth,
+        thumbW: thumbW,
+        thumbH: thumbH,
+      ),
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (d) => _dragStart(d, halfTrack),
-        onHorizontalDragUpdate: (d) => _dragUpdate(d, halfTrack),
+        onHorizontalDragStart: (details) => _dragStart(details, halfTrack),
+        onHorizontalDragUpdate: (details) => _dragUpdate(details, halfTrack),
         onHorizontalDragEnd: _dragEnd,
         onHorizontalDragCancel: _dragCancel,
-        child: SizedBox(
-          width: w,
-          height: h,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // ── Track + thumb ─────────────────────────────────────────────
-              SizedBox(
-                width: w,
-                height: bodyHeight,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(
-                      size: Size(w, trackH),
-                      painter: _TrackPainter(
-                        value: _value,
-                        halfTrack: halfTrack,
-                        deadZone: _deadZone,
-                        farZone: _farZone,
-                        showFarMarkers: widget.isFiveZone,
-                        fillColor: widget.enabled
-                            ? _trackColor.withAlpha(200)
-                            : AppColors.idleColor.withAlpha(70),
-                        isActive: widget.enabled,
-                      ),
-                    ),
-                    Positioned(
-                      left: thumbCX - thumbW / 2,
-                      child: _Thumb(
-                        width: thumbW,
-                        height: thumbH,
-                        color: _trackColor,
-                        isDragging: _isDragging,
-                        isDisabled: !widget.enabled,
-                      ),
-                    ),
-                  ],
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            IgnorePointer(
+              child: CustomPaint(
+                size: Size(trackLength, laneWidth),
+                painter: _TrackPainter(
+                  value: _value,
+                  thumbWidth: thumbW,
+                  trackHeight: trackH,
+                  deadZone: _deadZone,
+                  farZone: _farZone,
+                  showFarMarkers: widget.isFiveZone,
+                  fillColor: _trackColor.withAlpha(widget.enabled ? 200 : 70),
+                  isActive: widget.enabled,
                 ),
               ),
-              const SizedBox(height: 6),
-              // ── Endpoint labels (configurable) ──────────────────────────
-              SizedBox(
-                height: footerHeight,
-                child: Row(
-                  children: [
-                    _endpointLabel(
-                      widget.startLabel,
-                      widget.startIcon,
-                      _isStartActive,
-                    ),
-                    const SizedBox(width: 6),
-                    _statusDot(),
-                    const SizedBox(width: 6),
-                    _endpointLabel(
-                      widget.endLabel,
-                      widget.endIcon,
-                      _isEndActive,
-                    ),
-                  ],
+            ),
+            Positioned(
+              left: thumbCenterX - hitWidth / 2.0,
+              top: (laneWidth - hitHeight) / 2.0,
+              width: hitWidth,
+              height: hitHeight,
+              child: Center(
+                child: _Thumb(
+                  key: const ValueKey('multi_zone_slider_thumb'),
+                  width: thumbW,
+                  height: thumbH,
+                  color: _trackColor,
+                  overlayColor: _overlayColor,
+                  isDragging: _isDragging,
+                  isDisabled: !widget.enabled,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -643,7 +777,8 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
 class _TrackPainter extends CustomPainter {
   _TrackPainter({
     required this.value,
-    required this.halfTrack,
+    required this.thumbWidth,
+    required this.trackHeight,
     required this.deadZone,
     required this.farZone,
     required this.showFarMarkers,
@@ -652,7 +787,8 @@ class _TrackPainter extends CustomPainter {
   });
 
   final double value;
-  final double halfTrack;
+  final double thumbWidth;
+  final double trackHeight;
   final double deadZone;
   final double farZone;
   final bool showFarMarkers;
@@ -661,25 +797,37 @@ class _TrackPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0 || trackHeight <= 0) return;
+    final trackLeft = thumbWidth / 2.0;
+    final trackRight = size.width - thumbWidth / 2.0;
+    if (trackRight <= trackLeft) return;
+    final trackWidth = trackRight - trackLeft;
     final cx = size.width / 2.0;
-    final r = Radius.circular(size.height / 2.0);
+    final trackTop = (size.height - trackHeight) / 2.0;
+    final r = Radius.circular(trackHeight / 2.0);
+    final trackRect = Rect.fromLTWH(
+      trackLeft,
+      trackTop,
+      trackWidth,
+      trackHeight,
+    );
 
     // ── Background track ──────────────────────────────────────────────────
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, size.width, size.height), r),
+      RRect.fromRectAndRadius(trackRect, r),
       Paint()..color = const Color.fromARGB(255, 255, 252, 252),
     );
 
     // ── Active fill (centre → thumb) ──────────────────────────────────────
     if (isActive && value.abs() > deadZone) {
-      final thumbX = cx + value * halfTrack;
+      final thumbX = cx + value * trackWidth / 2.0;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTRB(
             math.min(cx, thumbX),
-            0,
+            trackTop,
             math.max(cx, thumbX),
-            size.height,
+            trackTop + trackHeight,
           ),
           r,
         ),
@@ -689,23 +837,31 @@ class _TrackPainter extends CustomPainter {
 
     // ── Zone boundary markers ─────────────────────────────────────────────
     final markerPaint = Paint()
-      ..color = const Color.fromARGB(255, 192, 25, 25).withAlpha(255)
+      ..color = AppColors.darkBorder.withAlpha(180)
       ..strokeWidth = 1.0;
     for (final sign in [-1.0, 1.0]) {
       // Dead zone edge
-      final dx = cx + sign * deadZone * halfTrack;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), markerPaint);
+      final dx = cx + sign * deadZone * trackWidth / 2.0;
+      canvas.drawLine(
+        Offset(dx, trackTop),
+        Offset(dx, trackTop + trackHeight),
+        markerPaint,
+      );
       if (showFarMarkers) {
         // Far zone edge
-        final fx = cx + sign * farZone * halfTrack;
-        canvas.drawLine(Offset(fx, 0), Offset(fx, size.height), markerPaint);
+        final fx = cx + sign * farZone * trackWidth / 2.0;
+        canvas.drawLine(
+          Offset(fx, trackTop),
+          Offset(fx, trackTop + trackHeight),
+          markerPaint,
+        );
       }
     }
 
     // ── Centre tick ───────────────────────────────────────────────────────
     canvas.drawLine(
-      Offset(cx, -3),
-      Offset(cx, size.height + 3),
+      Offset(cx, trackTop),
+      Offset(cx, trackTop + trackHeight),
       Paint()
         ..color = Colors.white.withAlpha(100)
         ..strokeWidth = 2.0,
@@ -715,6 +871,10 @@ class _TrackPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TrackPainter old) =>
       old.value != value ||
+      old.thumbWidth != thumbWidth ||
+      old.trackHeight != trackHeight ||
+      old.deadZone != deadZone ||
+      old.farZone != farZone ||
       old.showFarMarkers != showFarMarkers ||
       old.fillColor != fillColor ||
       old.isActive != isActive;
@@ -726,9 +886,11 @@ class _TrackPainter extends CustomPainter {
 
 class _Thumb extends StatelessWidget {
   const _Thumb({
+    super.key,
     required this.width,
     required this.height,
     required this.color,
+    required this.overlayColor,
     required this.isDragging,
     required this.isDisabled,
   });
@@ -736,58 +898,104 @@ class _Thumb extends StatelessWidget {
   final double width;
   final double height;
   final Color color;
+  final Color overlayColor;
   final bool isDragging;
   final bool isDisabled;
 
   @override
   Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(width, height),
+      painter: _ThumbPainter(
+        width: width,
+        height: height,
+        color: color,
+        overlayColor: overlayColor,
+        isDragging: isDragging,
+        isDisabled: isDisabled,
+      ),
+    );
+  }
+}
+
+class _ThumbPainter extends CustomPainter {
+  const _ThumbPainter({
+    required this.width,
+    required this.height,
+    required this.color,
+    required this.overlayColor,
+    required this.isDragging,
+    required this.isDisabled,
+  });
+
+  final double width;
+  final double height;
+  final Color color;
+  final Color overlayColor;
+  final bool isDragging;
+  final bool isDisabled;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (width <= 0 || height <= 0) return;
+    final center = Offset(width / 2.0, height / 2.0);
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: width, height: height),
+      const Radius.circular(6),
+    );
     final borderColor = isDisabled
         ? AppColors.idleColor
         : isDragging
         ? color
         : color.withAlpha(160);
+    final fillColor = isDisabled
+        ? AppColors.darkBg
+        : isDragging
+        ? color.withAlpha(28)
+        : AppColors.darkBg;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: isDisabled
-            ? AppColors.darkBg
-            : isDragging
-            ? color.withAlpha(28)
-            : AppColors.darkBg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: borderColor, width: isDragging ? 2.5 : 1.5),
-        boxShadow: isDragging && !isDisabled
-            ? [
-                BoxShadow(
-                  color: color.withAlpha(85),
-                  blurRadius: 10,
-                  spreadRadius: 2,
-                ),
-              ]
-            : const [],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _grip(),
-          const SizedBox(height: 4),
-          _grip(),
-          const SizedBox(height: 4),
-          _grip(),
-        ],
-      ),
+    if (isDragging && !isDisabled) {
+      canvas.drawRRect(
+        rect.inflate(2),
+        Paint()
+          ..color = overlayColor
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+      );
+    }
+    canvas.drawRRect(rect, Paint()..color = fillColor);
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isDragging ? 2.5 : 1.5,
     );
+
+    final gripPaint = Paint()
+      ..color = isDisabled ? AppColors.idleColor : color.withAlpha(160);
+    final gripHeight = height * 0.38;
+    final spacing = width * 0.16;
+    for (final dx in [-spacing, 0.0, spacing]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(center.dx + dx, center.dy),
+            width: 2,
+            height: gripHeight,
+          ),
+          const Radius.circular(1),
+        ),
+        gripPaint,
+      );
+    }
   }
 
-  Widget _grip() => Container(
-    width: width * 0.38,
-    height: 2,
-    decoration: BoxDecoration(
-      color: isDisabled ? AppColors.idleColor : color.withAlpha(160),
-      borderRadius: BorderRadius.circular(1),
-    ),
-  );
+  @override
+  bool shouldRepaint(_ThumbPainter old) =>
+      old.width != width ||
+      old.height != height ||
+      old.color != color ||
+      old.overlayColor != overlayColor ||
+      old.isDragging != isDragging ||
+      old.isDisabled != isDisabled;
 }
