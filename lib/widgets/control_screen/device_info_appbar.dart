@@ -117,12 +117,51 @@ class EditModeAppBarTitle extends StatelessWidget {
 // isEditing is true).
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Fixed-height AppBar footer for both control-screen modes.
+///
+/// Only its paint changes by mode. Its footprint stays constant so the
+/// Scaffold body and the Expanded control canvas receive identical viewport
+/// constraints before and after Edit Mode.
+class ControlModeAppBarFooter extends StatelessWidget
+    implements PreferredSizeWidget {
+  const ControlModeAppBarFooter({super.key, required this.isEditing});
+
+  final bool isEditing;
+
+  static const double height = 28;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(height);
+
+  @override
+  Widget build(BuildContext context) {
+    if (isEditing) return const CustomizationModeBanner();
+
+    return const SizedBox(
+      height: height,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.appBarBanner,
+            border: Border(
+              bottom: BorderSide(color: AppColors.appBarBannerBorder),
+            ),
+          ),
+          child: SizedBox(height: 3, width: double.infinity),
+        ),
+      ),
+    );
+  }
+}
+
 class CustomizationModeBanner extends StatelessWidget
     implements PreferredSizeWidget {
   const CustomizationModeBanner({super.key});
 
   @override
-  Size get preferredSize => const Size.fromHeight(28);
+  Size get preferredSize =>
+      const Size.fromHeight(ControlModeAppBarFooter.height);
 
   @override
   Widget build(BuildContext context) {

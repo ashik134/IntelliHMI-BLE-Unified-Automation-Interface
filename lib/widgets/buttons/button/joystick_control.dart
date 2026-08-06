@@ -800,6 +800,23 @@ class _AnalogRailPainter extends CustomPainter {
 // spring glyph communicates the return-to-neutral behavior.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Drop-in replacement for the supplied _DigitalLadder and
+// _DigitalLadderPainter classes.
+//
+// This file intentionally relies on the surrounding project's existing
+// JoystickConfig, JoystickAxis, AppColors, ControlButtonVisualMetrics,
+// _safeVisualExtent, and _kSingleAxisVisualScale declarations.
+
+// Shell-free single-axis digital joystick visual.
+//
+// The complete widget boundary contains only the five-position gate and knob.
+// There is no surrounding card, status area, label row, padding shell, or
+// decorative outer panel.
+//
+// This file intentionally relies on the surrounding project's existing
+// JoystickConfig, JoystickAxis, AppColors, _safeVisualExtent, and
+// _kSingleAxisVisualScale declarations.
+
 class _DigitalLadder extends StatelessWidget {
   const _DigitalLadder({
     required this.config,
@@ -816,6 +833,9 @@ class _DigitalLadder extends StatelessWidget {
   });
 
   final JoystickConfig config;
+
+  // Retained to keep this a drop-in replacement. Gesture processing belongs
+  // in the parent joystick; the ladder renders the settled display value.
   final Offset rawValue;
   final Offset display;
   final bool isActive;
@@ -829,55 +849,92 @@ class _DigitalLadder extends StatelessWidget {
 
   bool get _horizontal => config.axis == JoystickAxis.horizontal;
 
-  int _stepFromDisplay() {
-    final v = _horizontal ? display.dx : display.dy;
-    if (v == 0) return 0;
-    return v.abs() >= 1.0 ? (v.sign * 2).round() : v.sign.round();
+  int get _step {
+    final value = _horizontal ? display.dx : display.dy;
+    if (value.abs() < 0.001) return 0;
+    return value.sign.toInt() * (value.abs() >= 1.0 ? 2 : 1);
+  }
+
+  String get _semanticValue {
+    switch (_step) {
+      case -2:
+        return 'negative fast';
+      case -1:
+        return 'negative slow';
+      case 1:
+        return 'positive slow';
+      case 2:
+        return 'positive fast';
+      default:
+        return 'neutral';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final horizontal = _horizontal;
     final thickness = _safeVisualExtent(
-      _horizontal ? maxHeight : maxWidth,
-      min: 62.0,
-      max: 124.0,
+      horizontal ? maxHeight : maxWidth,
+      min: _DigitalLadderStyle.minimumThickness,
+      max: _DigitalLadderStyle.maximumThickness,
       scale: _kSingleAxisVisualScale,
     );
     final length = _safeVisualExtent(
-      _horizontal ? maxWidth : maxHeight,
-      min: 132.0,
-      max: 312.0,
+      horizontal ? maxWidth : maxHeight,
+      min: _DigitalLadderStyle.minimumLength,
+      max: _DigitalLadderStyle.maximumLength,
       scale: _kSingleAxisVisualScale,
     );
 
-    return Center(
+    return Semantics(
+      label: label,
+      value: _semanticValue,
+      enabled: enabled,
       child: SizedBox(
-        width: _horizontal ? length : thickness,
-        height: _horizontal ? thickness : length,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: _stepFromDisplay().toDouble()),
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOutBack,
-          builder: (context, animatedStep, _) {
-            return CustomPaint(
+        width: horizontal ? length : thickness,
+        height: horizontal ? thickness : length,
+        child: RepaintBoundary(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _step.toDouble()),
+            duration: _DigitalLadderStyle.motionDuration,
+            curve: Curves.easeOutCubic,
+            builder: (context, animatedStep, child) => CustomPaint(
+              isComplex: true,
+              willChange: animatedStep != _step,
               painter: _DigitalLadderPainter(
-                horizontal: _horizontal,
+                horizontal: horizontal,
                 step: animatedStep,
-                activeStep: _stepFromDisplay(),
+                activeStep: _step,
                 isActive: isActive,
                 enabled: enabled,
                 activeColor: activeColor,
                 activeColorLight: activeColorLight,
-                label: label,
-                icon: icon,
               ),
-              child: const SizedBox.expand(),
-            );
-          },
+              child: child,
+            ),
+            child: const SizedBox.expand(),
+          ),
         ),
       ),
     );
   }
+}
+
+abstract final class _DigitalLadderStyle {
+  static const int slotCount = 5;
+  static const double minimumThickness = 62;
+  static const double maximumThickness = 82;
+  static const double minimumLength = 132;
+  static const double maximumLength = 312;
+  static const double cellRadius = 7;
+  static const double slotGap = 4;
+  static const Duration motionDuration = Duration(milliseconds: 120);
+
+  static const Color gate = Color(0xFF0D1218);
+  static const Color slot = Color(0xFF171E27);
+  static const Color neutral = Color(0xFF0A0E13);
+  static const Color inactiveKnob = Color(0xFF607181);
+  static const Color inactiveKnobLight = Color(0xFFC2CDD6);
 }
 
 class _DigitalLadderPainter extends CustomPainter {
@@ -889,8 +946,6 @@ class _DigitalLadderPainter extends CustomPainter {
     required this.enabled,
     required this.activeColor,
     required this.activeColorLight,
-    required this.label,
-    required this.icon,
   });
 
   final bool horizontal;
@@ -900,294 +955,269 @@ class _DigitalLadderPainter extends CustomPainter {
   final bool enabled;
   final Color activeColor;
   final Color activeColorLight;
-  final String label;
-  final IconData? icon;
-
-  static const _slotCount = 5; // -2, -1, 0, 1, 2
 
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final bodyRect = Rect.fromLTWH(0, 0, w, h);
-    final bodyRRect = RRect.fromRectAndRadius(
-      bodyRect,
-      const Radius.circular(14),
-    );
+    final geometry = _DigitalLadderGeometry(size, horizontal: horizontal);
+    _paintGate(canvas, geometry);
+    _paintSlots(canvas, geometry);
+    _paintKnob(canvas, geometry);
+  }
 
+  void _paintGate(Canvas canvas, _DigitalLadderGeometry g) {
     canvas.drawRRect(
-      bodyRRect.shift(const Offset(0, 3)),
-      Paint()
-        ..color = Colors.black.withAlpha(110)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+      RRect.fromRectAndRadius(g.gate, const Radius.circular(9)),
+      Paint()..color = _DigitalLadderStyle.gate,
     );
-    canvas.drawRRect(
-      bodyRRect,
-      Paint()
-        ..shader = const LinearGradient(
-          colors: [Color(0xFF20242C), Color(0xFF12151B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ).createShader(bodyRect),
-    );
-    canvas.drawRRect(
-      bodyRRect.deflate(1.2),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = Colors.white.withAlpha(20),
-    );
+  }
 
-    final inset = math.min(w, h) * 0.22;
-    final gateRect = horizontal
-        ? Rect.fromLTWH(inset, h * 0.30, w - inset * 2, h * 0.40)
-        : Rect.fromLTWH(w * 0.30, inset, w * 0.40, h - inset * 2);
+  void _paintSlots(Canvas canvas, _DigitalLadderGeometry g) {
+    for (var index = 0; index < _DigitalLadderStyle.slotCount; index++) {
+      final slotStep = g.stepForSlot(index);
+      final rect = g.cellRect(index);
+      final shape = RRect.fromRectAndRadius(
+        rect,
+        const Radius.circular(_DigitalLadderStyle.cellRadius),
+      );
+      final neutral = slotStep == 0;
+      final lit = _isLit(slotStep);
 
-    // 5 discrete slot cells rendered as separated notch blocks — the
-    // defining visual difference from the smooth analog rail.
-    const gap = 4.0;
-    final mainAxisExtent = horizontal ? gateRect.width : gateRect.height;
-    final crossExtent = horizontal ? gateRect.height : gateRect.width;
-    final cellExtent = (mainAxisExtent - gap * (_slotCount - 1)) / _slotCount;
+      canvas.drawRRect(
+        shape,
+        Paint()
+          ..color = neutral
+              ? _DigitalLadderStyle.neutral
+              : _DigitalLadderStyle.slot,
+      );
 
-    Rect cellRectFor(int index) {
-      final start = horizontal
-          ? gateRect.left + index * (cellExtent + gap)
-          : gateRect.top + index * (cellExtent + gap);
-      return horizontal
-          ? Rect.fromLTWH(start, gateRect.top, cellExtent, crossExtent)
-          : Rect.fromLTWH(gateRect.left, start, crossExtent, cellExtent);
-    }
-
-    // Slot index 0 = most-negative step (-2), index 4 = most-positive (+2).
-    // When vertical, up should be positive, so index 0 (top) maps to +2.
-    int stepForSlot(int index) {
-      final ordered = horizontal ? index - 2 : 2 - index;
-      return ordered;
-    }
-
-    final labels = <int, String>{
-      -2: 'FAST',
-      -1: 'SLOW',
-      0: '',
-      1: 'SLOW',
-      2: 'FAST',
-    };
-
-    for (var i = 0; i < _slotCount; i++) {
-      final slotStep = stepForSlot(i);
-      final rect = cellRectFor(i);
-      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
-      final isNeutralSlot = slotStep == 0;
-      final magnitude = slotStep.abs();
-
-      final litFraction = _litFractionFor(slotStep);
-
-      final baseColor = isNeutralSlot
-          ? const Color(0xFF0B0F14)
-          : const Color(0xFF141A21);
-      canvas.drawRRect(rrect, Paint()..color = baseColor);
-
-      if (litFraction > 0) {
-        final litColor = magnitude == 2
+      if (lit) {
+        final color = slotStep.abs() == 2
             ? activeColor
-            : Color.lerp(activeColor, Colors.white, 0.18)!;
+            : Color.lerp(activeColor, Colors.white, 0.16)!;
         canvas.drawRRect(
-          rrect,
+          shape,
           Paint()
-            ..color = litColor.withAlpha(
-              (litFraction * (enabled ? 235 : 120)).round(),
-            )
-            ..maskFilter = litFraction > 0.5
-                ? const MaskFilter.blur(BlurStyle.normal, 2)
+            ..color = color.withAlpha(enabled ? 225 : 95)
+            ..maskFilter = enabled
+                ? const MaskFilter.blur(BlurStyle.normal, 1.5)
                 : null,
         );
       }
 
       canvas.drawRRect(
-        rrect,
+        shape,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = isNeutralSlot ? 1.6 : 1.0
-          ..color = isNeutralSlot
-              ? Colors.white.withAlpha(90)
-              : Colors.black.withAlpha(200),
+          ..strokeWidth = neutral ? 1.5 : 1
+          ..color = neutral
+              ? Colors.white.withAlpha(enabled ? 100 : 45)
+              : Colors.black.withAlpha(190),
       );
 
-      // Detent notch marks (little tick at the cell's outer edge) — visually
-      // reads as a physical gate rather than a continuous channel.
-      final notchPaint = Paint()
-        ..color = Colors.white.withAlpha(36)
-        ..strokeWidth = 1.2;
-      if (horizontal) {
-        canvas.drawLine(
-          Offset(rect.center.dx, rect.top + 2),
-          Offset(rect.center.dx, rect.top + 6),
-          notchPaint,
-        );
-      } else {
-        canvas.drawLine(
-          Offset(rect.right - 2, rect.center.dy),
-          Offset(rect.right - 6, rect.center.dy),
-          notchPaint,
-        );
-      }
+      _paintDetent(canvas, rect, g);
+      _paintSlotCaption(canvas, rect, slotStep, lit);
+    }
+  }
 
-      final text = labels[slotStep] ?? '';
-      if (text.isNotEmpty) {
-        final tp = TextPainter(
-          text: TextSpan(
-            text: text,
-            style: TextStyle(
-              color: litFraction > 0.4
-                  ? Colors.black.withAlpha(180)
-                  : AppColors.darkTextMuted.withAlpha(enabled ? 160 : 80),
-              fontSize: 7,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.4,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(
-          canvas,
-          Offset(
-            rect.center.dx - tp.width / 2,
-            horizontal
-                ? rect.bottom - tp.height - 3
-                : rect.center.dy - tp.height / 2,
-          ),
-        );
-      } else {
-        // Neutral slot gets a small spring/center glyph instead of text.
-        canvas.drawCircle(
-          rect.center,
-          2.6,
-          Paint()..color = Colors.white.withAlpha(120),
-        );
-      }
+  void _paintDetent(Canvas canvas, Rect rect, _DigitalLadderGeometry g) {
+    final paint = Paint()
+      ..color = Colors.white.withAlpha(enabled ? 42 : 20)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    if (horizontal) {
+      canvas.drawLine(
+        Offset(rect.center.dx, rect.top + 2),
+        Offset(rect.center.dx, rect.top + 6),
+        paint,
+      );
+    } else {
+      canvas.drawLine(
+        Offset(rect.right - 2, rect.center.dy),
+        Offset(rect.right - 6, rect.center.dy),
+        paint,
+      );
+    }
+  }
+
+  void _paintSlotCaption(Canvas canvas, Rect rect, int slotStep, bool lit) {
+    if (slotStep == 0) {
+      canvas.drawCircle(
+        rect.center,
+        2.7,
+        Paint()..color = Colors.white.withAlpha(enabled ? 145 : 65),
+      );
+      return;
     }
 
-    // Slider indicator (the physical lever) drawn on top, jumping between
-    // slot centers as `step` animates.
-    final clampedStep = step.clamp(-2.0, 2.0);
-    final indicatorIndex = horizontal ? clampedStep + 2 : 2 - clampedStep;
-    final indicatorRect = _lerpCellRect(cellRectFor, indicatorIndex);
+    final caption = slotStep.abs() == 2 ? 'FAST' : 'SLOW';
+    final painter = TextPainter(
+      text: TextSpan(
+        text: caption,
+        style: TextStyle(
+          color: lit
+              ? Colors.black.withAlpha(180)
+              : AppColors.darkTextMuted.withAlpha(enabled ? 170 : 75),
+          fontSize: 7,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.35,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      Offset(
+        rect.center.dx - painter.width / 2,
+        horizontal
+            ? rect.bottom - painter.height - 3
+            : rect.center.dy - painter.height / 2,
+      ),
+    );
+  }
+
+  void _paintKnob(Canvas canvas, _DigitalLadderGeometry g) {
+    final indicatorIndex = horizontal
+        ? step.clamp(-2.0, 2.0) + 2
+        : 2 - step.clamp(-2.0, 2.0);
+    final indicator = g.interpolatedCell(indicatorIndex);
     final knobRect = horizontal
         ? Rect.fromCenter(
-            center: indicatorRect.center,
-            width: indicatorRect.width * 0.72,
-            height: crossExtent * 1.16,
+            center: indicator.center,
+            width: indicator.width * 0.74,
+            height: g.crossExtent * 1.18,
           )
         : Rect.fromCenter(
-            center: indicatorRect.center,
-            width: crossExtent * 1.16,
-            height: indicatorRect.height * 0.72,
+            center: indicator.center,
+            width: g.crossExtent * 1.18,
+            height: indicator.height * 0.74,
           );
-    final knobRRect = RRect.fromRectAndRadius(
-      knobRect,
-      const Radius.circular(8),
-    );
-
-    final leverBase = isActive && enabled
-        ? activeColor
-        : const Color(0xFF5B6B7A);
-    final leverLight = isActive && enabled
+    final knob = RRect.fromRectAndRadius(knobRect, const Radius.circular(8));
+    final active = isActive && enabled;
+    final base = active ? activeColor : _DigitalLadderStyle.inactiveKnob;
+    final light = active
         ? activeColorLight
-        : const Color(0xFFB9C4CE);
+        : _DigitalLadderStyle.inactiveKnobLight;
+
+    if (active) {
+      canvas.drawRRect(
+        knob.inflate(3),
+        Paint()
+          ..color = activeColor.withAlpha(55)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+    }
     canvas.drawRRect(
-      knobRRect.shift(const Offset(0, 2)),
+      knob.shift(const Offset(0, 2)),
       Paint()
         ..color = Colors.black.withAlpha(150)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
     canvas.drawRRect(
-      knobRRect,
+      knob,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [leverLight, leverBase],
+          colors: [light, base],
         ).createShader(knobRect),
     );
     canvas.drawRRect(
-      knobRRect,
+      knob,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Colors.white.withAlpha(90),
+        ..strokeWidth = 1.4
+        ..color = Colors.white.withAlpha(enabled ? 105 : 45),
     );
-    // Ribbed grip on the lever cap.
-    final ribPaint = Paint()
-      ..color = Colors.black.withAlpha(100)
-      ..strokeWidth = 1.1;
-    for (var i = -1; i <= 1; i++) {
-      final o = i * (horizontal ? knobRect.width : knobRect.height) * 0.22;
+    _paintGrip(canvas, knobRect);
+  }
+
+  void _paintGrip(Canvas canvas, Rect rect) {
+    final paint = Paint()
+      ..color = Colors.black.withAlpha(105)
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round;
+    for (var index = -1; index <= 1; index++) {
+      final offset = index * (horizontal ? rect.width : rect.height) * 0.22;
       if (horizontal) {
         canvas.drawLine(
-          Offset(knobRect.center.dx + o, knobRect.top + 4),
-          Offset(knobRect.center.dx + o, knobRect.bottom - 4),
-          ribPaint,
+          Offset(rect.center.dx + offset, rect.top + 4),
+          Offset(rect.center.dx + offset, rect.bottom - 4),
+          paint,
         );
       } else {
         canvas.drawLine(
-          Offset(knobRect.left + 4, knobRect.center.dy + o),
-          Offset(knobRect.right - 4, knobRect.center.dy + o),
-          ribPaint,
+          Offset(rect.left + 4, rect.center.dy + offset),
+          Offset(rect.right - 4, rect.center.dy + offset),
+          paint,
         );
       }
     }
-
-    final labelPainter = TextPainter(
-      text: ControlButtonVisualMetrics.labelIconTextSpan(
-        label: label,
-        icon: icon,
-        color: isActive && enabled
-            ? activeColorLight
-            : AppColors.darkText.withAlpha(enabled ? 230 : 120),
-        iconColor: isActive && enabled
-            ? activeColorLight
-            : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-        bounds: Size(w - 12, ControlButtonVisualMetrics.rowHeight),
-      ),
-      maxLines: 1,
-      ellipsis: '…',
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: w - 12);
-    labelPainter.paint(
-      canvas,
-      Offset(w / 2 - labelPainter.width / 2, h - labelPainter.height - 4),
-    );
   }
 
-  double _litFractionFor(int slotStep) {
-    if (slotStep == 0) return 0;
-    if (activeStep == 0) return 0;
-    if (activeStep.sign != slotStep.sign) return 0;
-    if (slotStep.abs() == 1) return 1.0; // slow lights once past slow threshold
-    // fast slot lights only when activeStep reaches magnitude 2
-    return activeStep.abs() >= 2 ? 1.0 : 0.0;
-  }
-
-  Rect _lerpCellRect(Rect Function(int) cellRectFor, double indexFractional) {
-    final lower = indexFractional.floor().clamp(0, _slotCount - 1);
-    final upper = indexFractional.ceil().clamp(0, _slotCount - 1);
-    final t = indexFractional - lower;
-    final a = cellRectFor(lower);
-    if (lower == upper) return a;
-    final b = cellRectFor(upper);
-    return Rect.lerp(a, b, t)!;
+  bool _isLit(int slotStep) {
+    if (slotStep == 0 || activeStep == 0) return false;
+    if (activeStep.sign != slotStep.sign) return false;
+    return slotStep.abs() == 1 || activeStep.abs() >= 2;
   }
 
   @override
-  bool shouldRepaint(covariant _DigitalLadderPainter oldDelegate) {
-    return oldDelegate.step != step ||
-        oldDelegate.activeStep != activeStep ||
-        oldDelegate.isActive != isActive ||
-        oldDelegate.enabled != enabled ||
-        oldDelegate.activeColor != activeColor ||
-        oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.label != label ||
-        oldDelegate.icon != icon;
+  bool shouldRepaint(covariant _DigitalLadderPainter old) =>
+      old.horizontal != horizontal ||
+      old.step != step ||
+      old.activeStep != activeStep ||
+      old.isActive != isActive ||
+      old.enabled != enabled ||
+      old.activeColor != activeColor ||
+      old.activeColorLight != activeColorLight;
+}
+
+class _DigitalLadderGeometry {
+  const _DigitalLadderGeometry(this.size, {required this.horizontal});
+
+  final Size size;
+  final bool horizontal;
+
+  Rect get bounds => Offset.zero & size;
+  double get _mainInset => math.min(size.width, size.height) * 0.10;
+  double get _crossInset => math.min(size.width, size.height) * 0.16;
+
+  Rect get gate => horizontal
+      ? Rect.fromLTWH(
+          _mainInset,
+          _crossInset,
+          size.width - _mainInset * 2,
+          size.height - _crossInset * 2,
+        )
+      : Rect.fromLTWH(
+          _crossInset,
+          _mainInset,
+          size.width - _crossInset * 2,
+          size.height - _mainInset * 2,
+        );
+
+  double get mainExtent => horizontal ? gate.width : gate.height;
+  double get crossExtent => horizontal ? gate.height : gate.width;
+  double get cellExtent =>
+      (mainExtent -
+          _DigitalLadderStyle.slotGap * (_DigitalLadderStyle.slotCount - 1)) /
+      _DigitalLadderStyle.slotCount;
+
+  Rect cellRect(int index) {
+    final start =
+        (horizontal ? gate.left : gate.top) +
+        index * (cellExtent + _DigitalLadderStyle.slotGap);
+    return horizontal
+        ? Rect.fromLTWH(start, gate.top, cellExtent, crossExtent)
+        : Rect.fromLTWH(gate.left, start, crossExtent, cellExtent);
+  }
+
+  int stepForSlot(int index) => horizontal ? index - 2 : 2 - index;
+
+  Rect interpolatedCell(double index) {
+    final lower = index.floor().clamp(0, _DigitalLadderStyle.slotCount - 1);
+    final upper = index.ceil().clamp(0, _DigitalLadderStyle.slotCount - 1);
+    if (lower == upper) return cellRect(lower);
+    return Rect.lerp(cellRect(lower), cellRect(upper), index - lower)!;
   }
 }
 

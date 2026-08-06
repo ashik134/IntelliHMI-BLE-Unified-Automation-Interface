@@ -515,7 +515,7 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize =>
-      Size.fromHeight(kToolbarHeight + (isEditing ? 28 : 3));
+      const Size.fromHeight(kToolbarHeight + ControlModeAppBarFooter.height);
 
   @override
   Widget build(BuildContext context) {
@@ -544,19 +544,7 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
         if (isEditing) const EditModeUndoRedoActions(),
         const _DisconnectButton(),
       ],
-      bottom: isEditing
-          ? const CustomizationModeBanner()
-          : const PreferredSize(
-              preferredSize: Size.fromHeight(3),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.appBarBanner,
-                  border: Border(
-                    bottom: BorderSide(color: AppColors.appBarBannerBorder),
-                  ),
-                ),
-              ),
-            ),
+      bottom: ControlModeAppBarFooter(isEditing: isEditing),
     );
   }
 }

@@ -249,6 +249,11 @@ class _OccupiedCell extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Stack(
+        // Match Normal Mode's tight grid-cell constraints. Without expand,
+        // StackFit.loose lets ConfigurableButton keep resolvedHeight while
+        // the Positioned.fill selection frame grows around it during a live
+        // resize, so the control itself appears to resize only after Done.
+        fit: StackFit.expand,
         clipBehavior: Clip.none,
         children: [
           AbsorbPointer(absorbing: true, child: button),

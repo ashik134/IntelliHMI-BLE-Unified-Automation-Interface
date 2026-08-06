@@ -562,7 +562,7 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize =>
-      Size.fromHeight(kToolbarHeight + (isEditing ? 28 : 3));
+      const Size.fromHeight(kToolbarHeight + ControlModeAppBarFooter.height);
 
   @override
   Widget build(BuildContext context) {
@@ -598,18 +598,7 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
             const _DisconnectButton(),
           ],
         ),
-        if (isEditing)
-          const CustomizationModeBanner()
-        else
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              color: AppColors.appBarBanner,
-              border: Border(
-                bottom: BorderSide(color: AppColors.appBarBannerBorder),
-              ),
-            ),
-            child: SizedBox(height: 3),
-          ),
+        ControlModeAppBarFooter(isEditing: isEditing),
       ],
     );
   }
