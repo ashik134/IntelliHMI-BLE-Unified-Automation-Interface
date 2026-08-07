@@ -510,6 +510,70 @@ void main() {
         expect(editCtrl.isEditing, isTrue);
       },
     );
+
+    test(
+      'exit drops a page left empty by editing and remaps later pages down',
+      () async {
+        await editCtrl.enter();
+        // Default grid is 2x3 (6 slots): six 1x1 buttons exactly fill page
+        // 0, so the seventh spills onto a fresh page 1.
+        for (var i = 0; i < 6; i++) {
+          editCtrl.addButton(_sampleButton('p0_$i'));
+        }
+        editCtrl.addButton(_sampleButton('p1'));
+        expect(editCtrl.draft.resolvedButtons['p1']!.pageIndex, 1);
+        expect(editCtrl.draft.controlPageCount, 2);
+
+        // Emptying page 1 without leaving Edit Mode — deleteButton never
+        // compacts on its own (see buildButtonDelete's doc comment), so the
+        // now-blank page 1 stays in controlPageCount until Done is pressed.
+        editCtrl.deleteButton('p1');
+        expect(editCtrl.draft.controlPageCount, 2);
+
+        final result = await editCtrl.exit();
+        expect(result.isValid, isTrue);
+        expect(editCtrl.draft.controlPageCount, 1);
+        expect(editCtrl.draft.resolvedButtons.containsKey('p1'), isFalse);
+        for (var i = 0; i < 6; i++) {
+          expect(editCtrl.draft.resolvedButtons['p0_$i']!.pageIndex, 0);
+        }
+      },
+    );
+
+    test('exit keeps the required base page even when it is empty', () async {
+      await editCtrl.enter();
+      final result = await editCtrl.exit();
+      expect(result.isValid, isTrue);
+      expect(editCtrl.draft.controlPageCount, 1);
+    });
+
+    test(
+      'exit re-points a mounted control screen away from a page it just dropped',
+      () async {
+        await editCtrl.enter();
+        for (var i = 0; i < 6; i++) {
+          editCtrl.addButton(_sampleButton('p0_$i'));
+        }
+        editCtrl.addButton(_sampleButton('p1'));
+        editCtrl.deleteButton('p1');
+
+        final navigatedTo = <int>[];
+        editCtrl.registerPlacementSurface(
+          'owner',
+          PlacementSurface(
+            canvasRect: () => _canvasRect,
+            // Operator was still sitting on page 1 (now empty) when Done
+            // was pressed.
+            currentPageIndex: () => 1,
+            navigateToPage: navigatedTo.add,
+          ),
+        );
+
+        final result = await editCtrl.exit();
+        expect(result.isValid, isTrue);
+        expect(navigatedTo, [0]);
+      },
+    );
   });
 
   group('placement preview', () {

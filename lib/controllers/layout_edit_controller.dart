@@ -1131,6 +1131,7 @@ class LayoutEditController extends ChangeNotifier {
   /// the session stays active so the operator can fix the reported errors
   /// and press Done again.
   Future<ValidationResult> exit() async {
+    _dropEmptyPages();
     final result = await save();
     if (result.isValid) {
       _isEditing = false;
@@ -1140,6 +1141,36 @@ class LayoutEditController extends ChangeNotifier {
       notifyListeners();
     }
     return result;
+  }
+
+  /// Drops any control page left with no visible widget once the operator
+  /// presses Done, via [compactControlPages] — page 0 is always kept (the
+  /// base grid every screen renders) even if empty, every other empty page
+  /// is removed, and later pages' buttons are remapped down to stay
+  /// contiguous; widget positions WITHIN a page are untouched, only which
+  /// page number they land on can shift. A no-op if nothing is empty.
+  ///
+  /// If the mounted control screen ([_surface]) was showing a page that just
+  /// got dropped, re-points it at the new last page so Done never leaves the
+  /// operator's view pointed at a page index that no longer exists.
+  void _dropEmptyPages() {
+    final grid = _draft.gridLayout;
+    final compacted = compactControlPages(
+      _draft,
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    if (compacted == _draft) return;
+    _draft = compacted;
+
+    final surface = _surface;
+    final currentPage = surface?.currentPageIndex();
+    if (surface != null &&
+        currentPage != null &&
+        currentPage >= _draft.controlPageCount) {
+      surface.navigateToPage(_draft.controlPageCount - 1);
+    }
   }
 
   @override
