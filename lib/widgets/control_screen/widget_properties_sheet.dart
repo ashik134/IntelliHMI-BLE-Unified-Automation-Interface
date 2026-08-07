@@ -50,17 +50,23 @@ class WidgetPropertiesSheet extends StatelessWidget {
 
   final String buttonId;
 
-  Future<void> _delete(BuildContext context, String id) async {
+  void _delete(BuildContext context, String id) {
     final result = context.read<LayoutEditController>().deleteButton(id);
     if (!context.mounted) return;
-    Navigator.of(context).pop();
     if (!result.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.message ?? 'Could not delete this widget.'),
         ),
       );
+      return;
     }
+
+    // A successful draft mutation removes [id] from resolvedButtons. The
+    // watched controller then rebuilds this sheet through the config == null
+    // branch below, which owns the one and only route pop. Popping here as
+    // well races the bottom-sheet exit animation and can pop the control
+    // sub-shell underneath it, briefly exposing Scan Devices.
   }
 
   @override
@@ -71,8 +77,14 @@ class WidgetPropertiesSheet extends StatelessWidget {
     if (config == null) {
       // Selection was cleared (e.g. deleted elsewhere) while this sheet was
       // open — close it rather than render a stale/broken editor.
+      final sheetRoute = ModalRoute.of(context);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted && Navigator.of(context).canPop()) {
+        // showModalBottomSheet's future completes when its pop starts, before
+        // the reverse animation disposes this subtree. endHistoryBatch() can
+        // therefore rebuild the missing-config branch once more. Only dismiss
+        // when this exact sheet is still the navigator's current route; a
+        // later callback must never pop the control route underneath it.
+        if (context.mounted && sheetRoute?.isCurrent == true) {
           Navigator.of(context).pop();
         }
       });
@@ -97,7 +109,9 @@ class WidgetPropertiesSheet extends StatelessWidget {
 
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: Container(
           margin: const EdgeInsets.all(12),
           height: MediaQuery.of(context).size.height * 0.82,
@@ -107,102 +121,105 @@ class WidgetPropertiesSheet extends StatelessWidget {
             border: Border.all(color: AppColors.darkBorder),
             boxShadow: AppMetrics.shadowMd,
           ),
-          child: DefaultTabController(
-            length: tabs.length,
-            child: Column(
-              children: [
-                const SizedBox(height: 10),
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.panelStroke,
-                      borderRadius: BorderRadius.circular(2),
+          child: Material(
+            color: Colors.transparent,
+            child: DefaultTabController(
+              length: tabs.length,
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.panelStroke,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Widget Properties',
-                              style: TextStyle(
-                                color: AppColors.darkText,
-                                fontSize: 16.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _typeDisplayName(config.type),
-                              style: const TextStyle(
-                                color: AppColors.darkTextMuted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: AppColors.darkTextMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const TabBar(
-                  tabs: tabs,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  labelColor: AppColors.selectionViolet,
-                  unselectedLabelColor: AppColors.darkTextMuted,
-                  indicatorColor: AppColors.selectionViolet,
-                  labelStyle: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Divider(height: 1, color: AppColors.darkBorder),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: TabBarView(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+                    child: Row(
                       children: [
-                        GeneralTab(
-                          config: config,
-                          onUpdate: onUpdate,
-                          onReset: () => context
-                              .read<LayoutEditController>()
-                              .resetButtonToDefault(buttonId),
-                          onDelete: () => _delete(context, buttonId),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Widget Properties',
+                                style: TextStyle(
+                                  color: AppColors.darkText,
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _typeDisplayName(config.type),
+                                style: const TextStyle(
+                                  color: AppColors.darkTextMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        AppearanceTab(config: config, onUpdate: onUpdate),
-                        FunctionTab(config: config, onUpdate: onUpdate),
-                        OutputTab(config: config, onUpdate: onUpdate),
-                        SafetyTab(
-                          config: config,
-                          allButtons: editCtrl.draft.resolvedButtons,
-                          onUpdate: onUpdate,
-                          updateButtonById: context
-                              .read<LayoutEditController>()
-                              .updateButton,
-                          gridColumns: editCtrl.draft.gridLayout.columns,
-                          gridRows: editCtrl.draft.gridLayout.rows,
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: AppColors.darkTextMuted,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                  const TabBar(
+                    tabs: tabs,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    labelColor: AppColors.selectionViolet,
+                    unselectedLabelColor: AppColors.darkTextMuted,
+                    indicatorColor: AppColors.selectionViolet,
+                    labelStyle: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppColors.darkBorder),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: TabBarView(
+                        children: [
+                          GeneralTab(
+                            config: config,
+                            onUpdate: onUpdate,
+                            onReset: () => context
+                                .read<LayoutEditController>()
+                                .resetButtonToDefault(buttonId),
+                            onDelete: () => _delete(context, buttonId),
+                          ),
+                          AppearanceTab(config: config, onUpdate: onUpdate),
+                          FunctionTab(config: config, onUpdate: onUpdate),
+                          OutputTab(config: config, onUpdate: onUpdate),
+                          SafetyTab(
+                            config: config,
+                            allButtons: editCtrl.draft.resolvedButtons,
+                            onUpdate: onUpdate,
+                            updateButtonById: context
+                                .read<LayoutEditController>()
+                                .updateButton,
+                            gridColumns: editCtrl.draft.gridLayout.columns,
+                            gridRows: editCtrl.draft.gridLayout.rows,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

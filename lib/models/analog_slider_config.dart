@@ -1,4 +1,5 @@
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AnalogSliderConfig
@@ -18,6 +19,21 @@ extension AnalogSliderOrientationInfo on AnalogSliderOrientation {
   String get label => switch (this) {
     AnalogSliderOrientation.horizontal => 'Horizontal',
     AnalogSliderOrientation.vertical => 'Vertical',
+  };
+
+  /// Lets generic call sites (ButtonConfig's orientation dispatch,
+  /// GeneralTab) treat this type-specific enum like every other
+  /// orientation-supporting type's — see [ControlOrientationToAnalogSlider].
+  ControlOrientation get asControlOrientation => switch (this) {
+    AnalogSliderOrientation.horizontal => ControlOrientation.horizontal,
+    AnalogSliderOrientation.vertical => ControlOrientation.vertical,
+  };
+}
+
+extension ControlOrientationToAnalogSlider on ControlOrientation {
+  AnalogSliderOrientation get asAnalogSliderOrientation => switch (this) {
+    ControlOrientation.horizontal => AnalogSliderOrientation.horizontal,
+    ControlOrientation.vertical => AnalogSliderOrientation.vertical,
   };
 }
 

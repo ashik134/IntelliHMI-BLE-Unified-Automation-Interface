@@ -1,4 +1,5 @@
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AnalogJoystickConfig
@@ -18,6 +19,21 @@ extension AnalogJoystickOrientationInfo on AnalogJoystickOrientation {
   String get label => switch (this) {
     AnalogJoystickOrientation.horizontal => 'Horizontal',
     AnalogJoystickOrientation.vertical => 'Vertical',
+  };
+
+  /// Lets generic call sites (ButtonConfig's orientation dispatch,
+  /// GeneralTab) treat this type-specific enum like every other
+  /// orientation-supporting type's — see [ControlOrientationToAnalogJoystick].
+  ControlOrientation get asControlOrientation => switch (this) {
+    AnalogJoystickOrientation.horizontal => ControlOrientation.horizontal,
+    AnalogJoystickOrientation.vertical => ControlOrientation.vertical,
+  };
+}
+
+extension ControlOrientationToAnalogJoystick on ControlOrientation {
+  AnalogJoystickOrientation get asAnalogJoystickOrientation => switch (this) {
+    ControlOrientation.horizontal => AnalogJoystickOrientation.horizontal,
+    ControlOrientation.vertical => AnalogJoystickOrientation.vertical,
   };
 }
 

@@ -17,6 +17,9 @@
 //   settlingWidget       -> the finger has released over a validated grid
 //                           rectangle; the preview is animating from the
 //                           release position into that rectangle
+//   resizingWidget       -> a canvas edge-handle drag is live on the
+//                           selected widget (see LayoutEditController
+//                           .beginResize/updateResize/endResize)
 //
 // placingWidget only means "attached to the finger" — it does not yet mean
 // a grid slot has been chosen or validated. settlingWidget means a target
@@ -32,4 +35,5 @@ enum CustomizationInteractionMode {
   liftingCatalogueWidget,
   placingWidget,
   settlingWidget,
+  resizingWidget,
 }

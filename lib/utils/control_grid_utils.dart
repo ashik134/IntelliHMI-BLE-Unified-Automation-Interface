@@ -689,6 +689,238 @@ GridMutationResult buildButtonResize({
   return GridMutationResult.valid(next);
 }
 
+const String kResizeLockedNeighborMessage =
+    'Resizing here would move a locked widget. Unlock it first or resize the other way.';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Edge drag-handle resize
+//
+// Which edge of the selection frame is being dragged in Customization Mode
+// — see resolveResizeHandleDelta/buildButtonResizeWithReflow below. Top/
+// bottom only ever change row count; left/right only ever change column
+// count, matching the spec that each handle resizes along a single axis.
+// ─────────────────────────────────────────────────────────────────────────────
+enum ResizeEdge { top, bottom, left, right }
+
+/// Translates a resize-handle drag on [edge] into a requested
+/// (columns, rows, anchorX, anchorY) for [original]'s NEW footprint, given
+/// [deltaCols]/[deltaRows] whole grid cells of pointer movement since the
+/// drag started (positive = right/down) — always measured from [original]'s
+/// own pre-drag footprint, never a previous frame's, so backtracking the
+/// pointer is exactly reversible (the same principle
+/// LayoutEditController.updatePlacementPreview uses for catalogue drops).
+///
+/// Clamps columns/rows to [original]'s type-minimum (ButtonConfig
+/// .defaultGridSizeFor) BEFORE deriving the left/top anchor shift, so the
+/// edge opposite the one being dragged stays visually pinned even once the
+/// requested delta overshoots the minimum size or the grid's own edge:
+///
+///  - right/bottom (anchor fixed): the new size is additionally capped by
+///    how much room [original]'s own (unmoving) anchor leaves before the
+///    grid's far edge — growth simply stops there instead of the final
+///    anchor-clamp below silently dragging the fixed edge along with it.
+///  - left/top (anchor moves): the new size is capped by [original]'s own
+///    opposite edge (`gridX + columns` / `gridY + rows`) — the true
+///    upper bound before the anchor would go negative — so shrinking past
+///    the minimum, or growing past the grid's near edge, both stop the
+///    dragged edge smoothly instead of overshooting.
+(int columns, int rows, int anchorX, int anchorY) resolveResizeHandleDelta({
+  required ButtonConfig original,
+  required ResizeEdge edge,
+  required int deltaCols,
+  required int deltaRows,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+}) {
+  final minSize = ButtonConfig.defaultGridSizeFor(
+    original.type,
+    customProperties: original.customProperties,
+    rotation: original.rotation,
+  );
+  final originalCols = original.gridColumnSpan;
+  final originalRows = original.gridRowSpan;
+  var nextColumns = originalCols;
+  var nextRows = originalRows;
+  var anchorX = original.gridX;
+  var anchorY = original.gridY;
+
+  switch (edge) {
+    case ResizeEdge.right:
+      final maxColumns = _atLeast(columns - original.gridX, minSize.$1);
+      nextColumns = (originalCols + deltaCols).clamp(minSize.$1, maxColumns);
+    case ResizeEdge.left:
+      final maxColumns = _atLeast(original.gridX + originalCols, minSize.$1);
+      nextColumns = (originalCols - deltaCols).clamp(minSize.$1, maxColumns);
+      anchorX = original.gridX + (originalCols - nextColumns);
+    case ResizeEdge.bottom:
+      final maxRows = _atLeast(rows - original.gridY, minSize.$2);
+      nextRows = (originalRows + deltaRows).clamp(minSize.$2, maxRows);
+    case ResizeEdge.top:
+      final maxRows = _atLeast(original.gridY + originalRows, minSize.$2);
+      nextRows = (originalRows - deltaRows).clamp(minSize.$2, maxRows);
+      anchorY = original.gridY + (originalRows - nextRows);
+  }
+
+  return (
+    nextColumns,
+    nextRows,
+    anchorX.clamp(0, (columns - nextColumns).clamp(0, columns)),
+    anchorY.clamp(0, (rows - nextRows).clamp(0, rows)),
+  );
+}
+
+/// [value] if it's already >= [minimum], else [minimum] — used to keep a
+/// derived upper bound from ever falling below the lower bound a following
+/// `.clamp(minimum, upperBound)` call requires (clamp throws if
+/// `minimum > upperBound`), which a pathological/corrupt stored
+/// [ButtonConfig] (already-out-of-bounds gridX/gridY) could otherwise cause.
+int _atLeast(int value, int minimum) => value < minimum ? minimum : value;
+
+/// Same contract as [buildButtonResize], but when the requested footprint
+/// would overlap another page control, attempts to displace every UNLOCKED
+/// overlapper to the nearest still-free cell on the same page (same-page
+/// only — a resize never spills a neighbor onto a new page) instead of
+/// immediately rejecting. A LOCKED overlapper is an immovable obstacle: its
+/// mere presence in the requested footprint invalidates the resize outright
+/// (see [kResizeLockedNeighborMessage]), matching "never move locked
+/// widgets." When every overlapper relocates successfully the whole
+/// arrangement is validated with [validateGridOccupancy] exactly like a
+/// plain resize; any failure (locked obstacle, or no free cell for some
+/// overlapper) returns [GridMutationResult.invalid] and leaves [buttons]
+/// conceptually untouched — callers should simply keep the last-known-valid
+/// draft rather than applying an invalid result, which is what gives a live
+/// drag its "stop smoothly at the limit" feel.
+GridMutationResult buildButtonResizeWithReflow({
+  required Map<String, ButtonConfig> buttons,
+  required ButtonConfig selected,
+  required int gridColumns,
+  required int gridRows,
+  int? anchorX,
+  int? anchorY,
+  int slotCount = ButtonConfig.controlSlotCount,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+}) {
+  final minSize = ButtonConfig.defaultGridSizeFor(
+    selected.type,
+    customProperties: selected.customProperties,
+    rotation: selected.rotation,
+  );
+  final nextColumns = gridColumns.clamp(minSize.$1, columns);
+  final nextRows = gridRows.clamp(minSize.$2, rows);
+  final maxX = (columns - nextColumns).clamp(0, columns - 1);
+  final maxY = (rows - nextRows).clamp(0, rows - 1);
+  final nextX = (anchorX ?? selected.gridX).clamp(0, maxX);
+  final nextY = (anchorY ?? selected.gridY).clamp(0, maxY);
+  final resized = selected.copyWith(
+    gridX: nextX,
+    gridY: nextY,
+    gridColumns: nextColumns,
+    gridRows: nextRows,
+    slotIndex: _slotFor(nextX, nextY, columns),
+  );
+
+  final targetSlots = _rectSlots(nextX, nextY, nextColumns, nextRows, columns);
+
+  final overlapping = <ButtonConfig>[
+    for (final button in buttons.values)
+      if (button.id != selected.id &&
+          _isPageControl(button) &&
+          button.pageIndex == selected.pageIndex &&
+          (occupiedGridSlotsFor(
+                button,
+                slotCount: slotCount,
+                columns: columns,
+                rows: rows,
+              )?.any(targetSlots.contains) ??
+              false))
+        button,
+  ];
+
+  if (overlapping.isEmpty) {
+    final next = {...buttons, selected.id: resized};
+    final errors = validateGridOccupancy(
+      next,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    if (errors.isNotEmpty) {
+      return GridMutationResult.invalid(_messageForErrors(errors, resized));
+    }
+    return GridMutationResult.valid(next);
+  }
+
+  if (overlapping.any((b) => b.locked)) {
+    return const GridMutationResult.invalid(kResizeLockedNeighborMessage);
+  }
+
+  // Seed occupancy with the resized widget's new footprint plus every OTHER
+  // same-page button that isn't being displaced, then find each overlapper
+  // the nearest free anchor to its own current position — reading-order so
+  // the search is deterministic when several overlappers compete for the
+  // same nearby cells.
+  final occupied = <int>{...targetSlots};
+  for (final button in buttons.values) {
+    if (button.id == selected.id) continue;
+    if (!_isPageControl(button)) continue;
+    if (button.pageIndex != selected.pageIndex) continue;
+    if (overlapping.any((b) => b.id == button.id)) continue;
+    final slots = occupiedGridSlotsFor(
+      button,
+      slotCount: slotCount,
+      columns: columns,
+      rows: rows,
+    );
+    if (slots != null) occupied.addAll(slots);
+  }
+
+  final displaced = overlapping.toList()
+    ..sort(
+      (a, b) => _slotFor(
+        a.gridX,
+        a.gridY,
+        columns,
+      ).compareTo(_slotFor(b.gridX, b.gridY, columns)),
+    );
+
+  final moved = <String, ButtonConfig>{};
+  for (final button in displaced) {
+    final colSpan = button.gridColumnSpan.clamp(1, columns);
+    final rowSpan = button.gridRowSpan.clamp(1, rows);
+    final anchor = _nearestFreeAnchorIn(
+      occupied: occupied,
+      seedCol: button.gridX,
+      seedRow: button.gridY,
+      colSpan: colSpan,
+      rowSpan: rowSpan,
+      columns: columns,
+      rows: rows,
+    );
+    if (anchor == null) {
+      return const GridMutationResult.invalid(kWidgetPlacementMessage);
+    }
+    occupied.addAll(_rectSlots(anchor.$1, anchor.$2, colSpan, rowSpan, columns));
+    moved[button.id] = button.copyWith(
+      gridX: anchor.$1,
+      gridY: anchor.$2,
+      slotIndex: _slotFor(anchor.$1, anchor.$2, columns),
+    );
+  }
+
+  final next = {...buttons, selected.id: resized, ...moved};
+  final errors = validateGridOccupancy(
+    next,
+    slotCount: slotCount,
+    columns: columns,
+    rows: rows,
+  );
+  if (errors.isNotEmpty) {
+    return GridMutationResult.invalid(_messageForErrors(errors, resized));
+  }
+  return GridMutationResult.valid(next);
+}
+
 GridMutationResult buildButtonAdd({
   required Map<String, ButtonConfig> buttons,
   required ButtonConfig button,

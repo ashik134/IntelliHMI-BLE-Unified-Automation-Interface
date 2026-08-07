@@ -62,7 +62,7 @@ class HornButtonStrategy extends ButtonTypeStrategy {
       isActive: isActive,
       enabled: !isDisabled,
       config: hornConfig,
-      rotation: config.rotation,
+      rotation: config.effectiveRotation,
     );
   }
 }

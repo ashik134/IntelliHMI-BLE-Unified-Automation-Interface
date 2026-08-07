@@ -109,7 +109,8 @@ class ConfigurableButton extends StatelessWidget {
     }
 
     final outerHeight = height ?? config.resolvedHeight;
-    if (config.rotation.quarterTurns == 0) {
+    final rotation = config.effectiveRotation;
+    if (rotation.quarterTurns == 0) {
       return SizedBox(
         height: outerHeight,
         child: button(childHeight: outerHeight),
@@ -125,13 +126,13 @@ class ConfigurableButton extends StatelessWidget {
           if (!availableWidth.isFinite || !availableHeight.isFinite) {
             return Center(
               child: Transform.rotate(
-                angle: config.rotation.turns * 2 * math.pi,
+                angle: rotation.turns * 2 * math.pi,
                 child: button(childHeight: outerHeight),
               ),
             );
           }
 
-          final isSideways = config.rotation.quarterTurns.isOdd;
+          final isSideways = rotation.quarterTurns.isOdd;
           final childWidth = isSideways ? availableHeight : availableWidth;
           final childHeight = isSideways ? availableWidth : availableHeight;
 
@@ -143,7 +144,7 @@ class ConfigurableButton extends StatelessWidget {
                 minHeight: childHeight,
                 maxHeight: childHeight,
                 child: Transform.rotate(
-                  angle: config.rotation.turns * 2 * math.pi,
+                  angle: rotation.turns * 2 * math.pi,
                   child: button(width: childWidth, childHeight: childHeight),
                 ),
               ),

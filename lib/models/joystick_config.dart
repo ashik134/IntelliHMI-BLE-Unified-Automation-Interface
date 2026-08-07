@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
+
 enum JoystickMode {
   singleAxisAnalog,
   singleAxisDigital5,
@@ -8,6 +10,23 @@ enum JoystickMode {
 }
 
 enum JoystickAxis { horizontal, vertical }
+
+extension JoystickAxisInfo on JoystickAxis {
+  /// Lets generic call sites (ButtonConfig's orientation dispatch,
+  /// GeneralTab) treat this type-specific enum like every other
+  /// orientation-supporting type's — see [ControlOrientationToJoystickAxis].
+  ControlOrientation get asControlOrientation => switch (this) {
+    JoystickAxis.horizontal => ControlOrientation.horizontal,
+    JoystickAxis.vertical => ControlOrientation.vertical,
+  };
+}
+
+extension ControlOrientationToJoystickAxis on ControlOrientation {
+  JoystickAxis get asJoystickAxis => switch (this) {
+    ControlOrientation.horizontal => JoystickAxis.horizontal,
+    ControlOrientation.vertical => JoystickAxis.vertical,
+  };
+}
 
 enum JoystickBoundary { circular, square }
 

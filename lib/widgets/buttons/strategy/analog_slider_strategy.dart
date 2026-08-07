@@ -33,9 +33,22 @@ class AnalogSliderStrategy extends ButtonTypeStrategy {
     AnalogButtonCommandCallback? onAnalogCommand,
   }) {
     final role = config.role;
-    final analogConfig = AnalogSliderConfig.fromCustomProperties(
+    var analogConfig = AnalogSliderConfig.fromCustomProperties(
       config.customProperties,
     ).normalized();
+    // The O-T analog slider is a dedicated-rotation exception (see
+    // ButtonConfig.supportsStructuralRotation) — its axis presentation is
+    // owned entirely by config.effectiveRotation below via the outer
+    // Transform.rotate in ConfigurableButton, never by
+    // AnalogSliderConfig.orientation (which GeneralTab never exposes for
+    // this type). Forcing vertical here guards against stale
+    // customProperties (e.g. copied over from a T-O-T button before a type
+    // switch) ever presenting sideways with no matching outer rotation.
+    if (type == ButtonType.analogSliderOT) {
+      analogConfig = analogConfig.copyWith(
+        orientation: AnalogSliderOrientation.vertical,
+      );
+    }
     final (defaultColor, defaultColorLight) = role != null
         ? colorsForRole(role)
         : (AppColors.darkInfo, AppColors.accent);
@@ -50,7 +63,7 @@ class AnalogSliderStrategy extends ButtonTypeStrategy {
       activeColor: activeColor,
       activeColorLight: activeColorLight,
       enabled: !isDisabled,
-      rotation: config.rotation,
+      rotation: config.effectiveRotation,
       onChanged: (value) => onAnalogCommand?.call(config, value),
     );
   }

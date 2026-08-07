@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
@@ -110,6 +111,7 @@ class ToggleSwitchButton extends StatefulWidget {
     required this.onCommandChanged,
     this.style = const ButtonStyleConfig(),
     this.rotation = ButtonRotation.none,
+    this.orientation = ControlOrientation.vertical,
     this.mode,
     this.position,
     this.topLabel,
@@ -125,11 +127,20 @@ class ToggleSwitchButton extends StatefulWidget {
   });
 
   /// Smallest size at which adjacent lever detents remain at least 48px apart
-  /// while the standard icon/label footer remains visible.
+  /// while the standard icon/label footer remains visible — the vertical
+  /// (native) orientation. See [minimumOperationalSizeFor] for the
+  /// orientation-aware version; this constant is kept as-is (still the
+  /// vertical case) so existing call sites/tests keep working unchanged.
   static const Size minimumOperationalSize = Size(
     ButtonConfig.minToggleButtonWidthPx,
     ButtonConfig.minToggleButtonHeightPx,
   );
+
+  /// [minimumOperationalSize], swapped for horizontal orientation.
+  static Size minimumOperationalSizeFor(ControlOrientation orientation) =>
+      orientation == ControlOrientation.vertical
+      ? minimumOperationalSize
+      : Size(minimumOperationalSize.height, minimumOperationalSize.width);
 
   // ── Legacy API (preserved) ───────────────────────────────────────────────
   final String label;
@@ -142,6 +153,10 @@ class ToggleSwitchButton extends StatefulWidget {
   final ValueChanged<ControlState> onCommandChanged;
   final ButtonStyleConfig style;
   final ButtonRotation rotation;
+
+  /// Lever axis — vertical (default, today's only behavior) or horizontal.
+  /// See [ToggleButtonConfig.orientation].
+  final ControlOrientation orientation;
 
   // ── Extended API ─────────────────────────────────────────────────────────
   final ToggleSwitchMode? mode;
@@ -846,6 +861,94 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
     _trackSpringHeld = false;
   }
 
+  // ── Orientation ───────────────────────────────────────────────────────────
+  //
+  // All gesture math above (dy/areaH/leverH/_onPointerDown etc.) is authored
+  // once, exclusively for the vertical lever, and scoped entirely to the
+  // local coordinate space of the LayoutBuilder+Listener it's built from
+  // below. For horizontal orientation that same subtree is wrapped in a
+  // RotatedBox with its own constraints pre-swapped — the same "author one
+  // axis, RotatedBox the other into place" technique already used by
+  // AnalogSliderControl/IndustrialMultiStepSlider — so it renders sideways
+  // with NO changes to any gesture/physics/painting code: RotatedBox
+  // transforms hit-testing along with painting, so `event.localPosition`
+  // seen by the Listener below is already back in the widget's own
+  // always-vertical frame.
+
+  Widget _buildLeverArea(bool isOn) {
+    final leverInteractionArea = LayoutBuilder(
+      builder: (ctx, cons) {
+        final areaH = cons.maxHeight;
+        final areaW = cons.maxWidth;
+        final leverH = math.min(areaH, 260.0);
+        final leverW = math.min(
+          math.max(32.0, leverH * (110.0 / 210.0)),
+          areaW * 0.92,
+        );
+        _lastLeverH = leverH;
+        _lastLeverW = leverW;
+
+        return Listener(
+          key: const ValueKey('toggle_lever_interaction_area'),
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (e) =>
+              _onPointerDown(e, areaW, areaH, leverW, leverH),
+          onPointerMove: (e) => _onPointerMove(e, areaH, leverW, leverH),
+          onPointerUp: (e) => _onPointerUp(e, areaH),
+          onPointerCancel: (e) => _onPointerCancel(e),
+          child: SizedBox.expand(
+            child: Center(
+              // AnimatedBuilder: rebuilds on every spring frame
+              // AND on every scale-feedback frame.
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_knobCtrl, _scaleCtrl]),
+                builder: (ctx, _) {
+                  final scale = 1.0 - _scaleCtrl.value * 0.030;
+                  return Transform.scale(
+                    scale: scale,
+                    child: SizedBox(
+                      width: leverW,
+                      height: leverH,
+                      child: _LeverBody(
+                        knobY: _knobCtrl.value,
+                        isOn: isOn,
+                        activeColor: widget.activeColor,
+                        activeColorLight: widget.activeColorLight,
+                        mode: widget.resolvedMode,
+                        position: _pos,
+                        topLabel: widget.resolvedTopLabel,
+                        bottomLabel: widget.resolvedBottomLabel,
+                        topIcon: widget.topIcon,
+                        bottomIcon: widget.bottomIcon,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (widget.orientation == ControlOrientation.vertical) {
+      return leverInteractionArea;
+    }
+
+    return LayoutBuilder(
+      builder: (ctx, outer) {
+        return RotatedBox(
+          quarterTurns: -1,
+          child: SizedBox(
+            width: outer.maxHeight,
+            height: outer.maxWidth,
+            child: leverInteractionArea,
+          ),
+        );
+      },
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -875,67 +978,7 @@ class _ToggleSwitchButtonState extends State<ToggleSwitchButton>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // ── Industrial lever ─────────────────────────────────────────
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (ctx, cons) {
-                        final areaH = cons.maxHeight;
-                        final areaW = cons.maxWidth;
-                        final leverH = math.min(areaH, 260.0);
-                        final leverW = math.min(
-                          math.max(32.0, leverH * (110.0 / 210.0)),
-                          areaW * 0.92,
-                        );
-                        _lastLeverH = leverH;
-                        _lastLeverW = leverW;
-
-                        return Listener(
-                          key: const ValueKey('toggle_lever_interaction_area'),
-                          behavior: HitTestBehavior.opaque,
-                          onPointerDown: (e) =>
-                              _onPointerDown(e, areaW, areaH, leverW, leverH),
-                          onPointerMove: (e) =>
-                              _onPointerMove(e, areaH, leverW, leverH),
-                          onPointerUp: (e) => _onPointerUp(e, areaH),
-                          onPointerCancel: (e) => _onPointerCancel(e),
-                          child: SizedBox.expand(
-                            child: Center(
-                              // AnimatedBuilder: rebuilds on every spring frame
-                              // AND on every scale-feedback frame.
-                              child: AnimatedBuilder(
-                                animation: Listenable.merge([
-                                  _knobCtrl,
-                                  _scaleCtrl,
-                                ]),
-                                builder: (ctx, _) {
-                                  final scale = 1.0 - _scaleCtrl.value * 0.030;
-                                  return Transform.scale(
-                                    scale: scale,
-                                    child: SizedBox(
-                                      width: leverW,
-                                      height: leverH,
-                                      child: _LeverBody(
-                                        knobY: _knobCtrl.value,
-                                        isOn: isOn,
-                                        activeColor: widget.activeColor,
-                                        activeColorLight:
-                                            widget.activeColorLight,
-                                        mode: widget.resolvedMode,
-                                        position: _pos,
-                                        topLabel: widget.resolvedTopLabel,
-                                        bottomLabel: widget.resolvedBottomLabel,
-                                        topIcon: widget.topIcon,
-                                        bottomIcon: widget.bottomIcon,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                  Expanded(child: _buildLeverArea(isOn)),
                   // ── Compact footer ────────────────────────────────────────────
                   if (showFooter)
                     SizedBox(

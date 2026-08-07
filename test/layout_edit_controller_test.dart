@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/mutual_exclusion_config.dart';
@@ -122,8 +123,11 @@ void main() {
   });
 
   test(
-    'rotating a multi-zone slider swaps its grid allocation and repairs it',
+    'orientation edit on a multi-zone slider swaps its grid allocation',
     () async {
+      // Multi-zone sliders are orientation-supported (not a structural-
+      // rotation exception) — see ButtonConfig.supportsOrientation. Rotation
+      // must have zero effect on this type going forward.
       await editCtrl.enter();
       final result = editCtrl.addButton(
         const ButtonConfig(
@@ -138,20 +142,187 @@ void main() {
 
       editCtrl.updateButton(
         'zones',
-        (button) => button.copyWith(rotation: ButtonRotation.deg90),
+        (button) => button.copyWith(
+          customProperties: ButtonConfig.applyOrientation(
+            button.type,
+            button.customProperties,
+            ControlOrientation.vertical,
+          ),
+        ),
       );
       slider = editCtrl.draft.resolvedButtons['zones']!;
-      expect(slider.rotation, ButtonRotation.deg90);
+      expect(
+        ButtonConfig.orientationOf(slider.type, slider.customProperties),
+        ControlOrientation.vertical,
+      );
       expect((slider.gridColumnSpan, slider.gridRowSpan), (1, 2));
       expect(editCtrl.lastValidation.isValid, isTrue);
 
       editCtrl.updateButton(
         'zones',
-        (button) => button.copyWith(rotation: ButtonRotation.deg180),
+        (button) => button.copyWith(rotation: ButtonRotation.deg90),
+      );
+      slider = editCtrl.draft.resolvedButtons['zones']!;
+      expect(
+        (slider.gridColumnSpan, slider.gridRowSpan),
+        (1, 2),
+        reason: 'rotation must be inert for an orientation-supported type',
+      );
+
+      editCtrl.updateButton(
+        'zones',
+        (button) => button.copyWith(
+          customProperties: ButtonConfig.applyOrientation(
+            button.type,
+            button.customProperties,
+            ControlOrientation.horizontal,
+          ),
+        ),
       );
       slider = editCtrl.draft.resolvedButtons['zones']!;
       expect((slider.gridColumnSpan, slider.gridRowSpan), (2, 1));
       expect(editCtrl.lastValidation.isValid, isTrue);
+    },
+  );
+
+  test(
+    'rotating a Multi-Step Spring-Return Slider swaps its grid allocation '
+    'and 360 behaves the same as 0',
+    () async {
+      // sliderButton is one of the two dedicated structural-rotation
+      // exceptions — see ButtonConfig.supportsStructuralRotation.
+      await editCtrl.enter();
+      final result = editCtrl.addButton(
+        const ButtonConfig(
+          id: 'step',
+          type: ButtonType.sliderButton,
+          plcMapping: PlcOutputVariant.df2,
+        ),
+      );
+      expect(result.isValid, isTrue);
+      var slider = editCtrl.draft.resolvedButtons['step']!;
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (1, 2));
+
+      editCtrl.updateButton(
+        'step',
+        (button) => button.copyWith(rotation: ButtonRotation.deg90),
+      );
+      slider = editCtrl.draft.resolvedButtons['step']!;
+      expect(slider.rotation, ButtonRotation.deg90);
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (2, 1));
+      expect(editCtrl.lastValidation.isValid, isTrue);
+
+      editCtrl.updateButton(
+        'step',
+        (button) => button.copyWith(rotation: ButtonRotation.deg270),
+      );
+      slider = editCtrl.draft.resolvedButtons['step']!;
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (2, 1));
+      expect(editCtrl.lastValidation.isValid, isTrue);
+
+      // "360°" is offered in the UI as a separate option but applies the
+      // same ButtonRotation.none as "0°" — see GeneralTab.
+      editCtrl.updateButton(
+        'step',
+        (button) => button.copyWith(rotation: ButtonRotation.none),
+      );
+      slider = editCtrl.draft.resolvedButtons['step']!;
+      expect((slider.gridColumnSpan, slider.gridRowSpan), (1, 2));
+      expect(editCtrl.lastValidation.isValid, isTrue);
+    },
+  );
+
+  test(
+    'an orientation edit that would collide displaces only the unlocked '
+    'neighbor to the nearest free cell',
+    () async {
+      await editCtrl.enter();
+      editCtrl.addButton(
+        const ButtonConfig(
+          id: 'zones',
+          type: ButtonType.bidirectionalSlider5Step,
+          plcMapping: PlcOutputVariant.df2,
+        ),
+      );
+      final zonesBefore = editCtrl.draft.resolvedButtons['zones']!;
+      expect((zonesBefore.gridX, zonesBefore.gridY), (0, 0));
+      expect((zonesBefore.gridColumnSpan, zonesBefore.gridRowSpan), (2, 1));
+
+      editCtrl.addButton(_sampleButton('neighbor'));
+      final neighborBefore = editCtrl.draft.resolvedButtons['neighbor']!;
+      expect(
+        (neighborBefore.gridX, neighborBefore.gridY),
+        (0, 1),
+        reason: 'first free slot after the 2x1 slider at (0,0)-(1,0)',
+      );
+
+      // Flipping to vertical shrinks "zones" to 1x2 at (0,0)-(0,1), which
+      // now overlaps "neighbor" at (0,1).
+      editCtrl.updateButton(
+        'zones',
+        (button) => button.copyWith(
+          customProperties: ButtonConfig.applyOrientation(
+            button.type,
+            button.customProperties,
+            ControlOrientation.vertical,
+          ),
+        ),
+      );
+
+      final zonesAfter = editCtrl.draft.resolvedButtons['zones']!;
+      expect((zonesAfter.gridColumnSpan, zonesAfter.gridRowSpan), (1, 2));
+      final neighborAfter = editCtrl.draft.resolvedButtons['neighbor']!;
+      expect(
+        (neighborAfter.gridX, neighborAfter.gridY) ==
+            (neighborBefore.gridX, neighborBefore.gridY),
+        isFalse,
+        reason: 'the unlocked neighbor must have been displaced',
+      );
+      expect(editCtrl.lastValidation.isValid, isTrue);
+      expect(editCtrl.placementError, isNull);
+    },
+  );
+
+  test(
+    'an orientation edit that would displace a locked neighbor is rejected '
+    'and the draft is left untouched',
+    () async {
+      await editCtrl.enter();
+      editCtrl.addButton(
+        const ButtonConfig(
+          id: 'zones',
+          type: ButtonType.bidirectionalSlider5Step,
+          plcMapping: PlcOutputVariant.df2,
+        ),
+      );
+      editCtrl.addButton(_sampleButton('neighbor'));
+      editCtrl.updateButton(
+        'neighbor',
+        (button) => button.copyWith(locked: true),
+      );
+
+      final zonesBefore = editCtrl.draft.resolvedButtons['zones']!;
+      final neighborBefore = editCtrl.draft.resolvedButtons['neighbor']!;
+
+      editCtrl.updateButton(
+        'zones',
+        (button) => button.copyWith(
+          customProperties: ButtonConfig.applyOrientation(
+            button.type,
+            button.customProperties,
+            ControlOrientation.vertical,
+          ),
+        ),
+      );
+
+      expect(
+        editCtrl.draft.resolvedButtons['zones'],
+        zonesBefore,
+        reason: 'a rejected orientation change must leave the draft exactly '
+            'as it was',
+      );
+      expect(editCtrl.draft.resolvedButtons['neighbor'], neighborBefore);
+      expect(editCtrl.placementError, isNotNull);
     },
   );
 

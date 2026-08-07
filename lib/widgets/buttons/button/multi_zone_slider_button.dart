@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
@@ -52,6 +53,7 @@ class MultiZoneSliderButton extends StatelessWidget {
     this.farColor,
     this.style,
     this.rotation = ButtonRotation.none,
+    this.orientation = ControlOrientation.horizontal,
     this.deadZone = kMultiZoneSliderDefaultDeadZone,
     this.farZone = kMultiZoneSliderDefaultFarZone,
     this.isStartZoneBlocked = false,
@@ -91,6 +93,10 @@ class MultiZoneSliderButton extends StatelessWidget {
 
   final ButtonRotation rotation;
 
+  /// Track axis — horizontal (default, native 2x1 footprint) or vertical.
+  /// See [MultiZoneSliderConfig.orientation].
+  final ControlOrientation orientation;
+
   /// Fraction of half-track (from centre) treated as the neutral/idle dead
   /// band. See [kMultiZoneSliderDefaultDeadZone].
   final double deadZone;
@@ -129,6 +135,7 @@ class MultiZoneSliderButton extends StatelessWidget {
       farColor: farColor,
       style: style,
       rotation: rotation,
+      orientation: orientation,
       deadZone: deadZone,
       farZone: farZone,
       isStartZoneBlocked: isStartZoneBlocked,
@@ -174,6 +181,7 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
     this.farColor,
     this.style,
     this.rotation = ButtonRotation.none,
+    this.orientation = ControlOrientation.horizontal,
     this.deadZone = kMultiZoneSliderDefaultDeadZone,
     this.farZone = kMultiZoneSliderDefaultFarZone,
     this.isStartZoneBlocked = false,
@@ -192,6 +200,7 @@ class IndustrialMultiZoneSlider extends StatefulWidget {
   final Color? farColor;
   final ButtonStyleConfig? style;
   final ButtonRotation rotation;
+  final ControlOrientation orientation;
   final double deadZone;
   final double farZone;
   final bool isStartZoneBlocked;
@@ -551,9 +560,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     if (_stateId == MultiZoneSliderStateId.center) {
       return AppColors.idleColor.withAlpha(35);
     }
-    return _isFarZone
-        ? _farColor.withAlpha(55)
-        : _nearColor.withAlpha(50);
+    return _isFarZone ? _farColor.withAlpha(55) : _nearColor.withAlpha(50);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -568,13 +575,15 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         final boundedH = box.maxHeight.isFinite ? box.maxHeight : 96.0;
         if (boundedW <= 0 || boundedH <= 0) return const SizedBox.shrink();
 
-        // Auto-orient: a cell noticeably taller than it is wide (e.g. a 1x2
-        // vertical grid placement) renders as a vertical drag surface via the
-        // same RotatedBox technique MultiStepSliderButton uses for its own
-        // always-vertical layout — the inner content is authored exactly as
-        // if horizontal (trackLength=boundedH, thickness=boundedW) and
-        // rotated into place, so gesture hit-testing is transformed for free.
-        final isVertical = boundedH > boundedW * 1.15;
+        // The inner content is authored exactly as if horizontal
+        // (trackLength=boundedH, thickness=boundedW) and rotated into place
+        // for vertical orientation, so gesture hit-testing is transformed
+        // for free — the same RotatedBox technique MultiStepSliderButton
+        // uses for its own always-vertical layout. Orientation is an
+        // explicit, user-controlled setting (see
+        // MultiZoneSliderConfig.orientation) rather than auto-detected from
+        // the cell's aspect ratio, so a resize never silently flips it.
+        final isVertical = widget.orientation == ControlOrientation.vertical;
         final trackLength = isVertical ? boundedH : boundedW;
         final thickness = isVertical ? boundedW : boundedH;
 
@@ -644,11 +653,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
                   const SizedBox(width: 6),
                   _statusDot(),
                   const SizedBox(width: 6),
-                  _endpointLabel(
-                    widget.endLabel,
-                    widget.endIcon,
-                    _isEndActive,
-                  ),
+                  _endpointLabel(widget.endLabel, widget.endIcon, _isEndActive),
                 ],
               ),
             ),
@@ -673,8 +678,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         .clamp(0.0, trackLength)
         .toDouble();
     final halfTrack = trackWidth / 2.0;
-    final thumbCenterX =
-        thumbW / 2.0 + ((_value + 1.0) / 2.0) * trackWidth;
+    final thumbCenterX = thumbW / 2.0 + ((_value + 1.0) / 2.0) * trackWidth;
     final hitWidth = (thumbW + _thumbHitSlop * 2)
         .clamp(48.0, trackLength)
         .toDouble();

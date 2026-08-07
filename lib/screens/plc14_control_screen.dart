@@ -241,6 +241,11 @@ class _ControlScreenState extends State<ControlScreen>
         // LayoutEditController.commitSettledPlacement's doc comment) — a
         // back press here is simply ignored until it settles on its own.
         return;
+      case CustomizationInteractionMode.resizingWidget:
+        // Mid-drag on a resize handle: same treatment as settlingWidget —
+        // there's no clean "release" equivalent for a back press, so it's
+        // ignored until the gesture ends naturally (pointer up/cancel).
+        return;
       case CustomizationInteractionMode.editing:
         break;
     }
@@ -820,6 +825,18 @@ class _CanvasSection extends StatelessWidget {
           )
         : CanvasPageTransitionStyle.slide;
 
+    // Resize handles must stay wired for the whole drag, including once
+    // beginResize flips interactionMode to resizingWidget — gating only on
+    // `editing` would null out onResizeUpdate/onResizeEnd mid-gesture (see
+    // ControlCanvas.onResizeStart's doc comment) and strand the drag.
+    final canResize = isEditing
+        ? context.select<LayoutEditController, bool>(
+            (c) =>
+                c.interactionMode == CustomizationInteractionMode.editing ||
+                c.interactionMode == CustomizationInteractionMode.resizingWidget,
+          )
+        : false;
+
     return ControlCanvas(
       layoutCfg: layoutCfg,
       isEditing: isEditing,
@@ -888,6 +905,17 @@ class _CanvasSection extends StatelessWidget {
           : null,
       onDeleteButton: isEditing ? (id) => _onDelete(context, id) : null,
       onEditButton: isEditing ? (id) => _onEdit(context, id) : null,
+      onResizeStart: canResize
+          ? (id, _) => context.read<LayoutEditController>().beginResize(id)
+          : null,
+      onResizeUpdate: canResize
+          ? (id, edge, deltaCols, deltaRows) => context
+                .read<LayoutEditController>()
+                .updateResize(edge, deltaCols, deltaRows)
+          : null,
+      onResizeEnd: canResize
+          ? (id, _) => context.read<LayoutEditController>().endResize()
+          : null,
     );
   }
 }

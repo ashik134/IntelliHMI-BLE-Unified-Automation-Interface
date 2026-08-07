@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiZoneSliderConfig
 //
@@ -19,6 +21,7 @@ class MultiZoneSliderConfig {
     this.endLabel,
     this.deadZoneFraction = 0.12,
     this.farZoneFraction = 0.62,
+    this.orientation = ControlOrientation.horizontal,
   });
 
   static const String customPropertiesKey = 'multiZoneSlider';
@@ -43,6 +46,13 @@ class MultiZoneSliderConfig {
   /// 3-zone variant, which has no far zone.
   final double farZoneFraction;
 
+  /// Track axis — horizontal (default, today's native 2x1 footprint) or
+  /// vertical. Previously auto-detected from the placed cell's aspect ratio;
+  /// now an explicit, user-controlled setting (see
+  /// ButtonConfig.supportsOrientation/orientationOf) that also drives the
+  /// grid footprint swap.
+  final ControlOrientation orientation;
+
   MultiZoneSliderConfig normalized() {
     var safeDeadZone = _finiteOr(deadZoneFraction, 0.12).clamp(
       minDeadZoneFraction,
@@ -60,6 +70,7 @@ class MultiZoneSliderConfig {
       endLabel: _cleanNullable(endLabel),
       deadZoneFraction: safeDeadZone,
       farZoneFraction: safeFarZone,
+      orientation: orientation,
     );
   }
 
@@ -68,6 +79,7 @@ class MultiZoneSliderConfig {
     String? endLabel,
     double? deadZoneFraction,
     double? farZoneFraction,
+    ControlOrientation? orientation,
     bool clearStartLabel = false,
     bool clearEndLabel = false,
   }) {
@@ -76,6 +88,7 @@ class MultiZoneSliderConfig {
       endLabel: clearEndLabel ? null : (endLabel ?? this.endLabel),
       deadZoneFraction: deadZoneFraction ?? this.deadZoneFraction,
       farZoneFraction: farZoneFraction ?? this.farZoneFraction,
+      orientation: orientation ?? this.orientation,
     ).normalized();
   }
 
@@ -84,6 +97,7 @@ class MultiZoneSliderConfig {
     'endLabel': endLabel,
     'deadZoneFraction': deadZoneFraction,
     'farZoneFraction': farZoneFraction,
+    'orientation': orientation.name,
   };
 
   Map<String, dynamic> applyToCustomProperties(
@@ -111,6 +125,10 @@ class MultiZoneSliderConfig {
       endLabel: _cleanNullable(json['endLabel'] as String?),
       deadZoneFraction: _readDouble(json['deadZoneFraction'], 0.12),
       farZoneFraction: _readDouble(json['farZoneFraction'], 0.62),
+      orientation: controlOrientationFromJson(
+        json['orientation'],
+        fallback: ControlOrientation.horizontal,
+      ),
     ).normalized();
   }
 
@@ -121,11 +139,17 @@ class MultiZoneSliderConfig {
           other.startLabel == startLabel &&
           other.endLabel == endLabel &&
           other.deadZoneFraction == deadZoneFraction &&
-          other.farZoneFraction == farZoneFraction;
+          other.farZoneFraction == farZoneFraction &&
+          other.orientation == orientation;
 
   @override
-  int get hashCode =>
-      Object.hash(startLabel, endLabel, deadZoneFraction, farZoneFraction);
+  int get hashCode => Object.hash(
+    startLabel,
+    endLabel,
+    deadZoneFraction,
+    farZoneFraction,
+    orientation,
+  );
 }
 
 double _readDouble(dynamic value, double fallback) {

@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart' show IconData;
 
+import 'package:rev_crane_control_ops/models/analog_joystick_config.dart';
+import 'package:rev_crane_control_ops/models/analog_slider_config.dart';
 import 'package:rev_crane_control_ops/models/button_icon_registry.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
+import 'package:rev_crane_control_ops/models/multi_zone_slider_config.dart';
+import 'package:rev_crane_control_ops/models/toggle_button_config.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -105,11 +110,22 @@ class ButtonConfig {
   static const double minToggleButtonWidthPx = 112.0;
   static const double minToggleButtonHeightPx = 220.0;
 
+  /// Grid footprint for the toggle switch's native (vertical) lever axis —
+  /// swapped to (2,1) for horizontal orientation. Previously toggle had no
+  /// dedicated multi-cell minimum at all (a single 1x1 cell scaled purely
+  /// via heightScale); this gives orientation a real footprint to flip, per
+  /// [defaultGridSizeFor]/[ButtonConfig.orientationOf].
+  static const int minToggleGridColumns = 1;
+  static const int minToggleGridRows = 2;
+
   /// Minimum operational footprint for the one-direction, three-position
   /// slider. At 180px high its 28px footer leaves a 152px interaction lane;
   /// after the 40px thumb is accounted for, Neutral, Step 1, and Step 2 are
   /// separated by 56px center-to-center. A two-row grid allocation preserves
   /// that travel when denser grid presets use the standard 96px row minimum.
+  /// [ButtonType.sliderButton] is one of the two dedicated-rotation
+  /// exceptions (see [supportsStructuralRotation]) — [defaultGridSizeFor]
+  /// swaps this to (2,1) for a 90/270 degree rotation.
   static const double minMultiStepSliderWidthPx = 112.0;
   static const double minMultiStepSliderHeightPx = 180.0;
   static const int minMultiStepSliderGridColumns = 1;
@@ -120,13 +136,29 @@ class ButtonConfig {
   /// (50px between its -0.5/0/+0.5 state centers); the 5-zone track leaves
   /// 240px (at least 42px between its closest adjacent state centers).
   /// [defaultGridSizeFor] swaps the corresponding 2x1 grid allocation for
-  /// quarter-turn rotations.
+  /// vertical orientation (see [MultiZoneSliderConfig.orientation]).
   static const double minThreeZoneSliderWidthPx = 240.0;
   static const double minThreeZoneSliderHeightPx = 96.0;
   static const double minFiveZoneSliderWidthPx = 280.0;
   static const double minFiveZoneSliderHeightPx = 96.0;
   static const int minMultiZoneSliderGridColumns = 2;
   static const int minMultiZoneSliderGridRows = 1;
+
+  /// Grid footprint for a single-rail (1D) joystick — digital
+  /// ([ButtonType.joystick] in a single-axis mode) or analog
+  /// ([ButtonType.analogJoystick1D]) — swapped by [defaultGridSizeFor]
+  /// between (1,2) vertical and (2,1) horizontal per
+  /// [JoystickConfig.axis]/[AnalogJoystickConfig.orientation]. A dual-axis
+  /// joystick (2D) has no orientation and always uses the fixed (2,2) below.
+  static const int minJoystick1DGridColumns = 1;
+  static const int minJoystick1DGridRows = 2;
+
+  /// Grid footprint for the analog sliders — [ButtonType.analogSliderOT]
+  /// (the other dedicated-rotation exception, swapped by [defaultGridSizeFor]
+  /// on a 90/270 degree rotation) and [ButtonType.analogSliderTOT] (swapped
+  /// on [AnalogSliderConfig.orientation]).
+  static const int minAnalogSliderGridColumns = 1;
+  static const int minAnalogSliderGridRows = 2;
 
   static const int controlSlotCount = 6;
   static const int controlGridColumns = 2;
@@ -271,13 +303,150 @@ class ButtonConfig {
   /// GridLayoutOption preset.
   static const int _maxSpanCeiling = 16;
 
+  /// True for [ButtonType]s that expose the Horizontal/Vertical Orientation
+  /// control in Customization Mode (see GeneralTab) instead of the dedicated
+  /// Rotation control — mutually exclusive with [supportsStructuralRotation].
+  /// A dual-axis joystick (2D digital, or [ButtonType.analogJoystick2D]) has
+  /// no single axis to flip, so it supports neither.
+  static bool supportsOrientation(
+    ButtonType type, {
+    Map<String, dynamic> customProperties = const <String, dynamic>{},
+  }) {
+    switch (type) {
+      case ButtonType.toggle:
+      case ButtonType.bidirectionalSlider5Step:
+      case ButtonType.bidirectionalSlider3Step:
+      case ButtonType.analogSliderTOT:
+      case ButtonType.analogJoystick1D:
+        return true;
+      case ButtonType.joystick:
+        return !JoystickConfig.fromCustomProperties(
+          customProperties,
+        ).isDualAxis;
+      default:
+        return false;
+    }
+  }
+
+  /// True for the two widgets that keep a dedicated structural Rotation
+  /// control (0°/90°/270°/360°, see GeneralTab) instead of Orientation — the
+  /// Multi-Step Spring-Return Slider and the O-T Analog Slider. Both are
+  /// spring-return controls anchored at one end; a 90/270 degree rotation
+  /// swaps their grid footprint exactly like Orientation does for every
+  /// other type (see [defaultGridSizeFor]), but 180° (which would move the
+  /// anchor to the opposite end) is never offered. Mutually exclusive with
+  /// [supportsOrientation].
+  static bool supportsStructuralRotation(ButtonType type) =>
+      type == ButtonType.sliderButton || type == ButtonType.analogSliderOT;
+
+  /// True when [type]'s grid footprint is directional (driven by rotation or
+  /// orientation) rather than either fixed or a freely user-resized single
+  /// cell — used by [gridColumnSpan]/[gridRowSpan] to decide whether a
+  /// stored span should be clamped against the CURRENT rotation/orientation
+  /// minimum (preserving a user's manual resize where still valid).
+  static bool _hasDirectionalFootprint(
+    ButtonType type, {
+    Map<String, dynamic> customProperties = const <String, dynamic>{},
+  }) =>
+      supportsStructuralRotation(type) ||
+      supportsOrientation(type, customProperties: customProperties);
+
+  /// The current Horizontal/Vertical orientation for an
+  /// orientation-supporting [type] (see [supportsOrientation]), read from
+  /// whichever per-type config class owns it in [customProperties]. Callers
+  /// should guard with [supportsOrientation] first — an unsupported type
+  /// still returns a value (rather than throwing) since this dispatch is
+  /// inherently best-effort.
+  static ControlOrientation orientationOf(
+    ButtonType type,
+    Map<String, dynamic> customProperties,
+  ) {
+    switch (type) {
+      case ButtonType.toggle:
+        return ToggleButtonConfig.fromCustomProperties(
+          customProperties,
+        ).orientation;
+      case ButtonType.bidirectionalSlider5Step:
+      case ButtonType.bidirectionalSlider3Step:
+        return MultiZoneSliderConfig.fromCustomProperties(
+          customProperties,
+        ).orientation;
+      case ButtonType.analogSliderTOT:
+        return AnalogSliderConfig.fromCustomProperties(
+          customProperties,
+        ).orientation.asControlOrientation;
+      case ButtonType.analogJoystick1D:
+        return AnalogJoystickConfig.fromCustomProperties(
+          customProperties,
+        ).orientation.asControlOrientation;
+      case ButtonType.joystick:
+        return JoystickConfig.fromCustomProperties(
+          customProperties,
+        ).axis.asControlOrientation;
+      default:
+        return ControlOrientation.horizontal;
+    }
+  }
+
+  /// Writes [orientation] into whichever per-type config class owns it for
+  /// [type] (see [orientationOf]), returning the updated customProperties
+  /// map. A no-op (returns [customProperties] unchanged) for a type that
+  /// doesn't support orientation.
+  static Map<String, dynamic> applyOrientation(
+    ButtonType type,
+    Map<String, dynamic> customProperties,
+    ControlOrientation orientation,
+  ) {
+    switch (type) {
+      case ButtonType.toggle:
+        return ToggleButtonConfig.fromCustomProperties(customProperties)
+            .copyWith(orientation: orientation)
+            .applyToCustomProperties(customProperties);
+      case ButtonType.bidirectionalSlider5Step:
+      case ButtonType.bidirectionalSlider3Step:
+        return MultiZoneSliderConfig.fromCustomProperties(customProperties)
+            .copyWith(orientation: orientation)
+            .applyToCustomProperties(customProperties);
+      case ButtonType.analogSliderTOT:
+        return AnalogSliderConfig.fromCustomProperties(customProperties)
+            .copyWith(orientation: orientation.asAnalogSliderOrientation)
+            .applyToCustomProperties(customProperties);
+      case ButtonType.analogJoystick1D:
+        return AnalogJoystickConfig.fromCustomProperties(customProperties)
+            .copyWith(orientation: orientation.asAnalogJoystickOrientation)
+            .applyToCustomProperties(customProperties);
+      case ButtonType.joystick:
+        return JoystickConfig.fromCustomProperties(customProperties)
+            .copyWith(axis: orientation.asJoystickAxis)
+            .applyToCustomProperties(customProperties);
+      default:
+        return customProperties;
+    }
+  }
+
+  /// [rotation] if [type] is one of the two dedicated structural-rotation
+  /// exceptions (see [supportsStructuralRotation]), else always
+  /// [ButtonRotation.none]. Every render/UI call site should read this
+  /// instead of the raw [rotation] field — it is what makes stale rotation
+  /// data on a non-exception type (e.g. a button rotated under the old
+  /// uniform rotate-everything system) inert everywhere, in one place,
+  /// rather than needing a fix in every strategy/widget that used to accept
+  /// rotation.
+  ButtonRotation get effectiveRotation =>
+      supportsStructuralRotation(type) ? rotation : ButtonRotation.none;
+
   int get gridColumnSpan {
-    // Multi-zone sliders start at 2x1 and swap to 1x2 for quarter-turn
-    // rotations. Explicitly larger spans remain valid for dense grids whose
-    // physical cells need more room to meet the pixel-size contract.
-    if (type == ButtonType.bidirectionalSlider5Step ||
-        type == ButtonType.bidirectionalSlider3Step) {
-      final minimum = defaultGridSizeFor(type, rotation: rotation);
+    // Directional types (structural-rotation or orientation-supporting)
+    // clamp a stored span against the CURRENT rotation/orientation minimum,
+    // preserving a user's manual resize where still valid. Explicitly larger
+    // spans remain valid for dense grids whose physical cells need more room
+    // to meet the pixel-size contract.
+    if (_hasDirectionalFootprint(type, customProperties: customProperties)) {
+      final minimum = defaultGridSizeFor(
+        type,
+        customProperties: customProperties,
+        rotation: rotation,
+      );
       final requested = gridColumns > 1 ? gridColumns : columnSpan;
       return requested.clamp(minimum.$1, _maxSpanCeiling);
     }
@@ -291,16 +460,16 @@ class ButtonConfig {
   }
 
   int get gridRowSpan {
-    if (type == ButtonType.bidirectionalSlider5Step ||
-        type == ButtonType.bidirectionalSlider3Step) {
-      final minimum = defaultGridSizeFor(type, rotation: rotation);
+    if (_hasDirectionalFootprint(type, customProperties: customProperties)) {
+      final minimum = defaultGridSizeFor(
+        type,
+        customProperties: customProperties,
+        rotation: rotation,
+      );
       final requested = gridRows > 1 ? gridRows : 1;
       return requested.clamp(minimum.$2, _maxSpanCeiling);
     }
     if (gridRows > 1) return gridRows.clamp(1, _maxSpanCeiling);
-    if (type == ButtonType.sliderButton) {
-      return minMultiStepSliderGridRows;
-    }
     if (type == ButtonType.analogJoystick2D ||
         (type == ButtonType.joystick &&
             JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
@@ -317,18 +486,70 @@ class ButtonConfig {
     ButtonRotation rotation = ButtonRotation.none,
   }) {
     if (type == ButtonType.sliderButton) {
-      return (minMultiStepSliderGridColumns, minMultiStepSliderGridRows);
+      final horizontal = rotation.quarterTurns.isOdd;
+      return horizontal
+          ? (minMultiStepSliderGridRows, minMultiStepSliderGridColumns)
+          : (minMultiStepSliderGridColumns, minMultiStepSliderGridRows);
+    }
+    if (type == ButtonType.analogSliderOT) {
+      final horizontal = rotation.quarterTurns.isOdd;
+      return horizontal
+          ? (minAnalogSliderGridRows, minAnalogSliderGridColumns)
+          : (minAnalogSliderGridColumns, minAnalogSliderGridRows);
     }
     if (type == ButtonType.bidirectionalSlider5Step ||
         type == ButtonType.bidirectionalSlider3Step) {
-      return rotation.quarterTurns.isOdd
+      final vertical =
+          MultiZoneSliderConfig.fromCustomProperties(
+            customProperties,
+          ).orientation ==
+          ControlOrientation.vertical;
+      return vertical
           ? (minMultiZoneSliderGridRows, minMultiZoneSliderGridColumns)
           : (minMultiZoneSliderGridColumns, minMultiZoneSliderGridRows);
     }
-    if (type == ButtonType.analogJoystick2D ||
-        (type == ButtonType.joystick &&
-            JoystickConfig.fromCustomProperties(customProperties).isDualAxis)) {
+    if (type == ButtonType.analogSliderTOT) {
+      final vertical =
+          AnalogSliderConfig.fromCustomProperties(
+            customProperties,
+          ).orientation ==
+          AnalogSliderOrientation.vertical;
+      return vertical
+          ? (minAnalogSliderGridColumns, minAnalogSliderGridRows)
+          : (minAnalogSliderGridRows, minAnalogSliderGridColumns);
+    }
+    if (type == ButtonType.toggle) {
+      final vertical =
+          ToggleButtonConfig.fromCustomProperties(
+            customProperties,
+          ).orientation ==
+          ControlOrientation.vertical;
+      return vertical
+          ? (minToggleGridColumns, minToggleGridRows)
+          : (minToggleGridRows, minToggleGridColumns);
+    }
+    if (type == ButtonType.analogJoystick1D) {
+      final vertical =
+          AnalogJoystickConfig.fromCustomProperties(
+            customProperties,
+          ).orientation ==
+          AnalogJoystickOrientation.vertical;
+      return vertical
+          ? (minJoystick1DGridColumns, minJoystick1DGridRows)
+          : (minJoystick1DGridRows, minJoystick1DGridColumns);
+    }
+    if (type == ButtonType.analogJoystick2D) {
       return (2, 2);
+    }
+    if (type == ButtonType.joystick) {
+      final joystickConfig = JoystickConfig.fromCustomProperties(
+        customProperties,
+      );
+      if (joystickConfig.isDualAxis) return (2, 2);
+      final vertical = joystickConfig.axis == JoystickAxis.vertical;
+      return vertical
+          ? (minJoystick1DGridColumns, minJoystick1DGridRows)
+          : (minJoystick1DGridRows, minJoystick1DGridColumns);
     }
     return (1, 1);
   }

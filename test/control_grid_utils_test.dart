@@ -255,6 +255,246 @@ void main() {
       },
     );
   });
+
+  group('resolveResizeHandleDelta', () {
+    test('right edge grows columns and never moves the anchor', () {
+      final original = _button('S', page: 0, x: 1, y: 1, colSpan: 2, rowSpan: 1);
+      final (columns, rows, anchorX, anchorY) = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.right,
+        deltaCols: 2,
+        deltaRows: 0,
+        columns: 6,
+        rows: 6,
+      );
+      expect(columns, 4);
+      expect(rows, 1);
+      expect(anchorX, 1);
+      expect(anchorY, 1);
+    });
+
+    test('left edge grows columns and shifts the anchor so the right edge stays put', () {
+      final original = _button('S', page: 0, x: 3, y: 1, colSpan: 2, rowSpan: 1);
+      final (columns, rows, anchorX, anchorY) = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.left,
+        deltaCols: -2,
+        deltaRows: 0,
+        columns: 6,
+        rows: 6,
+      );
+      // Right edge was at x=3+2=5; after growing by 2 columns to the left it
+      // must still be at x=1+4=5.
+      expect(columns, 4);
+      expect(anchorX, 1);
+      expect(anchorY, 1);
+    });
+
+    test('left edge stops smoothly at the minimum instead of overshooting the anchor', () {
+      final original = _button('S', page: 0, x: 2, y: 0, colSpan: 3, rowSpan: 1);
+      final atMinimum = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.left,
+        deltaCols: 2, // shrinks to the 1x1 minimum for a pushButton
+        deltaRows: 0,
+        columns: 6,
+        rows: 6,
+      );
+      final pastMinimum = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.left,
+        deltaCols: 10, // would go negative without clamping
+        deltaRows: 0,
+        columns: 6,
+        rows: 6,
+      );
+      expect(atMinimum.$1, 1);
+      expect(atMinimum.$3, 4); // right edge (was x=5) stays fixed: 4 + 1 = 5
+      // Overshooting further must land on the exact same clamped result —
+      // never keep shifting the anchor once the minimum is reached.
+      expect(pastMinimum, atMinimum);
+    });
+
+    test('bottom edge grows rows and never moves the anchor', () {
+      final original = _button('S', page: 0, x: 0, y: 1, colSpan: 1, rowSpan: 2);
+      final (columns, rows, anchorX, anchorY) = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.bottom,
+        deltaCols: 0,
+        deltaRows: 2,
+        columns: 6,
+        rows: 6,
+      );
+      expect(columns, 1);
+      expect(rows, 4);
+      expect(anchorX, 0);
+      expect(anchorY, 1);
+    });
+
+    test('top edge grows rows and shifts the anchor so the bottom edge stays put', () {
+      final original = _button('S', page: 0, x: 0, y: 3, colSpan: 1, rowSpan: 2);
+      final (columns, rows, anchorX, anchorY) = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.top,
+        deltaCols: 0,
+        deltaRows: -2,
+        columns: 6,
+        rows: 6,
+      );
+      expect(columns, 1);
+      expect(rows, 4);
+      expect(anchorX, 0);
+      expect(anchorY, 1);
+    });
+
+    test('right edge clamps at the grid boundary', () {
+      final original = _button('S', page: 0, x: 4, y: 0, colSpan: 2, rowSpan: 1);
+      final (columns, _, anchorX, _) = resolveResizeHandleDelta(
+        original: original,
+        edge: ResizeEdge.right,
+        deltaCols: 10,
+        deltaRows: 0,
+        columns: 6,
+        rows: 6,
+      );
+      expect(columns, 2); // 4 (anchor) + 2 = 6 is already the grid edge
+      expect(anchorX, 4);
+    });
+  });
+
+  group('buildButtonResizeWithReflow', () {
+    test('grows into free space with no other button to displace', () {
+      final buttons = {'S': _button('S', page: 0, x: 0, y: 0)};
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: buttons['S']!,
+        gridColumns: 2,
+        gridRows: 1,
+        columns: 3,
+        rows: 3,
+        slotCount: 9,
+      );
+
+      expect(result.isValid, isTrue);
+      final resized = result.buttons!['S']!;
+      expect(resized.gridColumns, 2);
+      expect(resized.gridX, 0);
+      expect(resized.gridY, 0);
+    });
+
+    test('displaces an unlocked overlapping neighbor to the nearest free cell', () {
+      final buttons = {
+        'S': _button('S', page: 0, x: 0, y: 0),
+        'N': _button('N', page: 0, x: 1, y: 0),
+      };
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: buttons['S']!,
+        gridColumns: 2,
+        gridRows: 1,
+        columns: 3,
+        rows: 3,
+        slotCount: 9,
+      );
+
+      expect(result.isValid, isTrue);
+      final next = result.buttons!;
+      expect(next['S']!.gridColumns, 2);
+      expect(next['S']!.gridX, 0);
+      // N is pushed to the nearest still-free cell to its OWN original
+      // position (1,0), never onto a new page.
+      expect(next['N']!.pageIndex, 0);
+      expect(next['N']!.gridX, 2);
+      expect(next['N']!.gridY, 0);
+      expect(validateGridOccupancy(next, columns: 3, rows: 3, slotCount: 9), isEmpty);
+    });
+
+    test('a locked overlapping neighbor blocks the resize outright', () {
+      final buttons = {
+        'S': _button('S', page: 0, x: 0, y: 0),
+        'N': _button('N', page: 0, x: 1, y: 0).copyWith(locked: true),
+      };
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: buttons['S']!,
+        gridColumns: 2,
+        gridRows: 1,
+        columns: 3,
+        rows: 3,
+        slotCount: 9,
+      );
+
+      expect(result.isValid, isFalse);
+      expect(result.message, kResizeLockedNeighborMessage);
+    });
+
+    test('rejects the resize when a displaced neighbor has nowhere to go', () {
+      final buttons = {
+        'S': _button('S', page: 0, x: 0, y: 0),
+        'N': _button('N', page: 0, x: 1, y: 0),
+      };
+      // A fully-packed 2x1 grid: growing S to cover both cells leaves N with
+      // no free cell anywhere on the page.
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: buttons['S']!,
+        gridColumns: 2,
+        gridRows: 1,
+        columns: 2,
+        rows: 1,
+        slotCount: 2,
+      );
+
+      expect(result.isValid, isFalse);
+    });
+
+    test('clamps below a type minimum instead of shrinking past it', () {
+      final slider = _button(
+        'S',
+        page: 0,
+        x: 0,
+        y: 0,
+        colSpan: 1,
+        rowSpan: 2,
+      ).copyWith(type: ButtonType.sliderButton);
+      final buttons = {'S': slider};
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: slider,
+        gridColumns: 1,
+        gridRows: 1, // below sliderButton's 2-row minimum
+        columns: 3,
+        rows: 3,
+        slotCount: 9,
+      );
+
+      expect(result.isValid, isTrue);
+      expect(result.buttons!['S']!.gridRows, ButtonConfig.minMultiStepSliderGridRows);
+    });
+
+    test('never moves a locked neighbor even when an unlocked one also overlaps', () {
+      final buttons = {
+        'S': _button('S', page: 0, x: 0, y: 0),
+        'Locked': _button('Locked', page: 0, x: 1, y: 0).copyWith(locked: true),
+        'Free': _button('Free', page: 0, x: 2, y: 0),
+      };
+      final result = buildButtonResizeWithReflow(
+        buttons: buttons,
+        selected: buttons['S']!,
+        gridColumns: 3,
+        gridRows: 1,
+        columns: 3,
+        rows: 3,
+        slotCount: 9,
+      );
+
+      // The footprint needs cells 0,1,2 — cell 1 belongs to a locked
+      // neighbor, so the whole resize is invalid regardless of 'Free' being
+      // movable.
+      expect(result.isValid, isFalse);
+      expect(result.message, kResizeLockedNeighborMessage);
+    });
+  });
 }
 
 GridPlacement _placementOf({required int page, required int x, required int y}) =>

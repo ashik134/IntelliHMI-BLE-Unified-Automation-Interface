@@ -824,45 +824,71 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   /// Applies [update] to [id]'s ButtonConfig in the draft — the mutation
-  /// entry point for the Properties sheet (label/enabled edits). A no-op if
-  /// [id] no longer exists (e.g. deleted from another surface while a
-  /// Properties sheet referencing it was still open).
+  /// entry point for the Properties sheet (label/enabled/rotation/
+  /// orientation edits, ...). A no-op if [id] no longer exists (e.g. deleted
+  /// from another surface while a Properties sheet referencing it was still
+  /// open).
+  ///
+  /// When [update] changes [current]'s directional footprint minimum — a
+  /// rotation edit on one of the two structural-rotation types
+  /// ([ButtonConfig.supportsStructuralRotation]), or an orientation edit on
+  /// any orientation-supporting type ([ButtonConfig.supportsOrientation]),
+  /// detected generically by comparing [ButtonConfig.defaultGridSizeFor]
+  /// before and after — the new footprint is applied via
+  /// [buildButtonResizeWithReflow] (the same primitive the canvas
+  /// edge-handle resize uses, see [updateResize]) instead of a plain draft
+  /// write: unlocked overlapping neighbors are displaced to their nearest
+  /// free same-page cell, a locked overlapper vetoes the change outright
+  /// with [placementError] set, and a change with no valid arrangement
+  /// anywhere on the page is likewise rejected — the draft is left
+  /// completely untouched in both failure cases, which is what "restores
+  /// the previous orientation/rotation and footprint" means here: nothing
+  /// was ever applied. This replaces the old repairControlGridLayout-based
+  /// swap (multi-zone-slider-only, no locked-awareness, could spill pages,
+  /// never failed).
   void updateButton(String id, ButtonConfig Function(ButtonConfig) update) {
     final current = _draft.resolvedButtons[id];
     if (current == null) return;
-    var updated = update(current);
-    final isMultiZoneSlider =
-        current.type == ButtonType.bidirectionalSlider3Step ||
-        current.type == ButtonType.bidirectionalSlider5Step;
-    final changesFootprintAxis =
-        current.rotation.quarterTurns.isOdd !=
-        updated.rotation.quarterTurns.isOdd;
+    final updated = update(current);
 
-    if (!isMultiZoneSlider || !changesFootprintAxis) {
+    final oldMinimum = ButtonConfig.defaultGridSizeFor(
+      current.type,
+      customProperties: current.customProperties,
+      rotation: current.rotation,
+    );
+    final newMinimum = ButtonConfig.defaultGridSizeFor(
+      updated.type,
+      customProperties: updated.customProperties,
+      rotation: updated.rotation,
+    );
+
+    if (oldMinimum == newMinimum) {
       _applyDraft(_draft.withButton(id, updated));
       return;
     }
 
-    // A quarter-turn changes the physical operational contract from W×H to
-    // H×W. Swap the existing allocation at the same time, then let the grid
-    // repairer relocate any collision instead of leaving an invalid draft.
-    updated = updated.copyWith(
+    // The directional minimum changed shape (e.g. 2x1 -> 1x2) — swap the
+    // widget's current allocation to match the new axis, preserving its
+    // existing span where still valid (buildButtonResizeWithReflow clamps
+    // against the NEW minimum, computed from `updated`), and reflow.
+    final grid = _draft.gridLayout;
+    final result = buildButtonResizeWithReflow(
+      buttons: _draft.resolvedButtons,
+      selected: updated,
       gridColumns: current.gridRowSpan,
       gridRows: current.gridColumnSpan,
-    );
-    final grid = _draft.gridLayout;
-    final repaired = compactControlPages(
-      repairControlGridLayout(
-        _draft.withButton(id, updated),
-        slotCount: grid.slotCount,
-        columns: grid.columns,
-        rows: grid.rows,
-      ),
+      anchorX: current.gridX,
+      anchorY: current.gridY,
       slotCount: grid.slotCount,
       columns: grid.columns,
       rows: grid.rows,
     );
-    _applyDraft(repaired);
+    if (!result.isValid) {
+      _placementError = result.message ?? kWidgetPlacementMessage;
+      notifyListeners();
+      return;
+    }
+    _applyDraft(_draft.copyWith(buttons: result.buttons));
   }
 
   /// Resets [id]'s appearance/behavior/customProperties/label/icon/rotation
@@ -982,6 +1008,103 @@ class LayoutEditController extends ChangeNotifier {
       rows: option.rows,
     );
     _applyDraft(repaired);
+  }
+
+  // ── Canvas edge-handle resize ────────────────────────────────────────────
+  //
+  // Drives the four drag handles ControlCanvas renders on the selected
+  // widget's selection frame in Customization Mode (top/bottom/left/right,
+  // one axis each). beginResize/updateResize/endResize mirror the
+  // begin/update/end shape of the catalogue placement flow above, but are
+  // simpler: a resize never leaves the widget's current page, so every
+  // intermediate frame can be applied straight to [_draft] (via
+  // buildButtonResizeWithReflow) instead of needing a separate live-preview
+  // layer like [previewLayoutCfg] — an invalid frame is simply skipped,
+  // which is what gives the drag its "stop smoothly at the limit" feel
+  // instead of jittering or snapping back.
+
+  String? _resizingButtonId;
+  ButtonConfig? _resizingOriginal;
+
+  /// True while [id]'s edge handles should render mid-drag feedback (see
+  /// ControlCanvas's resize handle widgets).
+  bool isResizing(String id) => _resizingButtonId == id;
+
+  /// Starts a resize-drag gesture on [id]'s canvas handle. A no-op outside
+  /// Edit Mode, for an unknown id, or when the button is
+  /// [ButtonConfig.locked] (locked freezes position/size editing on the
+  /// canvas — see that field's doc comment). Opens a history batch so every
+  /// [updateResize] call during the drag coalesces into the single undo
+  /// entry the operator perceives as "one resize," exactly like the
+  /// Properties sheet's sliders.
+  void beginResize(String id) {
+    if (!_isEditing || _interactionMode != CustomizationInteractionMode.editing) {
+      return;
+    }
+    final button = _draft.resolvedButtons[id];
+    if (button == null || button.locked) return;
+    _resizingButtonId = id;
+    _resizingOriginal = button;
+    _interactionMode = CustomizationInteractionMode.resizingWidget;
+    beginHistoryBatch();
+    notifyListeners();
+  }
+
+  /// Called on every pointer-move frame of an active resize drag:
+  /// recomputes the requested new footprint from the gesture's ORIGINAL
+  /// pre-drag size (captured by [beginResize]) plus [deltaCols]/[deltaRows]
+  /// whole grid cells of cumulative pointer movement — never from the
+  /// previous frame's result — so backtracking the pointer is exactly
+  /// reversible, the same principle [updatePlacementPreview] uses for
+  /// catalogue drops. Displaces unlocked overlapping neighbors via
+  /// [buildButtonResizeWithReflow]; a frame that would move a locked
+  /// neighbor or has no valid arrangement is silently skipped, leaving the
+  /// draft at its last valid size. A no-op if no resize is in progress.
+  void updateResize(ResizeEdge edge, int deltaCols, int deltaRows) {
+    final id = _resizingButtonId;
+    final original = _resizingOriginal;
+    if (id == null || original == null) return;
+    final current = _draft.resolvedButtons[id];
+    if (current == null) return;
+
+    final grid = _draft.gridLayout;
+    final (nextColumns, nextRows, anchorX, anchorY) = resolveResizeHandleDelta(
+      original: original,
+      edge: edge,
+      deltaCols: deltaCols,
+      deltaRows: deltaRows,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+
+    final result = buildButtonResizeWithReflow(
+      buttons: _draft.resolvedButtons,
+      selected: current,
+      gridColumns: nextColumns,
+      gridRows: nextRows,
+      anchorX: anchorX,
+      anchorY: anchorY,
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    if (!result.isValid) return;
+    _applyDraft(_draft.copyWith(buttons: result.buttons));
+  }
+
+  /// Ends the active resize-drag gesture (pointer up/cancel), closing the
+  /// history batch and returning to plain Edit Mode. Safe to call even when
+  /// [beginResize] no-op'd — [endHistoryBatch] and the mode reset are both
+  /// no-ops when nothing is open.
+  void endResize() {
+    if (_resizingButtonId == null) return;
+    _resizingButtonId = null;
+    _resizingOriginal = null;
+    if (_interactionMode == CustomizationInteractionMode.resizingWidget) {
+      _interactionMode = CustomizationInteractionMode.editing;
+    }
+    endHistoryBatch();
+    notifyListeners();
   }
 
   void _applyDraft(ControlLayoutConfig next) {

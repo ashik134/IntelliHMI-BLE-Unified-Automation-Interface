@@ -18,15 +18,42 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // reach here, since [buildControlGridPages] is called with an empty roles
 // list). Live mode renders real, fully-interactive buttons. Edit mode wraps
 // each occupied cell in an AbsorbPointer (never sends a PLC command while
-// editing) plus tap-to-select/delete chrome; vacant cells are inert — the
-// Widget Catalog (via the customization toolbar) is the only way to add a
-// widget this pass, there is no drag/resize yet.
+// editing) plus tap-to-select/delete chrome, and — for the selected,
+// unlocked widget only — four edge drag-resize handles (see
+// _ResizeHandleOverlay); vacant cells are inert — the Widget Catalog (via
+// the customization toolbar) is the only way to ADD a widget, dragging one
+// to reposition it is not yet supported.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Matches SettlingPreviewOverlay's own settle-animation timing, so a widget
 // displaced by the live insertion preview and the newly-placed widget
-// settling into its target cell read as one consistent motion.
+// settling into its target cell read as one consistent motion. The resize
+// handle overlay reuses the same constants so a resized/displaced widget,
+// its neighbors, and its own handles all read as one consistent motion too.
 const Duration _kRepositionDuration = Duration(milliseconds: 220);
+
+// Resize handle geometry — see _ResizeHandleOverlay/_ResizeHandle. "Long"/
+// "short" are relative to the handle's own axis (a top/bottom handle's pill
+// is long horizontally and short vertically; left/right is the reverse).
+// _kHandleBorderInset matches _OccupiedCell's selection frame's own
+// `margin: EdgeInsets.all(4)` so a handle's visible pill centers exactly on
+// the selection border, never far inside or outside it.
+const double _kHandleBorderInset = 4;
+const double _kHandleVisibleLong = 26;
+const double _kHandleVisibleShort = 8;
+const double _kHandleTouchLong = 44;
+const double _kHandleTouchShort = 32;
+
+/// (id, edge) — a resize-handle drag started on the selected widget's
+/// [edge]. See LayoutEditController.beginResize.
+typedef ButtonResizeStartCallback = void Function(String id, ResizeEdge edge);
+
+/// (id, edge, deltaCols, deltaRows) — fired on every pointer-move frame of
+/// an active resize drag, carrying the CUMULATIVE whole-grid-cell movement
+/// since the drag started (never a per-frame increment — see
+/// LayoutEditController.updateResize's doc comment for why).
+typedef ButtonResizeUpdateCallback =
+    void Function(String id, ResizeEdge edge, int deltaCols, int deltaRows);
 
 class ControlCanvas extends StatefulWidget {
   const ControlCanvas({
@@ -42,6 +69,9 @@ class ControlCanvas extends StatefulWidget {
     this.onSelectButton,
     this.onDeleteButton,
     this.onEditButton,
+    this.onResizeStart,
+    this.onResizeUpdate,
+    this.onResizeEnd,
     this.pageTransitionStyle = CanvasPageTransitionStyle.slide,
     this.pageController,
   });
@@ -61,6 +91,16 @@ class ControlCanvas extends StatefulWidget {
   /// Distinct from [onSelectButton]: callers should both select the button
   /// AND open its properties sheet from this callback.
   final ValueChanged<String>? onEditButton;
+
+  /// Drag-resize handle callbacks — see [_ResizeHandleOverlay]. Rendering
+  /// AND gesture-handling for the four edge handles are both gated on
+  /// [onResizeStart] being non-null (a null callback means "no resize
+  /// handles at all," e.g. while a catalogue placement is in flight — see
+  /// call sites in plc14_control_screen.dart/plc38_control_screen.dart),
+  /// so there is no separate boolean to keep in sync with these.
+  final ButtonResizeStartCallback? onResizeStart;
+  final ButtonResizeUpdateCallback? onResizeUpdate;
+  final ButtonResizeStartCallback? onResizeEnd;
 
   /// Edit Mode-only page-swipe preview style (see
   /// CanvasPageTransitionStyle's doc comment) — inert in live mode, which
@@ -119,6 +159,23 @@ class _ControlCanvasState extends State<ControlCanvas> {
                 ...item.occupiedSlots,
             };
 
+            // Resize handles only ever target the selected widget, and only
+            // when this build actually has a callback wired for them (see
+            // [onResizeStart]'s doc comment) and that widget isn't locked
+            // (locked freezes position/size editing on the canvas — see
+            // ButtonConfig.locked).
+            ControlGridItem? resizableSelection;
+            if (widget.isEditing &&
+                widget.onResizeStart != null &&
+                widget.selectedButtonId != null) {
+              for (final item in page?.items ?? const <ControlGridItem>[]) {
+                if (item.config.id == widget.selectedButtonId) {
+                  resizableSelection = item.config.locked ? null : item;
+                  break;
+                }
+              }
+            }
+
             return Stack(
               children: [
                 for (final item in page?.items ?? const <ControlGridItem>[])
@@ -165,6 +222,31 @@ class _ControlCanvasState extends State<ControlCanvas> {
                         height: cellHeight,
                         child: const _VacantCell(),
                       ),
+                // Rendered as the LAST Stack child (not nested inside the
+                // selected _OccupiedCell's own Stack) so it always paints,
+                // and is hit-tested, above every other cell — including one
+                // whose AnimatedPositioned box happens to be later in
+                // [page.items] and would otherwise sit on top of a handle
+                // that overhangs the selection border into a neighboring
+                // cell's area. See _ResizeHandleOverlay's doc comment.
+                if (resizableSelection != null)
+                  AnimatedPositioned(
+                    key: ValueKey('resize_handles_${resizableSelection.config.id}'),
+                    duration: _kRepositionDuration,
+                    curve: Curves.easeOutCubic,
+                    left: resizableSelection.gridX * cellWidth,
+                    top: resizableSelection.gridY * cellHeight,
+                    width: resizableSelection.colSpan * cellWidth,
+                    height: resizableSelection.rowSpan * cellHeight,
+                    child: _ResizeHandleOverlay(
+                      buttonId: resizableSelection.config.id,
+                      cellWidth: cellWidth,
+                      cellHeight: cellHeight,
+                      onResizeStart: widget.onResizeStart,
+                      onResizeUpdate: widget.onResizeUpdate,
+                      onResizeEnd: widget.onResizeEnd,
+                    ),
+                  ),
               ],
             );
           },
@@ -345,6 +427,204 @@ class _OccupiedCell extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ResizeHandleOverlay / _ResizeHandle
+//
+// The four edge drag-resize handles for the selected widget. Rendered by
+// ControlCanvas as its OWN last Stack child — sharing the selected item's
+// exact AnimatedPositioned box rather than living inside that item's own
+// _OccupiedCell — so a handle that overhangs the selection border into a
+// neighboring cell's painted area always wins hit-testing over that
+// neighbor's own (opaque, tap-to-select) GestureDetector. Each handle
+// resizes along exactly one axis (top/bottom -> rows, left/right ->
+// columns), per the spec this implements.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ResizeHandleOverlay extends StatelessWidget {
+  const _ResizeHandleOverlay({
+    required this.buttonId,
+    required this.cellWidth,
+    required this.cellHeight,
+    required this.onResizeStart,
+    required this.onResizeUpdate,
+    required this.onResizeEnd,
+  });
+
+  final String buttonId;
+  final double cellWidth;
+  final double cellHeight;
+  final ButtonResizeStartCallback? onResizeStart;
+  final ButtonResizeUpdateCallback? onResizeUpdate;
+  final ButtonResizeStartCallback? onResizeEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    // Belt-and-suspenders: ControlCanvas already never mounts this overlay
+    // when onResizeStart is null (see its call site), but IgnorePointer here
+    // means a handle can never accidentally intercept a tap even if that
+    // condition is ever loosened.
+    return IgnorePointer(
+      ignoring: onResizeStart == null,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: _kHandleBorderInset - _kHandleTouchShort / 2,
+            left: 0,
+            right: 0,
+            child: Center(child: _buildHandle(ResizeEdge.top, Axis.horizontal)),
+          ),
+          Positioned(
+            bottom: _kHandleBorderInset - _kHandleTouchShort / 2,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: _buildHandle(ResizeEdge.bottom, Axis.horizontal),
+            ),
+          ),
+          Positioned(
+            left: _kHandleBorderInset - _kHandleTouchShort / 2,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _buildHandle(ResizeEdge.left, Axis.vertical)),
+          ),
+          Positioned(
+            right: _kHandleBorderInset - _kHandleTouchShort / 2,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: _buildHandle(ResizeEdge.right, Axis.vertical),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHandle(ResizeEdge edge, Axis axis) {
+    return _ResizeHandle(
+      axis: axis,
+      onDragStart: () => onResizeStart?.call(buttonId, edge),
+      onDragUpdate: (dx, dy) => onResizeUpdate?.call(
+        buttonId,
+        edge,
+        cellWidth <= 0 ? 0 : (dx / cellWidth).round(),
+        cellHeight <= 0 ? 0 : (dy / cellHeight).round(),
+      ),
+      onDragEnd: () => onResizeEnd?.call(buttonId, edge),
+    );
+  }
+}
+
+class _ResizeHandle extends StatefulWidget {
+  const _ResizeHandle({
+    required this.axis,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  final Axis axis;
+  final VoidCallback onDragStart;
+
+  /// Cumulative pixel offset (global coordinates) from where this drag
+  /// began — never a per-frame increment, so the caller can convert to
+  /// whole-grid-cell deltas without compounding rounding error frame over
+  /// frame.
+  final void Function(double dx, double dy) onDragUpdate;
+  final VoidCallback onDragEnd;
+
+  @override
+  State<_ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<_ResizeHandle> {
+  Offset? _dragOrigin;
+  bool _dragging = false;
+
+  void _handlePanStart(DragStartDetails details) {
+    _dragOrigin = details.globalPosition;
+    setState(() => _dragging = true);
+    widget.onDragStart();
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    final origin = _dragOrigin;
+    if (origin == null) return;
+    final delta = details.globalPosition - origin;
+    widget.onDragUpdate(delta.dx, delta.dy);
+  }
+
+  void _endDrag() {
+    if (_dragOrigin == null) return;
+    _dragOrigin = null;
+    if (mounted) setState(() => _dragging = false);
+    widget.onDragEnd();
+  }
+
+  @override
+  void dispose() {
+    // A drag that's still active when this handle unmounts (e.g. the
+    // selection changed mid-gesture) must still tell the controller to
+    // close its history batch — otherwise every later edit would silently
+    // keep coalescing into the abandoned resize's undo entry.
+    if (_dragOrigin != null) widget.onDragEnd();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isHorizontal = widget.axis == Axis.horizontal;
+    final touchWidth = isHorizontal ? _kHandleTouchLong : _kHandleTouchShort;
+    final touchHeight = isHorizontal ? _kHandleTouchShort : _kHandleTouchLong;
+    final visibleWidth = isHorizontal ? _kHandleVisibleLong : _kHandleVisibleShort;
+    final visibleHeight = isHorizontal ? _kHandleVisibleShort : _kHandleVisibleLong;
+    const growth = 4.0;
+
+    return MouseRegion(
+      cursor: isHorizontal
+          ? SystemMouseCursors.resizeUpDown
+          : SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: _handlePanStart,
+        onPanUpdate: _handlePanUpdate,
+        onPanEnd: (_) => _endDrag(),
+        onPanCancel: _endDrag,
+        child: SizedBox(
+          width: touchWidth,
+          height: touchHeight,
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
+              width: visibleWidth + (_dragging ? growth : 0),
+              height: visibleHeight + (_dragging ? growth : 0),
+              decoration: BoxDecoration(
+                color: _dragging
+                    ? AppColors.selectionVioletDeep
+                    : AppColors.selectionViolet,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withAlpha(_dragging ? 230 : 170),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.selectionGlow,
+                    blurRadius: _dragging ? 14 : 6,
+                    spreadRadius: _dragging ? 2 : 0,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

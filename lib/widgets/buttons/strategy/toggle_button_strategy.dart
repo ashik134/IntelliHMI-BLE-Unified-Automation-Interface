@@ -76,7 +76,8 @@ class ToggleButtonStrategy extends ButtonTypeStrategy {
       topDisabled: toggleConfig.disableLeft,
       bottomDisabled: toggleConfig.disableRight,
       style: config.style,
-      rotation: config.rotation,
+      rotation: config.effectiveRotation,
+      orientation: toggleConfig.orientation,
       onCommandChanged: (state) => onCommand(config.id, state),
     );
   }

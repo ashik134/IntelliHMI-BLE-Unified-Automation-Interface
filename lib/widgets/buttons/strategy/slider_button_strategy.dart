@@ -61,7 +61,7 @@ class SliderButtonStrategy extends ButtonTypeStrategy {
       activeColor: activeColor,
       step2Color: config.style.activeColor,
       style: config.style,
-      rotation: config.rotation,
+      rotation: config.effectiveRotation,
       onStateChanged: dispatchStateId,
     );
   }

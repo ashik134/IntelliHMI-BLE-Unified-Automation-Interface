@@ -1,3 +1,5 @@
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleButtonConfig
 //
@@ -19,6 +21,7 @@ class ToggleButtonConfig {
     this.rightIconKey,
     this.disableLeft = false,
     this.disableRight = false,
+    this.orientation = ControlOrientation.vertical,
   });
 
   static const String customPropertiesKey = 'toggleButton';
@@ -39,6 +42,12 @@ class ToggleButtonConfig {
   final bool disableLeft;
   final bool disableRight;
 
+  /// Lever axis — vertical (default, today's only behavior: "left"/top and
+  /// "right"/bottom are the two ends of a vertical lever) or horizontal
+  /// (left/right ends of a horizontal lever). See
+  /// ButtonConfig.supportsOrientation/orientationOf.
+  final ControlOrientation orientation;
+
   ToggleButtonConfig copyWith({
     String? leftLabel,
     String? rightLabel,
@@ -46,6 +55,7 @@ class ToggleButtonConfig {
     String? rightIconKey,
     bool? disableLeft,
     bool? disableRight,
+    ControlOrientation? orientation,
     bool clearLeftLabel = false,
     bool clearRightLabel = false,
     bool clearLeftIconKey = false,
@@ -62,6 +72,7 @@ class ToggleButtonConfig {
           : (rightIconKey ?? this.rightIconKey),
       disableLeft: disableLeft ?? this.disableLeft,
       disableRight: disableRight ?? this.disableRight,
+      orientation: orientation ?? this.orientation,
     );
   }
 
@@ -72,6 +83,7 @@ class ToggleButtonConfig {
     'rightIconKey': rightIconKey,
     'disableLeft': disableLeft,
     'disableRight': disableRight,
+    'orientation': orientation.name,
   };
 
   Map<String, dynamic> applyToCustomProperties(
@@ -99,6 +111,7 @@ class ToggleButtonConfig {
       rightIconKey: _cleanNullable(json['rightIconKey'] as String?),
       disableLeft: json['disableLeft'] as bool? ?? false,
       disableRight: json['disableRight'] as bool? ?? false,
+      orientation: controlOrientationFromJson(json['orientation']),
     );
   }
 
@@ -111,7 +124,8 @@ class ToggleButtonConfig {
           other.leftIconKey == leftIconKey &&
           other.rightIconKey == rightIconKey &&
           other.disableLeft == disableLeft &&
-          other.disableRight == disableRight;
+          other.disableRight == disableRight &&
+          other.orientation == orientation;
 
   @override
   int get hashCode => Object.hash(
@@ -121,6 +135,7 @@ class ToggleButtonConfig {
     rightIconKey,
     disableLeft,
     disableRight,
+    orientation,
   );
 }
 

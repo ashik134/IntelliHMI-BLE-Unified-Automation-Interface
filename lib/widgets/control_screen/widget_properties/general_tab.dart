@@ -4,6 +4,7 @@ import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_icon_registry.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
+import 'package:rev_crane_control_ops/models/control_orientation.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/icon_picker_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/property_field_widgets.dart';
 
@@ -188,17 +189,47 @@ class _GeneralTabState extends State<GeneralTab> {
           value: config.locked,
           onChanged: (v) => widget.onUpdate((b) => b.copyWith(locked: v)),
         ),
-        const PropertySectionHeader('Rotation'),
-        PropertySegmented<ButtonRotation>(
-          options: const [
-            (ButtonRotation.none, '0°'),
-            (ButtonRotation.deg90, '90°'),
-            (ButtonRotation.deg180, '180°'),
-            (ButtonRotation.deg270, '270°'),
-          ],
-          selected: config.rotation,
-          onChanged: (r) => widget.onUpdate((b) => b.copyWith(rotation: r)),
-        ),
+        if (ButtonConfig.supportsStructuralRotation(config.type)) ...[
+          const PropertySectionHeader('Rotation'),
+          PropertySegmented<ButtonRotation>(
+            options: const [
+              (ButtonRotation.none, '0°'),
+              (ButtonRotation.deg90, '90°'),
+              (ButtonRotation.deg270, '270°'),
+              // 360° is the same underlying state as 0° (ButtonRotation.none)
+              // — both pills light up together whenever rotation == none.
+              // See ButtonConfig.supportsStructuralRotation's doc comment
+              // for why 180° is never offered for these two types.
+              (ButtonRotation.none, '360°'),
+            ],
+            selected: config.rotation,
+            onChanged: (r) => widget.onUpdate((b) => b.copyWith(rotation: r)),
+          ),
+        ] else if (ButtonConfig.supportsOrientation(
+          config.type,
+          customProperties: config.customProperties,
+        )) ...[
+          const PropertySectionHeader('Orientation'),
+          PropertySegmented<ControlOrientation>(
+            options: const [
+              (ControlOrientation.horizontal, 'Horizontal'),
+              (ControlOrientation.vertical, 'Vertical'),
+            ],
+            selected: ButtonConfig.orientationOf(
+              config.type,
+              config.customProperties,
+            ),
+            onChanged: (o) => widget.onUpdate(
+              (b) => b.copyWith(
+                customProperties: ButtonConfig.applyOrientation(
+                  b.type,
+                  b.customProperties,
+                  o,
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
         Row(
           children: [
