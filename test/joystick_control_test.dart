@@ -33,6 +33,47 @@ void main() {
       await gesture.cancel();
     },
   );
+
+  testWidgets('digital cross gate expands with its widget', (tester) async {
+    Future<Size> pumpCrossGate(double extent) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox.square(
+                dimension: extent,
+                child: IndustrialJoystickControl(
+                  config: const JoystickConfig(
+                    mode: JoystickMode.dualAxisDigital4,
+                  ),
+                  label: 'Joystick',
+                  activeColor: Colors.orange,
+                  activeColorLight: Colors.orangeAccent,
+                  enabled: true,
+                  onChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final crossGate = find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint &&
+            widget.painter.runtimeType.toString() == '_CrossGatePainter',
+      );
+      expect(crossGate, findsOneWidget);
+      return tester.getSize(crossGate);
+    }
+
+    final compactSize = await pumpCrossGate(220);
+    final expandedSize = await pumpCrossGate(420);
+
+    expect(compactSize, const Size.square(200));
+    expect(expandedSize, const Size.square(400));
+    expect(expandedSize.width, greaterThan(compactSize.width));
+  });
 }
 
 class _JoystickHarness extends StatefulWidget {

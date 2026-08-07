@@ -37,6 +37,10 @@ double _dualAxisSide(double maxWidth, double maxHeight) {
   );
 }
 
+double _digitalCrossGateSide(double maxWidth, double maxHeight) {
+  return math.max(0.0, math.min(maxWidth, maxHeight));
+}
+
 double _joystickSlotPaddingFor(double maxWidth, double maxHeight) {
   final shortest = math.min(maxWidth, maxHeight);
   if (shortest <= 112.0) return 6.0;
@@ -44,10 +48,17 @@ double _joystickSlotPaddingFor(double maxWidth, double maxHeight) {
 }
 
 class _JoystickDragGeometry {
-  const _JoystickDragGeometry({required this.center, required this.radius});
+  const _JoystickDragGeometry({
+    required this.center,
+    required this.radius,
+    required this.displayRadius,
+    required this.knobHitRadius,
+  });
 
   final Offset center;
   final double radius;
+  final double displayRadius;
+  final double knobHitRadius;
 }
 
 class JoystickOutput {
@@ -78,20 +89,20 @@ class JoystickOutput {
   int get hashCode => Object.hash(x, y, xStep, yStep);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IndustrialJoystickControl
-//
-// Renders one of four *visually distinct* control families, selected by
-// JoystickConfig.mode:
-//   - singleAxisAnalog     -> vertical/horizontal proportional throttle rail
-//   - singleAxisDigital5   -> stepped ladder gate with 5 physical detents
-//   - dualAxisAnalog       -> round gimbal puck, free continuous travel
-//   - dualAxisDigital4     -> cross gate with 4 latching direction cells
-//
-// The four are deliberately built from different shapes (rail vs. ladder vs.
-// disc vs. cross) rather than sharing one painter with parameter tweaks, so
-// an operator can identify the control family at a glance.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────*
+// IndustrialJoystickControl*
+//*
+// Renders one of four *visually distinct* control families, selected by*
+// JoystickConfig.mode:*
+//   - singleAxisAnalog     -> vertical/horizontal proportional throttle rail*
+//   - singleAxisDigital5   -> stepped ladder gate with 5 physical detents*
+//   - dualAxisAnalog       -> round gimbal puck, free continuous travel*
+//   - dualAxisDigital4     -> cross gate with 4 latching direction cells*
+//*
+// The four are deliberately built from different shapes (rail vs. ladder vs.*
+// disc vs. cross) rather than sharing one painter with parameter tweaks, so*
+// an operator can identify the control family at a glance.*
+// ─────────────────────────────────────────────────────────────────────────────*
 
 class IndustrialJoystickControl extends StatefulWidget {
   const IndustrialJoystickControl({
@@ -129,6 +140,11 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
   AnimationController? _springX;
   AnimationController? _springY;
   Offset _value = Offset.zero;
+  bool _dragActive = false;
+  Offset _grabOffset = Offset.zero;
+  int _resolvedXStep = 0;
+  int _resolvedYStep = 0;
+  Axis? _dominantAxis;
   JoystickOutput _lastOutput = const JoystickOutput(
     x: 0,
     y: 0,
@@ -147,7 +163,15 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.enabled && !widget.enabled) {
       _cancelSpring();
+      _dragActive = false;
       _value = Offset.zero;
+      _resetDigitalResolution();
+      _emitNeutralAfterBuild();
+    } else if (oldWidget.config != widget.config && !_lastOutput.isNeutral) {
+      _cancelSpring();
+      _dragActive = false;
+      _value = Offset.zero;
+      _resetDigitalResolution();
       _emitNeutralAfterBuild();
     }
   }
@@ -155,7 +179,9 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
   JoystickConfig get _config => widget.config.normalizedForMode();
 
   void _emit() {
-    final output = _outputFor(_value);
+    final output = _config.isDigital
+        ? _stableDigitalOutputFor(_value)
+        : _outputFor(_value);
     if (output == _lastOutput) return;
     _lastOutput = output;
     widget.onChanged(output);
@@ -208,6 +234,92 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     return 0;
   }
 
+  double get _slowThreshold {
+    final dead = _config.deadZone.clamp(0.0, 0.92);
+    return math.max(dead + 0.04, _config.slowThreshold).clamp(0.04, 0.96);
+  }
+
+  double get _fastThreshold =>
+      math.max(_slowThreshold + 0.08, _config.fastThreshold).clamp(0.12, 1.0);
+
+  JoystickOutput _stableDigitalOutputFor(Offset raw) {
+    var x = raw.dx.clamp(-1.0, 1.0);
+    var y = raw.dy.clamp(-1.0, 1.0);
+
+    if (!_config.isDualAxis) {
+      if (_config.axis == JoystickAxis.horizontal) {
+        y = 0.0;
+      } else {
+        x = 0.0;
+      }
+    } else if (!_config.allowDiagonal) {
+      final absX = x.abs();
+      final absY = y.abs();
+      const switchRatio = 1.22;
+      final release = math.max(0.02, _config.deadZone - 0.04);
+
+      if (_dominantAxis == Axis.horizontal) {
+        if (absX <= release && absY > _slowThreshold ||
+            absY > absX * switchRatio) {
+          _dominantAxis = Axis.vertical;
+        }
+      } else if (_dominantAxis == Axis.vertical) {
+        if (absY <= release && absX > _slowThreshold ||
+            absX > absY * switchRatio) {
+          _dominantAxis = Axis.horizontal;
+        }
+      } else if (math.max(absX, absY) >= _slowThreshold) {
+        _dominantAxis = absX >= absY ? Axis.horizontal : Axis.vertical;
+      }
+
+      if (_dominantAxis == Axis.horizontal) {
+        y = 0.0;
+      } else if (_dominantAxis == Axis.vertical) {
+        x = 0.0;
+      }
+    }
+
+    _resolvedXStep = _stepWithHysteresis(x, _resolvedXStep);
+    _resolvedYStep = _stepWithHysteresis(y, _resolvedYStep);
+    return JoystickOutput(
+      x: _resolvedXStep == 0 ? 0.0 : _roundAnalog(x),
+      y: _resolvedYStep == 0 ? 0.0 : _roundAnalog(y),
+      xStep: _resolvedXStep,
+      yStep: _resolvedYStep,
+    );
+  }
+
+  int _stepWithHysteresis(double value, int previous) {
+    final magnitude = value.abs();
+    final sign = value == 0 ? 0 : value.sign.toInt();
+    const slowExitMargin = 0.045;
+    const fastExitMargin = 0.055;
+
+    if (previous == 0) {
+      if (magnitude >= _fastThreshold) return sign * 2;
+      if (magnitude >= _slowThreshold) return sign;
+      return 0;
+    }
+    if (sign != previous.sign) {
+      if (magnitude < _slowThreshold) return 0;
+      return magnitude >= _fastThreshold ? sign * 2 : sign;
+    }
+    if (previous.abs() == 2) {
+      if (magnitude >= _fastThreshold - fastExitMargin) return previous;
+      if (magnitude >= _slowThreshold - slowExitMargin) return sign;
+      return 0;
+    }
+    if (magnitude >= _fastThreshold) return sign * 2;
+    if (magnitude >= _slowThreshold - slowExitMargin) return sign;
+    return 0;
+  }
+
+  void _resetDigitalResolution() {
+    _resolvedXStep = 0;
+    _resolvedYStep = 0;
+    _dominantAxis = null;
+  }
+
   Offset _clampValue(Offset value) {
     var next = value;
     if (!_config.isDualAxis) {
@@ -224,9 +336,9 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     return next / distance;
   }
 
-  /// For digital modes, the visual knob snaps to the detent/cell center
-  /// instead of following the raw drag continuously. Analog modes ignore
-  /// this and track the raw value 1:1.
+  /// For digital modes, the visual knob snaps to the detent/cell center*
+  /// instead of following the raw drag continuously. Analog modes ignore*
+  /// this and track the raw value 1:1.*
   Offset _snappedForDisplay(Offset raw) {
     if (!_config.isDigital) return raw;
 
@@ -241,15 +353,32 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
           : Offset(0, snapped);
     }
 
-    final xStep = _stepFor(raw.dx);
-    final yStep = _stepFor(raw.dy);
+    final xStep = _lastOutput.xStep;
+    final yStep = _lastOutput.yStep;
     double cell(int step) => step == 0 ? 0.0 : step.sign.toDouble();
     return Offset(cell(xStep), cell(yStep));
   }
 
-  void _handlePanStart(DragStartDetails details) {
+  void _handlePanStart(
+    DragStartDetails details,
+    _JoystickDragGeometry geometry,
+  ) {
     if (!widget.enabled) return;
+    final display = _snappedForDisplay(_value);
+    final knobCenter =
+        geometry.center +
+        Offset(
+          display.dx * geometry.displayRadius,
+          -display.dy * geometry.displayRadius,
+        );
+    if ((details.localPosition - knobCenter).distance >
+        geometry.knobHitRadius) {
+      _dragActive = false;
+      return;
+    }
     _cancelSpring();
+    _dragActive = true;
+    _grabOffset = details.localPosition - knobCenter;
     HapticFeedback.selectionClick();
   }
 
@@ -257,31 +386,40 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
     DragUpdateDetails details,
     _JoystickDragGeometry geometry,
   ) {
-    if (!widget.enabled) return;
+    if (!widget.enabled || !_dragActive) return;
     final radius = geometry.radius;
     if (radius <= 0) return;
-    final centerDelta = details.localPosition - geometry.center;
+    final centerDelta = details.localPosition - _grabOffset - geometry.center;
     final next = _clampValue(
       Offset(centerDelta.dx / radius, -centerDelta.dy / radius),
     );
-    final prevStepKey = _stepKey(_value);
+    final previousStepKey = '${_lastOutput.xStep}:${_lastOutput.yStep}';
     setState(() => _value = next);
-    if (_config.isDigital && _stepKey(next) != prevStepKey) {
+    _emit();
+    final nextStepKey = '${_lastOutput.xStep}:${_lastOutput.yStep}';
+    if (_config.isDigital && nextStepKey != previousStepKey) {
       HapticFeedback.selectionClick();
     }
-    _emit();
   }
 
-  String _stepKey(Offset v) => '${_stepFor(v.dx)}:${_stepFor(v.dy)}';
-
   void _handlePanEnd() {
-    if (!widget.enabled) return;
+    if (!widget.enabled || !_dragActive) return;
+    _dragActive = false;
     if (_config.springReturn) {
       _springBackToCenter();
     } else {
       HapticFeedback.mediumImpact();
       _emit();
     }
+  }
+
+  void _handlePanCancel() {
+    if (!_dragActive) return;
+    _dragActive = false;
+    _cancelSpring();
+    _resetDigitalResolution();
+    if (mounted) setState(() => _value = Offset.zero);
+    _emitNeutral();
   }
 
   void _springBackToCenter() {
@@ -329,6 +467,7 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
 
   void _emitNeutral() {
     const neutral = JoystickOutput(x: 0, y: 0, xStep: 0, yStep: 0);
+    _resetDigitalResolution();
     if (_lastOutput == neutral) return;
     _lastOutput = neutral;
     widget.onChanged(neutral);
@@ -336,10 +475,12 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
 
   void _emitNeutralAfterBuild() {
     const neutral = JoystickOutput(x: 0, y: 0, xStep: 0, yStep: 0);
+    _resetDigitalResolution();
     if (_lastOutput == neutral) return;
     _lastOutput = neutral;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (_lastOutput != neutral) return;
       widget.onChanged(neutral);
     });
   }
@@ -356,7 +497,7 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
   @override
   Widget build(BuildContext context) {
     final config = _config;
-    final output = _outputFor(_value);
+    final output = config.isDigital ? _lastOutput : _outputFor(_value);
     final isActive = output.xStep != 0 || output.yStep != 0;
     final display = _snappedForDisplay(_value);
 
@@ -432,7 +573,12 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
 
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onPanStart: widget.enabled ? _handlePanStart : null,
+              onPanStart: widget.enabled
+                  ? (details) => _handlePanStart(
+                      details,
+                      _dragGeometryFor(config, maxW, maxH, slotPadding),
+                    )
+                  : null,
               onPanUpdate: widget.enabled
                   ? (details) => _handlePanUpdate(
                       details,
@@ -440,7 +586,7 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
                     )
                   : null,
               onPanEnd: widget.enabled ? (_) => _handlePanEnd() : null,
-              onPanCancel: widget.enabled ? _handlePanEnd : null,
+              onPanCancel: widget.enabled ? _handlePanCancel : null,
               child: SizedBox(
                 width: maxW,
                 height: maxH,
@@ -478,21 +624,36 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
         max: 320.0,
         scale: _kSingleAxisVisualScale,
       );
-      return _JoystickDragGeometry(center: center, radius: length / 2);
+      final radius = length / 2;
+      return _JoystickDragGeometry(
+        center: center,
+        radius: radius,
+        displayRadius: radius,
+        knobHitRadius: math.max(24.0, radius * 0.32),
+      );
     }
+    final side = config.mode == JoystickMode.dualAxisDigital4
+        ? _digitalCrossGateSide(innerW, innerH)
+        : _dualAxisSide(innerW, innerH);
+    final radius = side * _kAnalogGimbalPointerTravelFactor;
+    final displayRadius = config.mode == JoystickMode.dualAxisDigital4
+        ? side * (0.48 * 0.46 + 0.02)
+        : radius;
     return _JoystickDragGeometry(
       center: center,
-      radius: _dualAxisSide(innerW, innerH) * _kAnalogGimbalPointerTravelFactor,
+      radius: radius,
+      displayRadius: displayRadius,
+      knobHitRadius: math.max(24.0, side * 0.16),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1) SINGLE-AXIS ANALOG — vertical/horizontal proportional throttle rail.
-//
-// A tall capsule track with a continuously-sliding puck and a fill trail
-// from center to puck. No steps, no notches — pure smooth-glide metaphor.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────*
+// 1) SINGLE-AXIS ANALOG — vertical/horizontal proportional throttle rail.*
+//*
+// A tall capsule track with a continuously-sliding puck and a fill trail*
+// from center to puck. No steps, no notches — pure smooth-glide metaphor.*
+// ─────────────────────────────────────────────────────────────────────────────*
 
 class _AnalogRail extends StatelessWidget {
   const _AnalogRail({
@@ -587,7 +748,7 @@ class _AnalogRailPainter extends CustomPainter {
       Radius.circular(math.min(w, h) / 2),
     );
 
-    // Outer shell shadow + body.
+    // Outer shell shadow + body.*
     canvas.drawRRect(
       capsule.shift(const Offset(0, 3)),
       Paint()
@@ -611,7 +772,7 @@ class _AnalogRailPainter extends CustomPainter {
         ..color = Colors.white.withAlpha(24),
     );
 
-    // Inner recessed channel (the "travel path").
+    // Inner recessed channel (the "travel path").*
     final inset = math.min(w, h) * 0.24;
     final channelRect = horizontal
         ? Rect.fromLTWH(inset, h * 0.36, w - inset * 2, h * 0.28)
@@ -629,7 +790,7 @@ class _AnalogRailPainter extends CustomPainter {
         ..color = Colors.black.withAlpha(200),
     );
 
-    // Fine calibration ticks along the travel path (continuous-scale cue).
+    // Fine calibration ticks along the travel path (continuous-scale cue).*
     final tickPaint = Paint()
       ..color = Colors.white.withAlpha(28)
       ..strokeWidth = 1.0;
@@ -638,7 +799,7 @@ class _AnalogRailPainter extends CustomPainter {
       final t = i / tickCount;
       if (horizontal) {
         final x = channelRect.left + channelRect.width * t;
-        final tall = i == tickCount ~/ 2;
+        final tall = i == tickCount / 2;
         canvas.drawLine(
           Offset(x, channelRect.top - (tall ? 6 : 3)),
           Offset(x, channelRect.top - 1),
@@ -646,7 +807,7 @@ class _AnalogRailPainter extends CustomPainter {
         );
       } else {
         final y = channelRect.top + channelRect.height * (1 - t);
-        final tall = i == tickCount ~/ 2;
+        final tall = i == tickCount / 2;
         canvas.drawLine(
           Offset(channelRect.right + 1, y),
           Offset(channelRect.right + (tall ? 6 : 3), y),
@@ -655,11 +816,11 @@ class _AnalogRailPainter extends CustomPainter {
       }
     }
 
-    // Center neutral notch.
+    // Center neutral notch.*
     final center = channelRect.center;
     canvas.drawCircle(center, 3.0, Paint()..color = Colors.white.withAlpha(60));
 
-    // Fill trail from center to puck position.
+    // Fill trail from center to puck position.*
     final travel = horizontal
         ? (channelRect.width - channelRect.height) / 2
         : (channelRect.height - channelRect.width) / 2;
@@ -693,7 +854,7 @@ class _AnalogRailPainter extends CustomPainter {
       );
     }
 
-    // Puck (continuous, no snapping).
+    // Puck (continuous, no snapping).*
     final puckRadius = math.min(channelRect.width, channelRect.height) / 2 - 3;
     final puckBase = isActive && enabled
         ? activeColor
@@ -735,7 +896,7 @@ class _AnalogRailPainter extends CustomPainter {
           ..color = activeColorLight.withAlpha(110),
       );
     }
-    // Grip lines on puck for tactile affordance.
+    // Grip lines on puck for tactile affordance.*
     final gripPaint = Paint()
       ..color = Colors.black.withAlpha(90)
       ..strokeWidth = 1.2;
@@ -756,7 +917,7 @@ class _AnalogRailPainter extends CustomPainter {
       }
     }
 
-    // Label at the opposite end.
+    // Label at the opposite end.*
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
         label: label,
@@ -793,29 +954,29 @@ class _AnalogRailPainter extends CustomPainter {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2) SINGLE-AXIS DIGITAL 5-STEP (spring return) — a ladder gate with 5
-// physical detent slots (Fast-, Slow-, Neutral, Slow+, Fast+). The knob
-// visibly jumps between slot centers instead of gliding, and a center
-// spring glyph communicates the return-to-neutral behavior.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────*
+// 2) SINGLE-AXIS DIGITAL 5-STEP (spring return) — a ladder gate with 5*
+// physical detent slots (Fast-, Slow-, Neutral, Slow+, Fast+). The knob*
+// visibly jumps between slot centers instead of gliding, and a center*
+// spring glyph communicates the return-to-neutral behavior.*
+// ─────────────────────────────────────────────────────────────────────────────*
 
-// Drop-in replacement for the supplied _DigitalLadder and
-// _DigitalLadderPainter classes.
-//
-// This file intentionally relies on the surrounding project's existing
-// JoystickConfig, JoystickAxis, AppColors, ControlButtonVisualMetrics,
-// _safeVisualExtent, and _kSingleAxisVisualScale declarations.
+// Drop-in replacement for the supplied _DigitalLadder and*
+// _DigitalLadderPainter classes.*
+//*
+// This file intentionally relies on the surrounding project's existing*
+// JoystickConfig, JoystickAxis, AppColors, ControlButtonVisualMetrics,*
+// _safeVisualExtent, and _kSingleAxisVisualScale declarations.*
 
-// Shell-free single-axis digital joystick visual.
-//
-// The complete widget boundary contains only the five-position gate and knob.
-// There is no surrounding card, status area, label row, padding shell, or
-// decorative outer panel.
-//
-// This file intentionally relies on the surrounding project's existing
-// JoystickConfig, JoystickAxis, AppColors, _safeVisualExtent, and
-// _kSingleAxisVisualScale declarations.
+// Shell-free single-axis digital joystick visual.*
+//*
+// The complete widget boundary contains only the five-position gate and knob.*
+// There is no surrounding card, status area, label row, padding shell, or*
+// decorative outer panel.*
+//*
+// This file intentionally relies on the surrounding project's existing*
+// JoystickConfig, JoystickAxis, AppColors, _safeVisualExtent, and*
+// _kSingleAxisVisualScale declarations.*
 
 class _DigitalLadder extends StatelessWidget {
   const _DigitalLadder({
@@ -834,8 +995,8 @@ class _DigitalLadder extends StatelessWidget {
 
   final JoystickConfig config;
 
-  // Retained to keep this a drop-in replacement. Gesture processing belongs
-  // in the parent joystick; the ladder renders the settled display value.
+  // Retained to keep this a drop-in replacement. Gesture processing belongs*
+  // in the parent joystick; the ladder renders the settled display value.*
   final Offset rawValue;
   final Offset display;
   final bool isActive;
@@ -1221,9 +1382,9 @@ class _DigitalLadderGeometry {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3) DUAL-AXIS ANALOG — round gimbal puck with free continuous 2D travel.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────*
+// 3) DUAL-AXIS ANALOG — round gimbal puck with free continuous 2D travel.*
+// ─────────────────────────────────────────────────────────────────────────────*
 
 class _AnalogGimbal extends StatelessWidget {
   const _AnalogGimbal({
@@ -1490,8 +1651,8 @@ class _GimbalPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
 
-    // Circular bezel — smooth radial dish (distinct from the ladder's flat
-    // rounded-rect body and the cross-gate's angular plate).
+    // Circular bezel — smooth radial dish (distinct from the ladder's flat*
+    // rounded-rect body and the cross-gate's angular plate).*
     final plateRect = Rect.fromCircle(center: center, radius: outerR);
     canvas.drawCircle(
       center,
@@ -1513,7 +1674,7 @@ class _GimbalPainter extends CustomPainter {
         ..color = Colors.white.withAlpha(30),
     );
 
-    // Concentric travel rings (continuous-field cue, no wedge divisions).
+    // Concentric travel rings (continuous-field cue, no wedge divisions).*
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
@@ -1542,7 +1703,7 @@ class _GimbalPainter extends CustomPainter {
       );
     }
 
-    // Faint crosshair (fine, not gate-like).
+    // Faint crosshair (fine, not gate-like).*
     final crossPaint = Paint()
       ..color = Colors.white.withAlpha(22)
       ..strokeWidth = 1.0;
@@ -1562,7 +1723,7 @@ class _GimbalPainter extends CustomPainter {
       center.dy - value.dy * pointerTravelR,
     );
 
-    // Smooth proportional vector from center to the current X/Y output.
+    // Smooth proportional vector from center to the current X/Y output.*
     if (isActive && enabled) {
       canvas.drawLine(
         center,
@@ -1626,11 +1787,11 @@ class _GimbalPainter extends CustomPainter {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4) DUAL-AXIS DIGITAL 4-STEP (friction/maintained) — a cross/H-gate with 4
-// chunky latching cells (N/E/S/W). The knob jumps to a cell and *stays*
-// there (no spring animation), reinforcing the maintained-friction feel.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────*
+// 4) DUAL-AXIS DIGITAL 4-STEP (friction/maintained) — a cross/H-gate with 4*
+// chunky latching cells (N/E/S/W). The knob jumps to a cell and *stays**
+// there (no spring animation), reinforcing the maintained-friction feel.*
+// ─────────────────────────────────────────────────────────────────────────────*
 
 class _DigitalCrossGate extends StatelessWidget {
   const _DigitalCrossGate({
@@ -1659,7 +1820,7 @@ class _DigitalCrossGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final side = _dualAxisSide(maxWidth, maxHeight);
+    final side = _digitalCrossGateSide(maxWidth, maxHeight);
     final cellX = display.dx.round().clamp(-1, 1);
     final cellY = display.dy.round().clamp(-1, 1);
 
@@ -1738,7 +1899,7 @@ class _CrossGatePainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
 
-    // Angular square plate (distinct from the gimbal's round dish).
+    // Angular square plate (distinct from the gimbal's round dish).*
     final plateRect = Rect.fromCenter(
       center: center,
       width: plateR * 2,
@@ -1765,9 +1926,9 @@ class _CrossGatePainter extends CustomPainter {
         ..color = Colors.white.withAlpha(24),
     );
 
-    // Cross-shaped gate carved from 5 cells: center + N/E/S/W. Each is a
-    // distinct angular block with a visible seam — reads as "gated slots"
-    // rather than a free field.
+    // Cross-shaped gate carved from 5 cells: center + N/E/S/W. Each is a*
+    // distinct angular block with a visible seam — reads as "gated slots"*
+    // rather than a free field.*
     final armLen = plateR * 0.62;
     final cell = plateR * 0.46;
     final gap = side * 0.02;
@@ -1782,7 +1943,14 @@ class _CrossGatePainter extends CustomPainter {
       );
     }
 
-    final positions = <(int, int)>[(0, 0), (0, 1), (0, -1), (-1, 0), (1, 0)];
+    final positions = <(int, int)>[
+      (0, 0),
+      (0, 1),
+      (0, -1),
+      (-1, 0),
+      (1, 0),
+      if (config.allowDiagonal) ...[(-1, 1), (1, 1), (-1, -1), (1, -1)],
+    ];
 
     for (final (cx, cy) in positions) {
       final rect = cellRect(cx, cy);
@@ -1816,7 +1984,7 @@ class _CrossGatePainter extends CustomPainter {
               : Colors.black.withAlpha(210),
       );
 
-      // Chevron direction glyph on each arm cell.
+      // Direction glyph on each active cell.
       if (!isNeutral) {
         final glyphColor = isEngaged && enabled
             ? Colors.black.withAlpha(190)
@@ -1831,7 +1999,7 @@ class _CrossGatePainter extends CustomPainter {
       }
     }
 
-    // Connective seams between center and arms (visual "gate track").
+    // Connective seams between center and arms (visual "gate track").*
     final seamPaint = Paint()
       ..color = Colors.black.withAlpha(160)
       ..strokeWidth = side * 0.012;
@@ -1846,7 +2014,7 @@ class _CrossGatePainter extends CustomPainter {
       seamPaint,
     );
 
-    // Latching knob — square-ish puck that jumps between cells and holds.
+    // Latching knob — square-ish puck that jumps between cells and holds.*
     final knobCenter =
         center +
         Offset(animatedCell.dx * (cell + gap), -animatedCell.dy * (cell + gap));
