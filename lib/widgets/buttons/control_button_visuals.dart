@@ -17,6 +17,24 @@ class ControlButtonVisualMetrics {
   static const double rowHeight = 22.0;
   static const double minReadableLabelWidth = 28.0;
 
+  /// The one hard cap on operator-entered control-widget label length,
+  /// shared by every customization text field AND every render path. Editing
+  /// UIs enforce this going in (see PropertyTextField's maxLength); [clampLabel]
+  /// enforces it coming out, so labels sourced from elsewhere (catalogue
+  /// preview names, older saved layouts) can never overflow either.
+  static const int maxLabelLength = 24;
+
+  /// Trims and hard-truncates [label] to [maxLabelLength] characters. Every
+  /// label renderer in this file routes through this so no control can ever
+  /// display more than the standardized cap, regardless of how the
+  /// underlying string was produced.
+  static String clampLabel(String label) {
+    final trimmed = label.trim();
+    return trimmed.length <= maxLabelLength
+        ? trimmed
+        : trimmed.substring(0, maxLabelLength);
+  }
+
   static double labelSizeFor(Size size) {
     final shortest = math.min(size.width, size.height);
     final target = shortest < 18
@@ -59,7 +77,10 @@ class ControlButtonVisualMetrics {
   }) {
     final textStyle = labelTextStyle(color: color, bounds: bounds);
     final resolvedIcon = showIcon ? icon : null;
-    if (resolvedIcon == null) return TextSpan(text: label, style: textStyle);
+    final clampedLabel = clampLabel(label);
+    if (resolvedIcon == null) {
+      return TextSpan(text: clampedLabel, style: textStyle);
+    }
 
     return TextSpan(
       children: [
@@ -74,7 +95,7 @@ class ControlButtonVisualMetrics {
           ),
         ),
         TextSpan(text: '  ', style: textStyle),
-        TextSpan(text: label, style: textStyle),
+        TextSpan(text: clampedLabel, style: textStyle),
       ],
     );
   }
@@ -107,7 +128,7 @@ class ControlButtonVisualMetrics {
     bool showIcon = true,
   }) {
     final boundsSize = bounds.size;
-    final trimmedLabel = label.trim();
+    final trimmedLabel = clampLabel(label);
     final hasLabel = showLabel && trimmedLabel.isNotEmpty;
     final hasIcon = showIcon && icon != null;
     if (!hasLabel && !hasIcon) return;
@@ -221,7 +242,7 @@ class ControlButtonLabelIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wantsLabel = showLabel && (style?.showLabel ?? true);
-    final trimmedLabel = label.trim();
+    final trimmedLabel = ControlButtonVisualMetrics.clampLabel(label);
     final hasLabel = wantsLabel && trimmedLabel.isNotEmpty;
     final hasIcon = showIcon && icon != null;
 

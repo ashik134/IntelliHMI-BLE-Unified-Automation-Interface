@@ -232,6 +232,7 @@ class _HornContent extends StatelessWidget {
             : isActive
             ? 'SOUNDING'
             : 'READY';
+        final hasLabel = label.trim().isNotEmpty;
 
         return Padding(
           padding: compact
@@ -313,18 +314,20 @@ class _HornContent extends StatelessWidget {
                   ),
                 ),
               ),
-              SizedBox(height: compact ? 3 : 5),
-              SizedBox(
-                height: ControlButtonVisualMetrics.rowHeight,
-                child: ControlButtonLabelIcon(
-                  label: label,
-                  color: !isEnabled
-                      ? AppColors.darkTextMuted
-                      : AppColors.darkText,
-                  showIcon: false,
-                  rotation: rotation,
+              if (hasLabel) ...[
+                SizedBox(height: compact ? 3 : 5),
+                SizedBox(
+                  height: ControlButtonVisualMetrics.rowHeight,
+                  child: ControlButtonLabelIcon(
+                    label: label,
+                    color: !isEnabled
+                        ? AppColors.darkTextMuted
+                        : AppColors.darkText,
+                    showIcon: false,
+                    rotation: rotation,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         );

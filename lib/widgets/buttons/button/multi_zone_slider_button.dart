@@ -80,8 +80,6 @@ class MultiZoneSliderButton extends StatelessWidget {
   final MultiZoneSliderVariant variant;
 
   /// Color for the near/center-adjacent zones (zone2/zone4, or zone1/zone3
-  /// in three-zone mode). Defaults to [AppColors.accent]. Callers that want
-  /// role-specific theming (e.g. the crane traverse role buttons) pass an
   /// explicit override.
   final Color? nearColor;
 
@@ -102,7 +100,6 @@ class MultiZoneSliderButton extends StatelessWidget {
   final double deadZone;
 
   /// Fraction of half-track beyond which a five-zone slider reports the far
-  /// (zone1/zone5) rather than near (zone2/zone4) state. Unused in
   /// three-zone mode. See [kMultiZoneSliderDefaultFarZone].
   final double farZone;
 
@@ -259,7 +256,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     if (!widget.enabled && old.enabled) {
       _springCtrl.stop();
       // If disabled mid-drag, emit centre before clearing _isDragging.
-      // Without this, _release() will bail on `if (!_isDragging) return`
+      // Without this, _release() will bail on \`if (!_isDragging) return\`
       // and the caller's ownership bookkeeping stays permanently claimed,
       // which keeps isDisabled=true even after the operator releases.
       if (_isDragging && _stateId != MultiZoneSliderStateId.center) {
@@ -478,11 +475,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
     if (!_isDragging) return;
     setState(() => _isDragging = false);
     _pointerStartedOnThumb = false;
-    _emitZone(
-      MultiZoneSliderStateId.center,
-    ); // Safety: emit centre immediately.
-    // Arm the guard so a stale external update cannot reactivate the slider
-    // until the next fresh pointer interaction.
+    _emitZone(MultiZoneSliderStateId.center);
     _suppressExternalReactivation = true;
     _springReturn();
   }
@@ -607,12 +600,20 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
   }
 
   Widget _buildCore(double w, double h) {
-    final laneWidth = h.clamp(56.0, 72.0).toDouble();
+    const footerHeight = ControlButtonVisualMetrics.rowHeight;
+    const sliderToFooterGap = 6.0;
+    final bodyHeight = math.max(0.0, h - footerHeight - sliderToFooterGap);
+    // Must never exceed bodyHeight: laneWidth previously targeted 56–72
+    // straight off the full thickness h, ignoring the footer's own 28px
+    // reservation, so at a reduced grid footprint it regularly claimed more
+    // room than the body box actually had. The thumb's Positioned math
+    // below trusts laneWidth as its coordinate space, so once the box
+    // rendered smaller than that, the track (painted at its real size) and
+    // the thumb (positioned in the oversized assumed space) drifted apart.
+    final laneWidth = math.min(bodyHeight, 72.0);
     final thumbW = (laneWidth * 0.58).clamp(0.0, 36.0).toDouble();
     final thumbH = (laneWidth * 0.82).clamp(0.0, 52.0).toDouble();
     final trackH = (laneWidth * 0.28).clamp(0.0, 16.0).toDouble();
-    const footerHeight = ControlButtonVisualMetrics.rowHeight;
-    final bodyHeight = math.max(0.0, h - footerHeight - 6);
 
     return Opacity(
       opacity: widget.enabled ? 1.0 : 0.55,
@@ -621,25 +622,20 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         height: h,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
               width: w,
-              height: bodyHeight,
-              child: Center(
-                child: SizedBox(
-                  width: w,
-                  height: laneWidth,
-                  child: _buildSliderStage(
-                    trackLength: w,
-                    laneWidth: laneWidth,
-                    thumbW: thumbW,
-                    thumbH: thumbH,
-                    trackH: trackH,
-                  ),
-                ),
+              height: laneWidth,
+              child: _buildSliderStage(
+                trackLength: w,
+                laneWidth: laneWidth,
+                thumbW: thumbW,
+                thumbH: thumbH,
+                trackH: trackH,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: sliderToFooterGap),
             // ── Endpoint labels (configurable) ──────────────────────────
             SizedBox(
               height: footerHeight,
@@ -719,6 +715,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
                   showFarMarkers: widget.isFiveZone,
                   fillColor: _trackColor.withAlpha(widget.enabled ? 200 : 70),
                   isActive: widget.enabled,
+                  showZoneLabels: widget.isFiveZone,
                 ),
               ),
             ),
@@ -788,6 +785,7 @@ class _TrackPainter extends CustomPainter {
     required this.showFarMarkers,
     required this.fillColor,
     required this.isActive,
+    required this.showZoneLabels,
   });
 
   final double value;
@@ -798,6 +796,7 @@ class _TrackPainter extends CustomPainter {
   final bool showFarMarkers;
   final Color fillColor;
   final bool isActive;
+  final bool showZoneLabels;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -870,6 +869,58 @@ class _TrackPainter extends CustomPainter {
         ..color = Colors.white.withAlpha(100)
         ..strokeWidth = 2.0,
     );
+
+    // Fixed, non-configurable zone captions. Their positions follow the
+    // actual dead/far thresholds, so each caption remains centered in its
+    // operational zone when the track length changes.
+    if (showZoneLabels) {
+      final negativeFar = -(1.0 + farZone) / 2.0;
+      final negativeNear = -(farZone + deadZone) / 2.0;
+      final positiveNear = (deadZone + farZone) / 2.0;
+      final positiveFar = (farZone + 1.0) / 2.0;
+      final labelY = math.max(0.0, trackTop - 16.0);
+
+      _paintZoneLabel(
+        canvas,
+        'Z4',
+        cx + negativeFar * trackWidth / 2.0,
+        labelY,
+      );
+      _paintZoneLabel(
+        canvas,
+        'Z3',
+        cx + negativeNear * trackWidth / 2.0,
+        labelY,
+      );
+      _paintZoneLabel(
+        canvas,
+        'Z1',
+        cx + positiveNear * trackWidth / 2.0,
+        labelY,
+      );
+      _paintZoneLabel(
+        canvas,
+        'Z2',
+        cx + positiveFar * trackWidth / 2.0,
+        labelY,
+      );
+    }
+  }
+
+  void _paintZoneLabel(Canvas canvas, String text, double centerX, double top) {
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    textPainter.paint(canvas, Offset(centerX - textPainter.width / 2.0, top));
   }
 
   @override
@@ -881,7 +932,8 @@ class _TrackPainter extends CustomPainter {
       old.farZone != farZone ||
       old.showFarMarkers != showFarMarkers ||
       old.fillColor != fillColor ||
-      old.isActive != isActive;
+      old.isActive != isActive ||
+      old.showZoneLabels != showZoneLabels;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

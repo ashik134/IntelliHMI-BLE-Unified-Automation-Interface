@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/alarm_indicator_config.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AlarmIndicatorControl
@@ -268,13 +269,15 @@ class _AlarmContent extends StatelessWidget {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      label,
+                      ControlButtonVisualMetrics.clampLabel(label),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: ControlButtonVisualMetrics.labelTextStyle(
                         color: AppColors.darkText,
-                        fontSize: compact ? 10 : 12,
-                        fontWeight: FontWeight.w700,
+                        bounds: Size(
+                          compact ? 20.0 : 40.0,
+                          compact ? 18.0 : 26.0,
+                        ),
                       ),
                     ),
                   ),

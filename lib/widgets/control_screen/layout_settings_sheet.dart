@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
 /// Opens the Layout Settings bottom sheet: labels, arrangement toggles, and
 /// E-Stop sizing for the layout currently being edited. Every field mutates
@@ -137,6 +138,7 @@ class _LayoutSettingsSheetState extends State<_LayoutSettingsSheet> {
                   _SettingsTextField(
                     label: 'Reset E-Stop label',
                     controller: _resetLabelController,
+                    maxLength: ControlButtonVisualMetrics.maxLabelLength,
                     onChanged: (v) =>
                         _updateLabels((c) => c.copyWith(resetEstopLabel: v)),
                   ),
@@ -260,21 +262,31 @@ class _SettingsTextField extends StatelessWidget {
     required this.label,
     required this.controller,
     required this.onChanged,
+    this.maxLength,
   });
 
   final String label;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
 
+  /// When set, hard-caps input length (e.g. the 12-character control-widget
+  /// label limit) and shows a "n/max" counter so the cap is self-explanatory.
+  final int? maxLength;
+
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       onChanged: onChanged,
+      maxLength: maxLength,
       style: const TextStyle(color: AppColors.darkText, fontSize: 13.5),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: AppColors.darkTextMuted),
+        counterStyle: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 11,
+        ),
         filled: true,
         fillColor: AppColors.darkBg,
         contentPadding: const EdgeInsets.symmetric(

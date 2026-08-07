@@ -5,6 +5,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_icon_registry.dart';
 import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/control_orientation.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/icon_picker_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/property_field_widgets.dart';
 
@@ -128,6 +129,7 @@ class _GeneralTabState extends State<GeneralTab> {
         PropertyTextField(
           controller: _labelController,
           label: 'Label',
+          maxLength: ControlButtonVisualMetrics.maxLabelLength,
           onChanged: (v) => widget.onUpdate((b) => b.copyWith(label: v)),
         ),
         PropertySwitchTile(

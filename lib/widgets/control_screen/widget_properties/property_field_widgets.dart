@@ -155,6 +155,7 @@ class PropertyTextField extends StatelessWidget {
     this.onChanged,
     this.keyboardType,
     this.enabled = true,
+    this.maxLength,
   });
 
   final TextEditingController controller;
@@ -162,6 +163,10 @@ class PropertyTextField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final TextInputType? keyboardType;
   final bool enabled;
+
+  /// When set, hard-caps input length (e.g. the 12-character control-widget
+  /// label limit) and shows a "n/max" counter so the cap is self-explanatory.
+  final int? maxLength;
 
   @override
   Widget build(BuildContext context) {
@@ -172,10 +177,15 @@ class PropertyTextField extends StatelessWidget {
         enabled: enabled,
         onChanged: onChanged,
         keyboardType: keyboardType,
+        maxLength: maxLength,
         style: const TextStyle(color: AppColors.darkText, fontSize: 13.5),
         decoration: InputDecoration(
           labelText: label,
           labelStyle: const TextStyle(color: AppColors.darkTextMuted),
+          counterStyle: const TextStyle(
+            color: AppColors.darkTextMuted,
+            fontSize: 11,
+          ),
           filled: true,
           fillColor: AppColors.darkBg,
           contentPadding: const EdgeInsets.symmetric(

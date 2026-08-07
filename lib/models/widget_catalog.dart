@@ -79,8 +79,10 @@ class CatalogEntry {
 
   /// Same static footprint table every grid-placed button already uses —
   /// shown on the card as "cols × rows", purely informational at this stage.
-  (int, int) get gridSize =>
-      ButtonConfig.defaultGridSizeFor(buttonType, customProperties: customProperties);
+  (int, int) get gridSize => ButtonConfig.defaultGridSizeFor(
+    buttonType,
+    customProperties: customProperties,
+  );
 
   /// A throwaway, never-persisted config used only to drive a safe preview
   /// (see CatalogPreviewStage) — inert until an operator explicitly places
@@ -107,7 +109,7 @@ final List<CatalogEntry> kWidgetCatalog = [
   const CatalogEntry(
     category: _digital,
     group: 'Sliders',
-    name: '3-Step Spring-Return Slider',
+    name: '3-Step (O-T-T)',
     notation: 'O → Step 1 → Step 2',
     description:
         'Three-position momentary slider that returns to the neutral '
@@ -163,9 +165,7 @@ final List<CatalogEntry> kWidgetCatalog = [
         'after release.',
     tags: ['Digital', 'Spring Return'],
     buttonType: ButtonType.pushButton,
-    behavior: ButtonBehaviorConfig(
-      wiring: PushButtonWiringConfig.offMomentary,
-    ),
+    behavior: ButtonBehaviorConfig(wiring: PushButtonWiringConfig.offMomentary),
     previewSize: Size(130, 130),
   ),
 
@@ -180,9 +180,7 @@ final List<CatalogEntry> kWidgetCatalog = [
         'momentary spring-return position.',
     tags: ['Digital', '2-Position', 'Spring Return'],
     buttonType: ButtonType.toggle,
-    behavior: ButtonBehaviorConfig(
-      wiring: PushButtonWiringConfig.offMomentary,
-    ),
+    behavior: ButtonBehaviorConfig(wiring: PushButtonWiringConfig.offMomentary),
     previewSize: Size(120, 230),
   ),
   const CatalogEntry(
@@ -223,9 +221,7 @@ final List<CatalogEntry> kWidgetCatalog = [
         'and a stable centre-off position.',
     tags: ['Digital', '3-Position', 'Retained'],
     buttonType: ButtonType.toggle,
-    behavior: ButtonBehaviorConfig(
-      wiring: PushButtonWiringConfig.latchingBoth,
-    ),
+    behavior: ButtonBehaviorConfig(wiring: PushButtonWiringConfig.latchingBoth),
     previewSize: Size(120, 230),
   ),
   const CatalogEntry(
@@ -369,7 +365,8 @@ final List<CatalogEntry> kWidgetCatalog = [
     category: _analog,
     group: 'Analog Joysticks',
     name: '1D Analog Joystick',
-    description: 'Single-axis joystick that produces a continuous analog value.',
+    description:
+        'Single-axis joystick that produces a continuous analog value.',
     tags: const ['Analog', '1-Axis'],
     buttonType: ButtonType.analogJoystick1D,
     customProperties: const AnalogJoystickConfig().applyToCustomProperties(

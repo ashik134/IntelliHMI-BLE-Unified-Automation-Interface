@@ -921,6 +921,37 @@ GridMutationResult buildButtonResizeWithReflow({
   return GridMutationResult.valid(next);
 }
 
+/// Same contract as [buildButtonResizeWithReflow], but for repositioning an
+/// EXISTING widget to a new anchor cell WITHOUT changing its footprint — the
+/// primitive behind canvas long-press-drag-to-move (see
+/// LayoutEditController.beginMove/updateMovePreview/endMove). A thin,
+/// self-documenting wrapper: passing [selected]'s own current span through
+/// unchanged is what turns a "resize" into a pure "move," while every other
+/// property — displacing unlocked overlapping neighbors to the nearest free
+/// same-page cell, refusing outright when a LOCKED overlapper is in the way
+/// or no arrangement exists — is inherited verbatim.
+GridMutationResult buildButtonMoveWithReflow({
+  required Map<String, ButtonConfig> buttons,
+  required ButtonConfig selected,
+  required int anchorX,
+  required int anchorY,
+  int slotCount = ButtonConfig.controlSlotCount,
+  int columns = ButtonConfig.controlGridColumns,
+  int rows = ButtonConfig.controlGridRows,
+}) {
+  return buildButtonResizeWithReflow(
+    buttons: buttons,
+    selected: selected,
+    gridColumns: selected.gridColumnSpan,
+    gridRows: selected.gridRowSpan,
+    anchorX: anchorX,
+    anchorY: anchorY,
+    slotCount: slotCount,
+    columns: columns,
+    rows: rows,
+  );
+}
+
 GridMutationResult buildButtonAdd({
   required Map<String, ButtonConfig> buttons,
   required ButtonConfig button,
@@ -1159,8 +1190,13 @@ int _slotFor(int x, int y, int columns) => y * columns + x;
 bool _isPageControl(ButtonConfig button) => button.visible && button.role == null;
 
 String _messageForErrors(List<String> errors, ButtonConfig changed) {
+  // Was `|| changed.occupiesMultipleGridCells`, which meant ANY multi-cell
+  // widget's failure (a resized toggle, multi-step slider, joystick, ...)
+  // got this multi-zone-slider-specific explanation instead of its own —
+  // occupying multiple cells is true of every directional-footprint type
+  // once resized, not just the two multi-zone slider variants.
   if (changed.type == ButtonType.bidirectionalSlider5Step ||
-      changed.occupiesMultipleGridCells) {
+      changed.type == ButtonType.bidirectionalSlider3Step) {
     return kMultiZoneSpanMessage;
   }
   return errors.isEmpty ? kWidgetPlacementMessage : errors.first;

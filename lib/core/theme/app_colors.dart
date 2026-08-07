@@ -51,20 +51,20 @@ class AppColors {
   // active, so the AppBar itself reads as visually distinct from normal mode.
   static const Color appBarEditingBg = Color(0xFF1F1533);
 
-  // ── Selection overlay (customization mode, violet-tinted) ────────────
-  static const Color selectionViolet = Color(0xFF8B5CF6); // violet-500
-  static const Color selectionVioletDeep = Color(0xFF7C3AED); // violet-600
-  static const Color selectionGlow = Color(0x668B5CF6); // violet-500 @ 40%
+  // ── Selection overlay (customization mode, blue-tinted) ─────────────
+  static const Color selectionViolet = Color(0xFF60A5FA); // blue-400
+  static const Color selectionVioletDeep = Color(0xFF3B82F6); // blue-500
+  static const Color selectionGlow = Color(0x6660A5FA); // blue-400 @ 40%
   static const Color selectionHandleFill = Color(0xFFFFFFFF);
   static const Color selectionDotGrid = Color(0x14FFFFFF); // white @ 8%
 
   // ── Customization toolbar (floating circular action row) ─────────────
-  // Dark graphite, deliberately NOT violet/saturated — the accent is
+  // Dark graphite, deliberately restrained — the accent is
   // reserved for the selected-item and Done affordances so it never reads
   // as a live PLC control state.
   static const Color toolbarCircleBg = Color(0xFF20232B);
   static const Color toolbarCircleBgPressed = Color(0xFF2C2F39);
-  static const Color toolbarCircleBgSelected = Color(0xFF2A2440);
+  static const Color toolbarCircleBgSelected = Color(0xFF202E40);
 
   // ── Light theme – Home Screen ────────────────────────────────────────
   static const Color homeBg = Color(0xFFF5F7FA);
@@ -142,7 +142,7 @@ class AppColors {
   static const Color brandOnDark = Color(0xFFF5F6FB);
   static const Color brandOnDarkSub = Color(0xFFAEB3C9);
 
-  // Violet brand accent (matches Control Screen appBarGlow/selectionViolet)
+  // Violet brand accent (matches Control Screen appBarGlow)
   static const Color brandViolet = Color(0xFF8B5CF6); // violet-500
   static const Color brandVioletDeep = Color(0xFF6D28D9); // violet-700
   static const Color brandVioletSoft = Color(0xFFF1EBFE);

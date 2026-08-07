@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/multi_zone_slider_config.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 import 'package:rev_crane_control_ops/models/toggle_button_config.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/general_tab.dart'
     show ButtonUpdater;
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/icon_picker_sheet.dart';
@@ -94,6 +95,7 @@ class FunctionTab extends StatelessWidget {
       _ResyncTextField(
         label: 'Negative-side label',
         value: zoneConfig.startLabel ?? '',
+        maxLength: ControlButtonVisualMetrics.maxLabelLength,
         onChanged: (v) => update(
           (c) => v.trim().isEmpty
               ? c.copyWith(clearStartLabel: true)
@@ -103,6 +105,7 @@ class FunctionTab extends StatelessWidget {
       _ResyncTextField(
         label: 'Positive-side label',
         value: zoneConfig.endLabel ?? '',
+        maxLength: ControlButtonVisualMetrics.maxLabelLength,
         onChanged: (v) => update(
           (c) => v.trim().isEmpty
               ? c.copyWith(clearEndLabel: true)
@@ -258,6 +261,7 @@ class FunctionTab extends StatelessWidget {
       _ResyncTextField(
         label: 'Left label',
         value: toggleConfig.leftLabel ?? '',
+        maxLength: ControlButtonVisualMetrics.maxLabelLength,
         onChanged: (v) => updateToggle(
           (c) => v.trim().isEmpty
               ? c.copyWith(clearLeftLabel: true)
@@ -278,6 +282,7 @@ class FunctionTab extends StatelessWidget {
       _ResyncTextField(
         label: 'Right label',
         value: toggleConfig.rightLabel ?? '',
+        maxLength: ControlButtonVisualMetrics.maxLabelLength,
         onChanged: (v) => updateToggle(
           (c) => v.trim().isEmpty
               ? c.copyWith(clearRightLabel: true)
@@ -611,12 +616,14 @@ class _ResyncTextField extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.keyboardType,
+    this.maxLength,
   });
 
   final String label;
   final String value;
   final ValueChanged<String> onChanged;
   final TextInputType? keyboardType;
+  final int? maxLength;
 
   @override
   State<_ResyncTextField> createState() => _ResyncTextFieldState();
@@ -651,6 +658,7 @@ class _ResyncTextFieldState extends State<_ResyncTextField> {
       controller: _controller,
       label: widget.label,
       keyboardType: widget.keyboardType,
+      maxLength: widget.maxLength,
       onChanged: widget.onChanged,
     );
   }
