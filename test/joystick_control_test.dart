@@ -74,6 +74,69 @@ void main() {
     expect(expandedSize, const Size.square(400));
     expect(expandedSize.width, greaterThan(compactSize.width));
   });
+
+  testWidgets('dual-axis analog joystick shows live X and Y values', (
+    tester,
+  ) async {
+    final outputs = <JoystickOutput>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox.square(
+              dimension: 220,
+              child: IndustrialJoystickControl(
+                config: const JoystickConfig(mode: JoystickMode.dualAxisAnalog),
+                label: 'Joystick',
+                activeColor: Colors.orange,
+                activeColorLight: Colors.orangeAccent,
+                enabled: true,
+                onChanged: outputs.add,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(_axisValue(tester, 'x'), '0.00');
+    expect(_axisValue(tester, 'y'), '0.00');
+
+    final joystick = find.byType(IndustrialJoystickControl);
+    final gesture = await tester.startGesture(tester.getCenter(joystick));
+    await gesture.moveBy(const Offset(36, -36));
+    await tester.pump();
+
+    expect(outputs, isNotEmpty);
+    expect(outputs.last.x, greaterThan(0));
+    expect(outputs.last.y, greaterThan(0));
+    expect(_axisValue(tester, 'x'), startsWith('+'));
+    expect(_axisValue(tester, 'y'), startsWith('+'));
+    expect(
+      tester
+          .widget<Icon>(
+            find.byKey(const ValueKey('analog-joystick-x-direction')),
+          )
+          .icon,
+      Icons.arrow_forward_rounded,
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.byKey(const ValueKey('analog-joystick-y-direction')),
+          )
+          .icon,
+      Icons.arrow_upward_rounded,
+    );
+
+    await gesture.cancel();
+  });
+}
+
+String _axisValue(WidgetTester tester, String axis) {
+  return tester
+      .widget<Text>(find.byKey(ValueKey('analog-joystick-$axis-value')))
+      .data!;
 }
 
 class _JoystickHarness extends StatefulWidget {

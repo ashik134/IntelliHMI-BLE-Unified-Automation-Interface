@@ -41,6 +41,12 @@ double _digitalCrossGateSide(double maxWidth, double maxHeight) {
   return math.max(0.0, math.min(maxWidth, maxHeight));
 }
 
+String _formatAnalogAxisValue(double value) {
+  final clamped = value.clamp(-1.0, 1.0).toDouble();
+  if (clamped.abs() < 0.0005) return '0.00';
+  return '${clamped > 0 ? '+' : ''}${clamped.toStringAsFixed(2)}';
+}
+
 double _joystickSlotPaddingFor(double maxWidth, double maxHeight) {
   final shortest = math.min(maxWidth, maxHeight);
   if (shortest <= 112.0) return 6.0;
@@ -505,6 +511,10 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
       button: true,
       enabled: widget.enabled,
       label: '${widget.label}, ${config.mode.label}',
+      value: config.mode == JoystickMode.dualAxisAnalog
+          ? 'X ${_formatAnalogAxisValue(output.x)}, '
+                'Y ${_formatAnalogAxisValue(output.y)}'
+          : null,
       child: Opacity(
         opacity: widget.enabled ? 1.0 : 0.52,
         child: LayoutBuilder(
@@ -548,6 +558,7 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
               JoystickMode.dualAxisAnalog => _AnalogGimbal(
                 config: config,
                 value: display,
+                output: Offset(output.x, output.y),
                 isActive: isActive,
                 enabled: widget.enabled,
                 label: widget.label,
@@ -1390,6 +1401,7 @@ class _AnalogGimbal extends StatelessWidget {
   const _AnalogGimbal({
     required this.config,
     required this.value,
+    required this.output,
     required this.isActive,
     required this.enabled,
     required this.label,
@@ -1402,6 +1414,7 @@ class _AnalogGimbal extends StatelessWidget {
 
   final JoystickConfig config;
   final Offset value;
+  final Offset output;
   final bool isActive;
   final bool enabled;
   final String label;
@@ -1449,6 +1462,159 @@ class _AnalogGimbal extends StatelessWidget {
                 isActive: isActive,
                 enabled: enabled,
               ),
+            ),
+            Positioned(
+              top: side * 0.055,
+              left: side * 0.10,
+              right: side * 0.10,
+              child: IgnorePointer(
+                child: ExcludeSemantics(
+                  child: _AnalogAxisReadout(
+                    side: side,
+                    output: output,
+                    activeColorLight: activeColorLight,
+                    enabled: enabled,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalogAxisReadout extends StatelessWidget {
+  const _AnalogAxisReadout({
+    required this.side,
+    required this.output,
+    required this.activeColorLight,
+    required this.enabled,
+  });
+
+  final double side;
+  final Offset output;
+  final Color activeColorLight;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _AnalogAxisValueChip(
+            axis: 'X',
+            value: output.dx,
+            directionIcon: output.dx.abs() < 0.0005
+                ? Icons.remove_rounded
+                : output.dx > 0
+                ? Icons.arrow_forward_rounded
+                : Icons.arrow_back_rounded,
+            valueKey: const ValueKey('analog-joystick-x-value'),
+            directionKey: const ValueKey('analog-joystick-x-direction'),
+            side: side,
+            activeColorLight: activeColorLight,
+            enabled: enabled,
+          ),
+        ),
+        SizedBox(width: side * 0.025),
+        Expanded(
+          child: _AnalogAxisValueChip(
+            axis: 'Y',
+            value: output.dy,
+            directionIcon: output.dy.abs() < 0.0005
+                ? Icons.remove_rounded
+                : output.dy > 0
+                ? Icons.arrow_upward_rounded
+                : Icons.arrow_downward_rounded,
+            valueKey: const ValueKey('analog-joystick-y-value'),
+            directionKey: const ValueKey('analog-joystick-y-direction'),
+            side: side,
+            activeColorLight: activeColorLight,
+            enabled: enabled,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AnalogAxisValueChip extends StatelessWidget {
+  const _AnalogAxisValueChip({
+    required this.axis,
+    required this.value,
+    required this.directionIcon,
+    required this.valueKey,
+    required this.directionKey,
+    required this.side,
+    required this.activeColorLight,
+    required this.enabled,
+  });
+
+  final String axis;
+  final double value;
+  final IconData directionIcon;
+  final Key valueKey;
+  final Key directionKey;
+  final double side;
+  final Color activeColorLight;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final isMoving = enabled && value.abs() >= 0.0005;
+    final accent = isMoving
+        ? activeColorLight
+        : AppColors.darkTextMuted.withAlpha(enabled ? 180 : 95);
+    final fontSize = (side * 0.046).clamp(8.0, 12.0).toDouble();
+    final chipHeight = (side * 0.105).clamp(18.0, 28.0).toDouble();
+
+    return Container(
+      height: chipHeight,
+      padding: EdgeInsets.symmetric(horizontal: side * 0.025),
+      decoration: BoxDecoration(
+        color: const Color(0xE6111820),
+        borderRadius: BorderRadius.circular(chipHeight / 2),
+        border: Border.all(color: accent.withAlpha(isMoving ? 135 : 55)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(100),
+            blurRadius: side * 0.025,
+            offset: Offset(0, side * 0.008),
+          ),
+        ],
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              axis,
+              style: TextStyle(
+                color: accent,
+                fontSize: fontSize,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(width: side * 0.018),
+            Text(
+              _formatAnalogAxisValue(value),
+              key: valueKey,
+              style: TextStyle(
+                color: AppColors.darkText.withAlpha(enabled ? 245 : 115),
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            SizedBox(width: side * 0.012),
+            Icon(
+              directionIcon,
+              key: directionKey,
+              size: fontSize * 1.15,
+              color: accent,
             ),
           ],
         ),
