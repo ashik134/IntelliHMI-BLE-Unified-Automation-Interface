@@ -131,6 +131,80 @@ void main() {
 
     await gesture.cancel();
   });
+
+  testWidgets('single-axis analog joystick shows its live axis value', (
+    tester,
+  ) async {
+    Future<List<JoystickOutput>> pumpAxis(JoystickAxis axis) async {
+      final outputs = <JoystickOutput>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: axis == JoystickAxis.horizontal ? 240 : 120,
+                height: axis == JoystickAxis.horizontal ? 120 : 240,
+                child: IndustrialJoystickControl(
+                  key: ValueKey(axis),
+                  config: JoystickConfig(
+                    mode: JoystickMode.singleAxisAnalog,
+                    axis: axis,
+                  ),
+                  label: 'Joystick',
+                  activeColor: Colors.orange,
+                  activeColorLight: Colors.orangeAccent,
+                  enabled: true,
+                  onChanged: outputs.add,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      return outputs;
+    }
+
+    var outputs = await pumpAxis(JoystickAxis.vertical);
+    expect(_axisValue(tester, 'y'), '0.00');
+    var joystick = find.byType(IndustrialJoystickControl);
+    var gesture = await tester.startGesture(tester.getCenter(joystick));
+    await gesture.moveBy(const Offset(0, -48));
+    await tester.pump();
+
+    expect(outputs.last.x, 0);
+    expect(outputs.last.y, greaterThan(0));
+    expect(_axisValue(tester, 'y'), startsWith('+'));
+    expect(
+      tester
+          .widget<Icon>(
+            find.byKey(const ValueKey('analog-joystick-y-direction')),
+          )
+          .icon,
+      Icons.arrow_upward_rounded,
+    );
+    await gesture.cancel();
+    await tester.pump();
+
+    outputs = await pumpAxis(JoystickAxis.horizontal);
+    expect(_axisValue(tester, 'x'), '0.00');
+    joystick = find.byType(IndustrialJoystickControl);
+    gesture = await tester.startGesture(tester.getCenter(joystick));
+    await gesture.moveBy(const Offset(48, 0));
+    await tester.pump();
+
+    expect(outputs.last.x, greaterThan(0));
+    expect(outputs.last.y, 0);
+    expect(_axisValue(tester, 'x'), startsWith('+'));
+    expect(
+      tester
+          .widget<Icon>(
+            find.byKey(const ValueKey('analog-joystick-x-direction')),
+          )
+          .icon,
+      Icons.arrow_forward_rounded,
+    );
+    await gesture.cancel();
+  });
 }
 
 String _axisValue(WidgetTester tester, String axis) {

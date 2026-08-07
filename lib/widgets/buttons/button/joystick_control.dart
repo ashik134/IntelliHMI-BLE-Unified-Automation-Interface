@@ -511,10 +511,16 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
       button: true,
       enabled: widget.enabled,
       label: '${widget.label}, ${config.mode.label}',
-      value: config.mode == JoystickMode.dualAxisAnalog
-          ? 'X ${_formatAnalogAxisValue(output.x)}, '
-                'Y ${_formatAnalogAxisValue(output.y)}'
-          : null,
+      value: switch (config.mode) {
+        JoystickMode.singleAxisAnalog =>
+          '${config.axis == JoystickAxis.horizontal ? 'X' : 'Y'} '
+              '${_formatAnalogAxisValue(config.axis == JoystickAxis.horizontal ? output.x : output.y)}',
+        JoystickMode.dualAxisAnalog =>
+          'X ${_formatAnalogAxisValue(output.x)}, '
+              'Y ${_formatAnalogAxisValue(output.y)}',
+        JoystickMode.singleAxisDigital5 ||
+        JoystickMode.dualAxisDigital4 => null,
+      },
       child: Opacity(
         opacity: widget.enabled ? 1.0 : 0.52,
         child: LayoutBuilder(
@@ -533,6 +539,9 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
               JoystickMode.singleAxisAnalog => _AnalogRail(
                 config: config,
                 value: display,
+                output: config.axis == JoystickAxis.horizontal
+                    ? output.x
+                    : output.y,
                 isActive: isActive,
                 enabled: widget.enabled,
                 label: widget.label,
@@ -670,6 +679,7 @@ class _AnalogRail extends StatelessWidget {
   const _AnalogRail({
     required this.config,
     required this.value,
+    required this.output,
     required this.isActive,
     required this.enabled,
     required this.label,
@@ -682,6 +692,7 @@ class _AnalogRail extends StatelessWidget {
 
   final JoystickConfig config;
   final Offset value;
+  final double output;
   final bool isActive;
   final bool enabled;
   final String label;
@@ -712,18 +723,61 @@ class _AnalogRail extends StatelessWidget {
       child: SizedBox(
         width: _horizontal ? trackLength : trackThickness,
         height: _horizontal ? trackThickness : trackLength,
-        child: CustomPaint(
-          painter: _AnalogRailPainter(
-            horizontal: _horizontal,
-            value: _horizontal ? value.dx : value.dy,
-            isActive: isActive,
-            enabled: enabled,
-            activeColor: activeColor,
-            activeColorLight: activeColorLight,
-            label: label,
-            icon: icon,
-          ),
-          child: const SizedBox.expand(),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _AnalogRailPainter(
+                  horizontal: _horizontal,
+                  value: _horizontal ? value.dx : value.dy,
+                  isActive: isActive,
+                  enabled: enabled,
+                  activeColor: activeColor,
+                  activeColorLight: activeColorLight,
+                  label: label,
+                  icon: icon,
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.only(top: trackThickness * 0.055),
+                child: SizedBox(
+                  width: _horizontal
+                      ? math.min(trackLength * 0.46, 118.0)
+                      : trackThickness * 0.90,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: _AnalogAxisValueChip(
+                        axis: _horizontal ? 'X' : 'Y',
+                        value: output,
+                        directionIcon: output.abs() < 0.0005
+                            ? Icons.remove_rounded
+                            : _horizontal
+                            ? output > 0
+                                  ? Icons.arrow_forward_rounded
+                                  : Icons.arrow_back_rounded
+                            : output > 0
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        valueKey: ValueKey(
+                          'analog-joystick-${_horizontal ? 'x' : 'y'}-value',
+                        ),
+                        directionKey: ValueKey(
+                          'analog-joystick-${_horizontal ? 'x' : 'y'}-direction',
+                        ),
+                        side: trackThickness,
+                        activeColorLight: activeColorLight,
+                        enabled: enabled,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
