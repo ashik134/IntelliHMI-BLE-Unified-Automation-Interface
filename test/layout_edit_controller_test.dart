@@ -548,6 +548,31 @@ void main() {
     });
 
     test(
+      'exit collapses a blank page 0, shifting a later page back to fill it',
+      () async {
+        await editCtrl.enter();
+        for (var i = 0; i < 6; i++) {
+          editCtrl.addButton(_sampleButton('p0_$i'));
+        }
+        editCtrl.addButton(_sampleButton('b'));
+        expect(editCtrl.draft.resolvedButtons['b']!.pageIndex, 1);
+
+        // Emptying page 0 entirely — the one page compactControlPages used
+        // to always preserve regardless of content — while page 1 still
+        // holds a widget.
+        for (var i = 0; i < 6; i++) {
+          editCtrl.deleteButton('p0_$i');
+        }
+        expect(editCtrl.draft.controlPageCount, 2);
+
+        final result = await editCtrl.exit();
+        expect(result.isValid, isTrue);
+        expect(editCtrl.draft.controlPageCount, 1);
+        expect(editCtrl.draft.resolvedButtons['b']!.pageIndex, 0);
+      },
+    );
+
+    test(
       'exit re-points a mounted control screen away from a page it just dropped',
       () async {
         await editCtrl.enter();

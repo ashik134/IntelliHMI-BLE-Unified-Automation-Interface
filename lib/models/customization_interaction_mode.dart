@@ -20,13 +20,24 @@
 //   resizingWidget       -> a canvas edge-handle drag is live on the
 //                           selected widget (see LayoutEditController
 //                           .beginResize/updateResize/endResize)
+//   movingWidget         -> a long-press recognized directly on an ALREADY
+//                           PLACED canvas widget; that widget is attached to
+//                           the finger and being carried, exactly like
+//                           placingWidget but for an existing widget instead
+//                           of a pending catalogue entry (see
+//                           LayoutEditController.beginMove/updateMovePreview)
+//   settlingMovedWidget  -> the finger has released over a validated grid
+//                           rectangle for an in-flight move; the preview is
+//                           animating into it — the move's counterpart to
+//                           settlingWidget (see LayoutEditController
+//                           .handleMoveDrop/commitMovedPlacement)
 //
-// placingWidget only means "attached to the finger" — it does not yet mean
-// a grid slot has been chosen or validated. settlingWidget means a target
-// rectangle HAS been chosen and the preview is (briefly, non-cancelably)
-// animating into it, right before it becomes a real committed widget. See
-// LayoutEditController's placement methods for the transitions between
-// these states.
+// placingWidget/movingWidget only mean "attached to the finger" — they do
+// not yet mean a grid slot has been chosen or validated. settlingWidget/
+// settlingMovedWidget mean a target rectangle HAS been chosen and the
+// preview is (briefly, non-cancelably) animating into it, right before it
+// becomes/returns to a real committed widget. See LayoutEditController's
+// placement methods for the transitions between these states.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum CustomizationInteractionMode {
@@ -36,4 +47,6 @@ enum CustomizationInteractionMode {
   placingWidget,
   settlingWidget,
   resizingWidget,
+  movingWidget,
+  settlingMovedWidget,
 }

@@ -106,7 +106,8 @@ class _FakeControlHostState extends State<_FakeControlHost> {
                 startRect != null &&
                 endRect != null)
               SettlingPreviewOverlay(
-                entry: pendingEntry,
+                config: pendingEntry.buildPreviewConfig(),
+                previewSize: endRect.size,
                 startRect: startRect,
                 endRect: endRect,
                 onSettled: _editCtrl.commitSettledPlacement,

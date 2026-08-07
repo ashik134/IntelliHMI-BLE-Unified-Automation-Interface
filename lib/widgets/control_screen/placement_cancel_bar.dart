@@ -3,26 +3,32 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
-import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PlacementCancelBar
 //
-// The only affordance visible while a catalogue widget is attached to the
-// finger over the control screen (CustomizationInteractionMode.
-// placingWidget) — there is no separate Add/confirm button by design, so
-// this is also the sole way to back out short of releasing the finger over
-// a valid canvas position. Supports both cancellation methods:
+// The only affordance visible while a widget is attached to the finger over
+// the control screen — either a pending catalogue entry
+// (CustomizationInteractionMode.placingWidget) or an already-placed widget
+// being carried (CustomizationInteractionMode.movingWidget). There is no
+// separate Add/confirm button by design, so this is also the sole way to
+// back out short of releasing the finger over a valid canvas position.
+// Supports both cancellation methods:
 //   - Tap: InkWell.onTap.
-//   - Drag-and-release: this is also a real DragTarget<CatalogEntry>, so
-//     dropping the carried preview here is accepted directly (wasAccepted
+//   - Drag-and-release: this is also a real DragTarget<Object>, so dropping
+//     either kind of carried preview here is accepted directly (wasAccepted
 //     is then true in the Draggable's own onDragEnd, which is exactly how
-//     _DraggableCatalogCardState tells "dropped on Cancel" apart from
-//     "dropped on the canvas" — see its _handleDragEnd doc comment).
-// Either path calls LayoutEditController.cancelCataloguePlacement(), which
-// the floating preview itself watches to disappear immediately even though
-// the underlying drag gesture may still be silently active until the
-// finger actually lifts (see that method's doc comment).
+//     _DraggableCatalogCardState/control_canvas.dart's own move-draggable
+//     tell "dropped on Cancel" apart from "dropped on the canvas" — see
+//     their own _handleDragEnd doc comments). Object rather than CatalogEntry
+//     so this one DragTarget accepts a Draggable<CatalogEntry> (catalogue
+//     placement) AND a Draggable<String> (an existing widget's id, see
+//     control_canvas.dart) identically.
+// Either path calls LayoutEditController.cancelActivePlacementSession(),
+// which dispatches to whichever of cancelCataloguePlacement/cancelMove is
+// actually live and is watched by the floating preview to disappear
+// immediately even though the underlying drag gesture may still be silently
+// active until the finger actually lifts (see those methods' doc comments).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PlacementCancelBar extends StatelessWidget {
@@ -36,11 +42,11 @@ class PlacementCancelBar extends StatelessWidget {
         padding: const EdgeInsets.only(top: 10, left: 14),
         child: Align(
           alignment: Alignment.topLeft,
-          child: DragTarget<CatalogEntry>(
+          child: DragTarget<Object>(
             onWillAcceptWithDetails: (_) => true,
             onAcceptWithDetails: (_) => context
                 .read<LayoutEditController>()
-                .cancelCataloguePlacement(),
+                .cancelActivePlacementSession(),
             builder: (context, candidateData, rejectedData) {
               final hovering = candidateData.isNotEmpty;
               return Material(
@@ -58,7 +64,7 @@ class PlacementCancelBar extends StatelessWidget {
                   customBorder: const StadiumBorder(),
                   onTap: () => context
                       .read<LayoutEditController>()
-                      .cancelCataloguePlacement(),
+                      .cancelActivePlacementSession(),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
                     curve: Curves.easeOut,

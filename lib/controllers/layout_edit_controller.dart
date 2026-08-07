@@ -105,9 +105,9 @@ class LayoutEditController extends ChangeNotifier {
   ControlLayoutConfig? _historyBatchCheckpoint;
 
   /// True once there is a prior draft state to restore. Also false while a
-  /// catalogue placement is in flight ([_interactionMode] isn't
-  /// [CustomizationInteractionMode.editing]) so Undo/Redo can never rewrite
-  /// the draft out from under an in-progress drag/settle animation.
+  /// catalogue placement OR a canvas move is in flight ([_interactionMode]
+  /// isn't [CustomizationInteractionMode.editing]) so Undo/Redo can never
+  /// rewrite the draft out from under an in-progress drag/settle animation.
   bool get canUndo =>
       _undoStack.isNotEmpty &&
       _interactionMode == CustomizationInteractionMode.editing;
@@ -198,7 +198,27 @@ class LayoutEditController extends ChangeNotifier {
       CustomizationInteractionMode.editing;
   CatalogEntry? _pendingCatalogueEntry;
 
-  // ── Catalogue placement (drop / settle stage) ────────────────────────────
+  // ── Canvas move (long-press an already-placed widget) ────────────────────
+  //
+  // The id of the button currently attached to the finger during
+  // [CustomizationInteractionMode.movingWidget]/[settlingMovedWidget] — see
+  // [beginMove]. Unlike catalogue placement, a move has no separate
+  // "selection stage": long-pressing the widget itself both picks it and
+  // starts the carry in one step, so there is no lifting-equivalent mode.
+  // The moved button's ORIGINAL ButtonConfig is deliberately never copied
+  // out into a field here — it stays put in [_draft] untouched (still at
+  // its original grid position) for the whole session, exactly like a
+  // pending catalogue entry's real placement never touches [_draft] until
+  // commit — see [previewLayoutCfg], which is what makes cancelling free.
+  String? _movingButtonId;
+
+  // ── Catalogue placement / canvas move (drop / settle stage) ─────────────
+  //
+  // Shared by both flows below — never concurrently active, since
+  // [beginCatalogueLift] and [beginMove] each require [_interactionMode] to
+  // already be in that flow's own idle starting mode (browsingCatalogue /
+  // editing respectively), so at most one of [_pendingCatalogueEntry] /
+  // [_movingButtonId] is ever non-null at a time.
   PlacementSurface? _surface;
   Object? _surfaceOwner;
   Rect? _settlingStartRect;
@@ -208,10 +228,12 @@ class LayoutEditController extends ChangeNotifier {
   /// Existing buttons the live insertion preview says must relocate to make
   /// room at [_settlingTarget]/[_previewTarget] — see [predictInsertionLayout].
   /// [_previewMoves] is live during [CustomizationInteractionMode.placingWidget]
-  /// (recomputed by [updatePlacementPreview] on every pointer move that
+  /// /[CustomizationInteractionMode.movingWidget] (recomputed by
+  /// [updatePlacementPreview]/[updateMovePreview] on every pointer move that
   /// crosses into a new grid cell); [_settlingMoves] is the frozen copy
-  /// carried into [CustomizationInteractionMode.settlingWidget] and applied
-  /// to the draft by [commitSettledPlacement].
+  /// carried into [CustomizationInteractionMode.settlingWidget]/
+  /// [CustomizationInteractionMode.settlingMovedWidget] and applied to the
+  /// draft by [commitSettledPlacement]/[commitMovedPlacement].
   Map<String, GridPlacement> _previewMoves = const {};
   DropPlacementTarget? _previewTarget;
   Map<String, GridPlacement>? _settlingMoves;
@@ -267,10 +289,20 @@ class LayoutEditController extends ChangeNotifier {
   CatalogEntry? get pendingCatalogueEntry => _pendingCatalogueEntry;
   double get catalogueScrollOffset => _catalogueScrollOffset;
 
+  /// The id of the button currently attached to the finger — see
+  /// [beginMove]. Non-null only during
+  /// [CustomizationInteractionMode.movingWidget]/[CustomizationInteractionMode.settlingMovedWidget].
+  /// Its config (preserved exactly — id/mappings/style/size/orientation
+  /// untouched, only position changes) can still be read from [draft] for
+  /// the whole session, since [draft] is never mutated until
+  /// [commitMovedPlacement].
+  String? get movingButtonId => _movingButtonId;
+
   /// The floating preview's rectangle (global/overlay coordinates) at the
   /// moment the finger released, and the validated grid rectangle it is
   /// animating into — both non-null only during
-  /// [CustomizationInteractionMode.settlingWidget]. See
+  /// [CustomizationInteractionMode.settlingWidget]/
+  /// [CustomizationInteractionMode.settlingMovedWidget]. See
   /// SettlingPreviewOverlay, which tweens between them.
   Rect? get settlingStartRect => _settlingStartRect;
   Rect? get settlingEndRect => _settlingEndRect;
@@ -280,19 +312,33 @@ class LayoutEditController extends ChangeNotifier {
   bool get hasUnsavedChanges => _draft != _layoutSettings.configFor(_bucket);
 
   /// The draft with the live insertion preview's moved buttons applied — see
-  /// [updatePlacementPreview]/[predictInsertionLayout]. Identical to [draft]
-  /// whenever there is nothing to preview (not currently placing a widget,
-  /// or the target cell was free so nothing needed to move), which is what
-  /// makes Cancel "free": ControlCanvas is simply handed [draft] again and
-  /// the same generic AnimatedPositioned machinery slides everything back.
-  /// Callers (the control screens) should feed this — not [draft] — to
-  /// ControlCanvas while [interactionMode] is `placingWidget` or
-  /// `settlingWidget`.
+  /// [updatePlacementPreview]/[updateMovePreview]/[predictInsertionLayout].
+  /// Identical to [draft] whenever there is nothing to preview (not
+  /// currently placing/moving a widget, or the target cell was free so
+  /// nothing needed to move), which is what makes Cancel "free": ControlCanvas
+  /// is simply handed [draft] again and the same generic AnimatedPositioned
+  /// machinery slides everything back. Callers (the control screens) should
+  /// feed this — not [draft] — to ControlCanvas while [interactionMode] is
+  /// `placingWidget`, `settlingWidget`, `movingWidget`, or
+  /// `settlingMovedWidget`.
+  ///
+  /// While a canvas move is in flight ([_movingButtonId] non-null), the
+  /// moved button is also removed from the returned map entirely — its
+  /// origin cell reads as vacant (exactly like a catalogue card's
+  /// childWhenDragging placeholder) because the widget itself is being
+  /// rendered separately as a floating avatar attached to the finger (see
+  /// control_canvas.dart's move-draggable), never through the grid, until
+  /// [commitMovedPlacement] hands it back to a real occupied cell.
   ControlLayoutConfig get previewLayoutCfg {
-    if (_previewMoves.isEmpty && _previewTarget == null && !_rightEdgeHover) {
+    final movingId = _movingButtonId;
+    if (_previewMoves.isEmpty &&
+        _previewTarget == null &&
+        !_rightEdgeHover &&
+        movingId == null) {
       return _draft;
     }
     final buttons = {..._draft.resolvedButtons};
+    if (movingId != null) buttons.remove(movingId);
     var maxPage = _draft.controlPageCount - 1;
     for (final entry in _previewMoves.entries) {
       final current = buttons[entry.key];
@@ -737,6 +783,290 @@ class LayoutEditController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cancels whichever placement/move session is currently live, dispatching
+  /// to [cancelMove] or [cancelCataloguePlacement] as appropriate — the
+  /// single entry point lifecycle-interruption call sites (app backgrounded,
+  /// PLC disconnected, PlacementCancelBar) should use instead of having to
+  /// know which flow is active. A no-op while plain editing (both cancel
+  /// methods already guard themselves).
+  void cancelActivePlacementSession() {
+    if (_interactionMode == CustomizationInteractionMode.movingWidget ||
+        _interactionMode == CustomizationInteractionMode.settlingMovedWidget) {
+      cancelMove();
+      return;
+    }
+    cancelCataloguePlacement();
+  }
+
+  // ── Canvas move (long-press an already-placed widget) ────────────────────
+  //
+  // beginMove -> updateMovePreview (repeated) -> handleMoveDrop ->
+  // commitMovedPlacement mirrors the catalogue flow's placingWidget ->
+  // updatePlacementPreview -> handleCatalogueDrop -> commitSettledPlacement
+  // shape exactly — see that section's doc comments for the underlying
+  // mechanics, which updateMovePreview/handleMoveDrop below reuse
+  // line-for-line (down to predictInsertionLayout and the edge-turn
+  // page-flip). The two real differences: (1) the widget being placed
+  // already exists, so its own id is excluded from the occupancy map handed
+  // to predictInsertionLayout — otherwise it would "collide" with its own
+  // original position; (2) commitMovedPlacement repositions the SAME
+  // ButtonConfig instead of constructing a new one, preserving its
+  // id/mappings/style/size/orientation exactly, as required by the "move,
+  // don't recreate" contract this whole flow exists to satisfy.
+
+  /// Starts a long-press-drag-to-move on [id]'s canvas widget. A no-op
+  /// outside plain Edit Mode, for an unknown id, or when the button is
+  /// [ButtonConfig.locked] (mirrors [beginResize]'s guard — locked freezes
+  /// position/size editing on the canvas). Deliberately does not touch
+  /// [_draft] — [id]'s ButtonConfig stays exactly where it is there for the
+  /// whole session; see [_movingButtonId]'s doc comment for why that's what
+  /// makes [cancelMove] free.
+  void beginMove(String id) {
+    if (!_isEditing ||
+        _interactionMode != CustomizationInteractionMode.editing) {
+      return;
+    }
+    final button = _draft.resolvedButtons[id];
+    if (button == null || button.locked) return;
+    _movingButtonId = id;
+    _interactionMode = CustomizationInteractionMode.movingWidget;
+    notifyListeners();
+  }
+
+  /// Called on every pointer-move frame while
+  /// [CustomizationInteractionMode.movingWidget] is active: continuously
+  /// re-predicts the least-disruptive arrangement for landing the moved
+  /// widget exactly under [globalOffset] (the floating avatar's current
+  /// top-left, in the same coordinate space as
+  /// [PlacementSurface.canvasRect]/[handleMoveDrop]'s own offset) — see
+  /// [updatePlacementPreview], whose contract this mirrors exactly,
+  /// including the same anchor-cell de-dupe short-circuit. The one
+  /// difference: the moved widget's own current occupancy is excluded from
+  /// the map handed to [predictInsertionLayout], since — unlike a pending
+  /// catalogue entry — it already exists in [_draft] at its (untouched)
+  /// original position and must never be treated as an obstacle to itself.
+  void updateMovePreview({
+    required Offset globalOffset,
+    required Size previewSize,
+  }) {
+    if (_interactionMode != CustomizationInteractionMode.movingWidget) return;
+    final id = _movingButtonId;
+    final surface = _surface;
+    if (id == null || surface == null) return;
+    final moving = _draft.resolvedButtons[id];
+    if (moving == null) return;
+
+    final dropCenter =
+        globalOffset + Offset(previewSize.width / 2, previewSize.height / 2);
+    final canvasRect = surface.canvasRect();
+    final currentPageIndex = surface.currentPageIndex();
+
+    final edgeChanged = _handleEdgeHover(
+      dropCenter: dropCenter,
+      canvasRect: canvasRect,
+      currentPageIndex: currentPageIndex,
+    );
+
+    final grid = _draft.gridLayout;
+    final colSpan = moving.gridColumnSpan;
+    final rowSpan = moving.gridRowSpan;
+    final effectiveColSpan = colSpan.clamp(1, grid.columns);
+    final effectiveRowSpan = rowSpan.clamp(1, grid.rows);
+    final anchor = gridAnchorForDropCenter(
+      canvasRect: canvasRect,
+      dropCenter: dropCenter,
+      colSpan: effectiveColSpan,
+      rowSpan: effectiveRowSpan,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    final anchorKey = (currentPageIndex, anchor.$1, anchor.$2);
+    if (anchorKey == _lastPreviewAnchor) {
+      if (edgeChanged) notifyListeners();
+      return;
+    }
+    _lastPreviewAnchor = anchorKey;
+
+    // Excludes the moved widget's own (still-original) occupancy — see this
+    // section's doc comment.
+    final occupants = {..._draft.resolvedButtons}..remove(id);
+    final preview = predictInsertionLayout(
+      buttons: occupants,
+      colSpan: colSpan,
+      rowSpan: rowSpan,
+      currentPageIndex: currentPageIndex,
+      existingPageCount: _draft.controlPageCount,
+      canvasRect: canvasRect,
+      dropCenter: dropCenter,
+      columns: grid.columns,
+      rows: grid.rows,
+      slotCount: grid.slotCount,
+    );
+    if (preview == null) {
+      if (edgeChanged) notifyListeners();
+      return;
+    }
+    _previewMoves = preview.movedButtons;
+    _previewTarget = preview.target;
+    notifyListeners();
+  }
+
+  /// Never repositions the widget directly — only finds and validates a
+  /// target rectangle, then moves into
+  /// [CustomizationInteractionMode.settlingMovedWidget] so the (still
+  /// visible) floating avatar can animate into it. See
+  /// [commitMovedPlacement] for the actual draft mutation. Mirrors
+  /// [handleCatalogueDrop] exactly, including the cellInset math that keeps
+  /// the settle animation's last frame pixel-identical to the real grid
+  /// cell it hands off to, and navigating [PlacementSurface] to the target
+  /// page when the move landed on a different one.
+  void handleMoveDrop({
+    required Offset globalDropOffset,
+    required Size previewSize,
+  }) {
+    if (_interactionMode != CustomizationInteractionMode.movingWidget) return;
+    final id = _movingButtonId;
+    final surface = _surface;
+    if (id == null || surface == null) {
+      cancelMove();
+      return;
+    }
+
+    // Guarantees _previewTarget/_previewMoves reflect the exact release
+    // position even if updateMovePreview never fired for it (e.g. an
+    // instant tap-release with no intervening pointer move).
+    updateMovePreview(
+      globalOffset: globalDropOffset,
+      previewSize: previewSize,
+    );
+    _cancelEdgeTurn();
+    _rightEdgeHover = false;
+
+    final target = _previewTarget;
+    if (target == null) {
+      _placementError = 'No available space for this widget.';
+      cancelMove();
+      return;
+    }
+
+    final canvasRect = surface.canvasRect();
+    final cellWidth = canvasRect.width / _draft.gridLayout.columns;
+    final cellHeight = canvasRect.height / _draft.gridLayout.rows;
+    _settlingStartRect = Rect.fromLTWH(
+      globalDropOffset.dx,
+      globalDropOffset.dy,
+      previewSize.width,
+      previewSize.height,
+    );
+    // Same cellInset _OccupiedCell's own Padding(EdgeInsets.all(4)) applies
+    // around the real button — see handleCatalogueDrop's identical math.
+    const cellInset = 4.0;
+    _settlingEndRect = Rect.fromLTWH(
+      canvasRect.left + target.gridX * cellWidth + cellInset,
+      canvasRect.top + target.gridY * cellHeight + cellInset,
+      target.colSpan * cellWidth - cellInset * 2,
+      target.rowSpan * cellHeight - cellInset * 2,
+    );
+    _settlingTarget = target;
+    _settlingMoves = _previewMoves;
+    _interactionMode = CustomizationInteractionMode.settlingMovedWidget;
+    if (target.pageIndex != surface.currentPageIndex()) {
+      surface.navigateToPage(target.pageIndex);
+    }
+    notifyListeners();
+  }
+
+  /// Called by SettlingPreviewOverlay once its settle animation completes:
+  /// repositions the SAME ButtonConfig that started the move to the
+  /// validated [_settlingTarget] — id/mappings/style/size/orientation all
+  /// untouched, only pageIndex/gridX/gridY (and the legacy slotIndex
+  /// mirror) change — applies [_settlingMoves] (any existing buttons the
+  /// insertion preview decided must relocate to make room), re-selects the
+  /// moved widget, and returns to plain Edit Mode. Mirrors
+  /// [commitSettledPlacement] exactly; this is the only place a move
+  /// actually mutates the draft layout.
+  void commitMovedPlacement() {
+    if (_interactionMode != CustomizationInteractionMode.settlingMovedWidget) {
+      return;
+    }
+    final id = _movingButtonId;
+    final target = _settlingTarget;
+    final current = id == null ? null : _draft.resolvedButtons[id];
+    if (id == null || target == null || current == null) {
+      cancelMove();
+      return;
+    }
+
+    final buttons = {..._draft.resolvedButtons};
+    var maxPage = target.pageIndex;
+    for (final moved in (_settlingMoves ?? const {}).entries) {
+      final other = buttons[moved.key];
+      if (other == null) continue;
+      final placement = moved.value;
+      buttons[moved.key] = other.copyWith(
+        pageIndex: placement.pageIndex,
+        gridX: placement.gridX,
+        gridY: placement.gridY,
+        slotIndex:
+            placement.gridY * _draft.gridLayout.columns + placement.gridX,
+      );
+      if (placement.pageIndex > maxPage) maxPage = placement.pageIndex;
+    }
+    buttons[id] = current.copyWith(
+      pageIndex: target.pageIndex,
+      gridX: target.gridX,
+      gridY: target.gridY,
+      slotIndex: target.gridY * _draft.gridLayout.columns + target.gridX,
+    );
+
+    final nextPageCount = (maxPage + 1) > _draft.controlPageCount
+        ? maxPage + 1
+        : _draft.controlPageCount;
+    final nextDraft = _draft.copyWith(
+      buttons: buttons,
+      controlPageCount: nextPageCount,
+    );
+    _recordHistory(nextDraft);
+    _draft = nextDraft;
+    _lastValidation = _validator.validateFullConfig(_draft);
+    _selectedButtonId = id;
+    _movingButtonId = null;
+    _settlingStartRect = null;
+    _settlingEndRect = null;
+    _settlingTarget = null;
+    _settlingMoves = null;
+    _previewMoves = const {};
+    _previewTarget = null;
+    _lastPreviewAnchor = null;
+    _interactionMode = CustomizationInteractionMode.editing;
+    notifyListeners();
+  }
+
+  /// Safe exit from an in-flight move (Cancel tap, drag end/cancel, route
+  /// interruption, ...): drops [_movingButtonId] and returns to plain Edit
+  /// Mode without ever having touched [_draft] — mirrors
+  /// [cancelCataloguePlacement] exactly (see its doc comment for why that
+  /// makes this restore the original layout for free). Idempotent — safe to
+  /// call more than once for the same gesture.
+  void cancelMove() {
+    if (_interactionMode != CustomizationInteractionMode.movingWidget &&
+        _interactionMode != CustomizationInteractionMode.settlingMovedWidget) {
+      return;
+    }
+    _movingButtonId = null;
+    _settlingStartRect = null;
+    _settlingEndRect = null;
+    _settlingTarget = null;
+    _settlingMoves = null;
+    _previewMoves = const {};
+    _previewTarget = null;
+    _lastPreviewAnchor = null;
+    _rightEdgeHover = false;
+    _cancelEdgeTurn();
+    _interactionMode = CustomizationInteractionMode.editing;
+    notifyListeners();
+  }
+
   /// Persists the catalogue's current scroll offset for next time. Never
   /// notifies listeners — see [catalogueScrollOffset]'s doc comment.
   void updateCatalogueScrollOffset(double offset) {
@@ -1144,11 +1474,12 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   /// Drops any control page left with no visible widget once the operator
-  /// presses Done, via [compactControlPages] — page 0 is always kept (the
-  /// base grid every screen renders) even if empty, every other empty page
-  /// is removed, and later pages' buttons are remapped down to stay
-  /// contiguous; widget positions WITHIN a page are untouched, only which
-  /// page number they land on can shift. A no-op if nothing is empty.
+  /// presses Done, via [compactControlPages] — every empty page is removed
+  /// (including a blank page 0, in which case a later occupied page shifts
+  /// back to become the new page 0), except a totally empty layout keeps a
+  /// single blank page 0 since the app requires at least one page to exist.
+  /// Widget positions WITHIN a page are untouched, only which page number
+  /// they land on can shift. A no-op if nothing is empty.
   ///
   /// If the mounted control screen ([_surface]) was showing a page that just
   /// got dropped, re-points it at the new last page so Done never leaves the

@@ -436,10 +436,12 @@ ButtonConfig normalizeButtonPlacement(
   );
 }
 
-/// Drops control pages that hold no visible page-control button, shifting
-/// later pages down so page indices stay contiguous. Page 0 is always kept
-/// (it's the base grid every screen renders), even if empty. Returns the
-/// same [layout] instance if nothing changed.
+/// Drops every control page that holds no visible page-control button —
+/// including a blank page 0 — shifting later pages down so page indices
+/// stay contiguous. The one exception: a layout with no page-control
+/// buttons anywhere keeps a single blank page 0, since the app architecture
+/// requires at least one page to exist. Returns the same [layout] instance
+/// if nothing changed.
 ///
 /// Called after drag-off and resize mutations that can empty a page, so a
 /// Customization Mode session never leaves a blank page behind for the
@@ -464,15 +466,9 @@ ControlLayoutConfig compactControlPages(
     occupiedPages.add(normalized.pageIndex);
   }
 
-  final highestOccupied = occupiedPages.fold<int>(
-    0,
-    (max, page) => page > max ? page : max,
-  );
-  final keptPages = [
-    0,
-    for (var page = 1; page <= highestOccupied; page++)
-      if (occupiedPages.contains(page)) page,
-  ];
+  final keptPages = occupiedPages.isEmpty
+      ? const [0]
+      : (occupiedPages.toList()..sort());
   final nextPageCount = keptPages.length;
   if (nextPageCount == layout.controlPageCount &&
       keptPages.every((page) => keptPages.indexOf(page) == page)) {
@@ -922,14 +918,21 @@ GridMutationResult buildButtonResizeWithReflow({
 }
 
 /// Same contract as [buildButtonResizeWithReflow], but for repositioning an
-/// EXISTING widget to a new anchor cell WITHOUT changing its footprint — the
-/// primitive behind canvas long-press-drag-to-move (see
-/// LayoutEditController.beginMove/updateMovePreview/endMove). A thin,
-/// self-documenting wrapper: passing [selected]'s own current span through
-/// unchanged is what turns a "resize" into a pure "move," while every other
-/// property — displacing unlocked overlapping neighbors to the nearest free
-/// same-page cell, refusing outright when a LOCKED overlapper is in the way
-/// or no arrangement exists — is inherited verbatim.
+/// EXISTING widget to a new anchor cell WITHOUT changing its footprint. A
+/// thin, self-documenting wrapper: passing [selected]'s own current span
+/// through unchanged is what turns a "resize" into a pure "move," while
+/// every other property — displacing unlocked overlapping neighbors to the
+/// nearest free same-page cell, refusing outright when a LOCKED overlapper
+/// is in the way or no arrangement exists — is inherited verbatim.
+///
+/// NOT what drives canvas long-press-drag-to-move's live preview (see
+/// LayoutEditController.beginMove/updateMovePreview/handleMoveDrop/
+/// commitMovedPlacement) — that reuses [predictInsertionLayout] directly,
+/// the same cross-page-capable, edge-turn-aware engine the catalogue carry
+/// flow already uses, so a drag-to-move reads as identical behavior to a
+/// catalogue drop. This primitive's own same-page-only reflow remains
+/// available as a simpler alternative for any future non-drag "nudge"
+/// interaction that never needs to spill onto another page.
 GridMutationResult buildButtonMoveWithReflow({
   required Map<String, ButtonConfig> buttons,
   required ButtonConfig selected,

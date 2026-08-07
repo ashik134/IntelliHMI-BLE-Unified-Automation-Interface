@@ -606,7 +606,10 @@ class _LiftingCataloguePreviewState extends State<_LiftingCataloguePreview>
     final stage = SizedBox(
       width: widget.size.width,
       height: widget.size.height,
-      child: CatalogPreviewStage(entry: widget.entry),
+      child: CatalogPreviewStage(
+        config: widget.entry.buildPreviewConfig(),
+        previewSize: widget.entry.previewSize,
+      ),
     );
 
     return Material(
@@ -684,7 +687,10 @@ class _CatalogCard extends StatelessWidget {
           children: [
             SizedBox(
               height: _kPreviewHeight,
-              child: CatalogPreviewStage(entry: entry),
+              child: CatalogPreviewStage(
+                config: entry.buildPreviewConfig(),
+                previewSize: entry.previewSize,
+              ),
             ),
             const SizedBox(height: _kGapAfterPreview),
             SizedBox(

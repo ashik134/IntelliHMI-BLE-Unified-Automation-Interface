@@ -158,7 +158,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
   void _cancelActivePlacement() {
     if (!mounted) return;
-    context.read<LayoutEditController>().cancelCataloguePlacement();
+    context.read<LayoutEditController>().cancelActivePlacementSession();
   }
 
   void _dismissResetDialogIfVisible() {
@@ -263,10 +263,17 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
         // treat it as an explicit cancel, same as the Cancel bar.
         editCtrl.cancelCataloguePlacement();
         return;
+      case CustomizationInteractionMode.movingWidget:
+        // Mid-carry on an already-placed widget: same treatment as the
+        // catalogue's own placingWidget case above.
+        editCtrl.cancelMove();
+        return;
       case CustomizationInteractionMode.settlingWidget:
+      case CustomizationInteractionMode.settlingMovedWidget:
         // Brief and deliberately non-cancelable (see
-        // LayoutEditController.commitSettledPlacement's doc comment) — a
-        // back press here is simply ignored until it settles on its own.
+        // LayoutEditController.commitSettledPlacement/commitMovedPlacement's
+        // doc comments) — a back press here is simply ignored until it
+        // settles on its own.
         return;
       case CustomizationInteractionMode.resizingWidget:
         // Mid-drag on a resize handle: same treatment as settlingWidget —
@@ -328,11 +335,22 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                 ? (editCtrl.interactionMode ==
                               CustomizationInteractionMode.placingWidget ||
                           editCtrl.interactionMode ==
-                              CustomizationInteractionMode.settlingWidget
+                              CustomizationInteractionMode.settlingWidget ||
+                          editCtrl.interactionMode ==
+                              CustomizationInteractionMode.movingWidget ||
+                          editCtrl.interactionMode ==
+                              CustomizationInteractionMode.settlingMovedWidget
                       ? editCtrl.previewLayoutCfg
                       : editCtrl.draft)
                 : layoutCtrl.configFor(LayoutBucket.forPlcType(plcType)),
             pendingCatalogueEntry: editCtrl.pendingCatalogueEntry,
+            // previewLayoutCfg already excludes the moving button while a
+            // move is live (see its own doc comment), so its real config —
+            // needed for the floating settle overlay — must come from the
+            // untouched draft, keyed by movingButtonId, not from layoutCfg.
+            movingButtonConfig: editCtrl.movingButtonId == null
+                ? null
+                : editCtrl.draft.resolvedButtons[editCtrl.movingButtonId],
             settlingStartRect: editCtrl.settlingStartRect,
             settlingEndRect: editCtrl.settlingEndRect,
           ),
@@ -342,6 +360,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             shape.interactionMode,
             shape.layoutCfg,
             shape.pendingCatalogueEntry,
+            shape.movingButtonConfig,
             shape.settlingStartRect,
             shape.settlingEndRect,
           ),
@@ -356,6 +375,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     CustomizationInteractionMode interactionMode,
     ControlLayoutConfig layoutCfg,
     CatalogEntry? pendingCatalogueEntry,
+    ButtonConfig? movingButtonConfig,
     Rect? settlingStartRect,
     Rect? settlingEndRect,
   ) {
@@ -453,7 +473,8 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
               interactionMode == CustomizationInteractionMode.editing,
         ),
         if (isEditing) CatalogueOverlayHost(interactionMode: interactionMode),
-        if (interactionMode == CustomizationInteractionMode.placingWidget)
+        if (interactionMode == CustomizationInteractionMode.placingWidget ||
+            interactionMode == CustomizationInteractionMode.movingWidget)
           const Positioned(
             top: 0,
             left: 0,
@@ -465,11 +486,25 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
             settlingStartRect != null &&
             settlingEndRect != null)
           SettlingPreviewOverlay(
-            entry: pendingCatalogueEntry,
+            config: pendingCatalogueEntry.buildPreviewConfig(),
+            previewSize: settlingEndRect.size,
             startRect: settlingStartRect,
             endRect: settlingEndRect,
             onSettled: () =>
                 context.read<LayoutEditController>().commitSettledPlacement(),
+          ),
+        if (interactionMode ==
+                CustomizationInteractionMode.settlingMovedWidget &&
+            movingButtonConfig != null &&
+            settlingStartRect != null &&
+            settlingEndRect != null)
+          SettlingPreviewOverlay(
+            config: movingButtonConfig,
+            previewSize: settlingEndRect.size,
+            startRect: settlingStartRect,
+            endRect: settlingEndRect,
+            onSettled: () =>
+                context.read<LayoutEditController>().commitMovedPlacement(),
           ),
         const _PlacementErrorListener(),
       ],
@@ -522,6 +557,7 @@ class _LayoutShape {
     required this.interactionMode,
     required this.layoutCfg,
     required this.pendingCatalogueEntry,
+    required this.movingButtonConfig,
     required this.settlingStartRect,
     required this.settlingEndRect,
   });
@@ -530,6 +566,11 @@ class _LayoutShape {
   final CustomizationInteractionMode interactionMode;
   final ControlLayoutConfig layoutCfg;
   final CatalogEntry? pendingCatalogueEntry;
+
+  /// The moved widget's real, untouched ButtonConfig — see
+  /// LayoutEditController.movingButtonId's doc comment for why this can't
+  /// be read from [layoutCfg] itself while a move is live.
+  final ButtonConfig? movingButtonConfig;
   final Rect? settlingStartRect;
   final Rect? settlingEndRect;
 
@@ -541,6 +582,7 @@ class _LayoutShape {
           other.interactionMode == interactionMode &&
           other.layoutCfg == layoutCfg &&
           other.pendingCatalogueEntry == pendingCatalogueEntry &&
+          other.movingButtonConfig == movingButtonConfig &&
           other.settlingStartRect == settlingStartRect &&
           other.settlingEndRect == settlingEndRect;
 
@@ -550,6 +592,7 @@ class _LayoutShape {
     interactionMode,
     layoutCfg,
     pendingCatalogueEntry,
+    movingButtonConfig,
     settlingStartRect,
     settlingEndRect,
   );
@@ -915,6 +958,18 @@ class _CanvasSection extends StatelessWidget {
                 c.interactionMode == CustomizationInteractionMode.resizingWidget,
           )
         : false;
+    // Unlike canResize, deliberately NOT extended to also allow starting a
+    // NEW move while movingWidget/settlingMovedWidget is already active —
+    // only one widget may be carried at a time, and the cell already being
+    // dragged vanishes from layoutCfg's own buttons map the instant its own
+    // move starts (see LayoutEditController.previewLayoutCfg), so its own
+    // onMoveUpdate/onMoveDrop stay wired via the closure ControlCanvas
+    // already captured at drag-start, not via this gate staying true.
+    final canMove = isEditing
+        ? context.select<LayoutEditController, bool>(
+            (c) => c.interactionMode == CustomizationInteractionMode.editing,
+          )
+        : false;
     // Only meaningful while editing — live mode's NeverScrollableScrollPhysics
     // below never lets the operator page-swipe at all.
     final pageTransitionStyle = isEditing
@@ -1013,6 +1068,23 @@ class _CanvasSection extends StatelessWidget {
           : null,
       onResizeEnd: canResize
           ? (id, _) => context.read<LayoutEditController>().endResize()
+          : null,
+      onMoveStart: canMove
+          ? (id) => context.read<LayoutEditController>().beginMove(id)
+          : null,
+      onMoveUpdate: canMove
+          ? (id, offset, size) => context
+                .read<LayoutEditController>()
+                .updateMovePreview(globalOffset: offset, previewSize: size)
+          : null,
+      onMoveDrop: canMove
+          ? (id, wasAccepted, offset, size) {
+              if (wasAccepted) return;
+              context.read<LayoutEditController>().handleMoveDrop(
+                globalDropOffset: offset,
+                previewSize: size,
+              );
+            }
           : null,
     );
   }

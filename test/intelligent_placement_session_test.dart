@@ -9,7 +9,6 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
-import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalog_preview_stage.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
@@ -102,7 +101,8 @@ class _FakeControlHostState extends State<_FakeControlHost> {
                 startRect != null &&
                 endRect != null)
               SettlingPreviewOverlay(
-                entry: pendingEntry,
+                config: pendingEntry.buildPreviewConfig(),
+                previewSize: endRect.size,
                 startRect: startRect,
                 endRect: endRect,
                 onSettled: _editCtrl.commitSettledPlacement,
@@ -275,7 +275,7 @@ void main() {
       // itself is a full-width Positioned; its pill-shaped DragTarget is
       // aligned top-left within that, so target the DragTarget directly
       // rather than the wider ancestor's center).
-      final cancelBarCenter = tester.getCenter(find.byType(DragTarget<CatalogEntry>));
+      final cancelBarCenter = tester.getCenter(find.byType(DragTarget<Object>));
       await gesture.moveTo(cancelBarCenter);
       await tester.pump();
       await gesture.up();

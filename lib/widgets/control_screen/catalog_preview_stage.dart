@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
-import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,13 +17,21 @@ import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 //      can ever fire.
 //   2. The callbacks passed to ConfigurableButton are no-ops anyway, so
 //      even a hypothetical gesture leak writes nothing.
-//   3. The ButtonConfig backing the preview is thrown away every rebuild —
-//      never read from or written to the saved layout.
+//   3. [config] is never read from or written to the saved layout by this
+//      widget itself — callers decide whether it's a throwaway preview
+//      config (catalogue) or a real, in-draft ButtonConfig (canvas move).
 //
-// Shared by three call sites that must render the IDENTICAL visual so the
-// widget never appears to change mid-interaction: the catalogue card
-// (WidgetCatalogScreen), the lifted/dragged feedback avatar, and
-// SettlingPreviewOverlay's grid-settle animation.
+// Shared by call sites that must render the IDENTICAL visual so the widget
+// never appears to change mid-interaction: the catalogue card
+// (WidgetCatalogScreen), the lifted/dragged feedback avatar for both a
+// pending catalogue entry AND an already-placed widget being carried (see
+// control_canvas.dart), and SettlingPreviewOverlay's grid-settle animation
+// for both flows. [config] is the widget instance to render (for a
+// catalogue entry, [CatalogEntry.buildPreviewConfig]; for an existing
+// widget being moved, its real ButtonConfig, preserving id/mappings/style
+// exactly) and [previewSize] is the fixed internal reference size
+// ConfigurableButton lays out at before FittedBox scales it to whatever
+// outer box the caller actually places this in.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Inner padding around the control inside its preview stage — shared by
@@ -34,9 +41,14 @@ import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 const double kCatalogPreviewInnerPadding = 10;
 
 class CatalogPreviewStage extends StatelessWidget {
-  const CatalogPreviewStage({super.key, required this.entry});
+  const CatalogPreviewStage({
+    super.key,
+    required this.config,
+    required this.previewSize,
+  });
 
-  final CatalogEntry entry;
+  final ButtonConfig config;
+  final Size previewSize;
 
   @override
   Widget build(BuildContext context) {
@@ -55,13 +67,13 @@ class CatalogPreviewStage extends StatelessWidget {
                 child: FittedBox(
                   fit: BoxFit.contain,
                   child: SizedBox(
-                    width: entry.previewSize.width,
-                    height: entry.previewSize.height,
+                    width: previewSize.width,
+                    height: previewSize.height,
                     child: ConfigurableButton(
-                      config: entry.buildPreviewConfig(),
+                      config: config,
                       activeState: ControlState.idle,
                       isDisabled: false,
-                      height: entry.previewSize.height,
+                      height: previewSize.height,
                       onCommand: _noOpCommand,
                       onStateIdCommand: _noOpStateIdCommand,
                       onAnalogCommand: _noOpAnalogCommand,

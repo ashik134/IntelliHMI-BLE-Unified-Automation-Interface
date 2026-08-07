@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/configurable_button.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/catalog_preview_stage.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlCanvas
@@ -21,8 +26,17 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // editing) plus tap-to-select/delete chrome, and — for the selected,
 // unlocked widget only — four edge drag-resize handles (see
 // _ResizeHandleOverlay); vacant cells are inert — the Widget Catalog (via
-// the customization toolbar) is the only way to ADD a widget, dragging one
-// to reposition it is not yet supported.
+// the customization toolbar) is the only way to ADD a widget. An unlocked
+// occupied cell also supports long-press-drag-to-move (see
+// _MoveDraggableCell): the SAME widget instance detaches and follows the
+// finger, exactly mirroring the catalogue's own long-press carry (see
+// _DraggableCatalogCard in widget_catalog_screen.dart) — LayoutEditController
+// .beginMove/updateMovePreview/handleMoveDrop/commitMovedPlacement is that
+// flow's controller-side counterpart to
+// beginCatalogueLift/updatePlacementPreview/handleCatalogueDrop/
+// commitSettledPlacement. Rendering/gesture-handling for this are both
+// gated on [onMoveStart] being non-null, same convention as the resize
+// handles' own [onResizeStart] gate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Matches SettlingPreviewOverlay's own settle-animation timing, so a widget
@@ -31,6 +45,15 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // handle overlay reuses the same constants so a resized/displaced widget,
 // its neighbors, and its own handles all read as one consistent motion too.
 const Duration _kRepositionDuration = Duration(milliseconds: 220);
+
+// Long-press-drag-to-move geometry/timing — see _MoveDraggableCell. Matches
+// _DraggableCatalogCard's own _kLongPressDelay (widget_catalog_screen.dart)
+// so an existing widget's carry feels identical to a catalogue widget's.
+const Duration _kMoveLongPressDelay = Duration(milliseconds: 400);
+// Matches _OccupiedCell's own Padding(EdgeInsets.all(4)) around the real
+// button, so the floating avatar is pixel-identical to the cell it detaches
+// from — see handleCatalogueDrop/handleMoveDrop's identical cellInset math.
+const double _kMoveCellInset = 4.0;
 
 // Resize handle geometry — see _ResizeHandleOverlay/_ResizeHandle. "Long"/
 // "short" are relative to the handle's own axis (a top/bottom handle's pill
@@ -55,6 +78,30 @@ typedef ButtonResizeStartCallback = void Function(String id, ResizeEdge edge);
 typedef ButtonResizeUpdateCallback =
     void Function(String id, ResizeEdge edge, int deltaCols, int deltaRows);
 
+/// Long-press recognized on [id]'s occupied cell: it detaches and begins
+/// following the finger. See LayoutEditController.beginMove.
+typedef ButtonMoveStartCallback = void Function(String id);
+
+/// Fired on every pointer-move frame of an active move drag, carrying the
+/// floating avatar's own current top-left ([globalOffset], global/overlay
+/// coordinates — already grab-offset-adjusted, never the raw pointer
+/// position) and its constant on-screen size ([previewSize]). See
+/// LayoutEditController.updateMovePreview.
+typedef ButtonMoveUpdateCallback =
+    void Function(String id, Offset globalOffset, Size previewSize);
+
+/// Fired once when a move drag ends, from wherever the finger actually was.
+/// [wasAccepted] mirrors DraggableDetails.wasAccepted — true only when
+/// PlacementCancelBar accepted the drop, which already canceled the move
+/// itself; see LayoutEditController.handleMoveDrop.
+typedef ButtonMoveDropCallback =
+    void Function(
+      String id,
+      bool wasAccepted,
+      Offset globalOffset,
+      Size previewSize,
+    );
+
 class ControlCanvas extends StatefulWidget {
   const ControlCanvas({
     super.key,
@@ -72,6 +119,9 @@ class ControlCanvas extends StatefulWidget {
     this.onResizeStart,
     this.onResizeUpdate,
     this.onResizeEnd,
+    this.onMoveStart,
+    this.onMoveUpdate,
+    this.onMoveDrop,
     this.pageTransitionStyle = CanvasPageTransitionStyle.slide,
     this.pageController,
   });
@@ -101,6 +151,17 @@ class ControlCanvas extends StatefulWidget {
   final ButtonResizeStartCallback? onResizeStart;
   final ButtonResizeUpdateCallback? onResizeUpdate;
   final ButtonResizeStartCallback? onResizeEnd;
+
+  /// Long-press-drag-to-move callbacks — see [_MoveDraggableCell]. Rendering
+  /// AND gesture-handling for an occupied cell's move-draggable wrapper are
+  /// both gated on [onMoveStart] being non-null (same convention as
+  /// [onResizeStart]), so a null callback means "no drag-to-move at all,"
+  /// e.g. while a catalogue placement or a different widget's move is
+  /// already in flight — see call sites in
+  /// plc14_control_screen.dart/plc38_control_screen.dart.
+  final ButtonMoveStartCallback? onMoveStart;
+  final ButtonMoveUpdateCallback? onMoveUpdate;
+  final ButtonMoveDropCallback? onMoveDrop;
 
   /// Edit Mode-only page-swipe preview style (see
   /// CanvasPageTransitionStyle's doc comment) — inert in live mode, which
@@ -187,25 +248,7 @@ class _ControlCanvasState extends State<ControlCanvas> {
                     top: item.gridY * cellHeight,
                     width: item.colSpan * cellWidth,
                     height: item.rowSpan * cellHeight,
-                    child: _OccupiedCell(
-                      config: item.config,
-                      isEditing: widget.isEditing,
-                      isSelected:
-                          widget.isEditing &&
-                          item.config.id == widget.selectedButtonId,
-                      activeState: widget.activeStateFor(item.config),
-                      isDisabled: widget.isDisabled(item.config),
-                      onCommand: widget.onCommand,
-                      onStateIdCommand: widget.onStateIdCommand,
-                      onAnalogCommand: widget.onAnalogCommand,
-                      onTap: () => widget.onSelectButton?.call(item.config.id),
-                      onDelete: () =>
-                          widget.onDeleteButton?.call(item.config.id),
-                      onEdit: () {
-                        widget.onSelectButton?.call(item.config.id);
-                        widget.onEditButton?.call(item.config.id);
-                      },
-                    ),
+                    child: _buildOccupiedCell(item, cellWidth, cellHeight),
                   ),
                 if (widget.isEditing)
                   for (var slot = 0; slot < grid.slotCount; slot++)
@@ -274,6 +317,57 @@ class _ControlCanvasState extends State<ControlCanvas> {
           },
         );
       },
+    );
+  }
+
+  /// Builds [item]'s occupied cell, wrapping it in [_MoveDraggableCell] when
+  /// long-press-drag-to-move applies: editing, unlocked, and every move
+  /// callback provided (see [ControlCanvas.onMoveStart]'s doc comment for
+  /// the null-means-off convention). [cellWidth]/[cellHeight] come from the
+  /// enclosing LayoutBuilder so the draggable can compute the SAME on-screen
+  /// pixel size the AnimatedPositioned box around it already uses — the
+  /// floating avatar and the cell it detaches from must be pixel-identical,
+  /// never a visible resize.
+  Widget _buildOccupiedCell(
+    ControlGridItem item,
+    double cellWidth,
+    double cellHeight,
+  ) {
+    final cell = _OccupiedCell(
+      config: item.config,
+      isEditing: widget.isEditing,
+      isSelected: widget.isEditing && item.config.id == widget.selectedButtonId,
+      activeState: widget.activeStateFor(item.config),
+      isDisabled: widget.isDisabled(item.config),
+      onCommand: widget.onCommand,
+      onStateIdCommand: widget.onStateIdCommand,
+      onAnalogCommand: widget.onAnalogCommand,
+      onTap: () => widget.onSelectButton?.call(item.config.id),
+      onDelete: () => widget.onDeleteButton?.call(item.config.id),
+      onEdit: () {
+        widget.onSelectButton?.call(item.config.id);
+        widget.onEditButton?.call(item.config.id);
+      },
+    );
+
+    final onMoveStart = widget.onMoveStart;
+    final onMoveUpdate = widget.onMoveUpdate;
+    final onMoveDrop = widget.onMoveDrop;
+    if (!widget.isEditing ||
+        item.config.locked ||
+        onMoveStart == null ||
+        onMoveUpdate == null ||
+        onMoveDrop == null) {
+      return cell;
+    }
+    return _MoveDraggableCell(
+      buttonId: item.config.id,
+      config: item.config,
+      cellSize: Size(item.colSpan * cellWidth, item.rowSpan * cellHeight),
+      onMoveStart: onMoveStart,
+      onMoveUpdate: onMoveUpdate,
+      onMoveDrop: onMoveDrop,
+      child: cell,
     );
   }
 }
@@ -646,6 +740,259 @@ class _VacantCell extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _MoveDraggableCell
+//
+// Wraps an occupied cell with long-press-to-move, reusing LongPressDraggable
+// exactly like _DraggableCatalogCard does for the catalogue (see that
+// widget's doc comment in widget_catalog_screen.dart for why
+// LongPressDraggable specifically — its DelayedMultiDragGestureRecognizer
+// arbitrates correctly against tap-to-select/the badges' own GestureDetectors
+// below it in the tree, and its avatar/recognizer are explicitly designed to
+// survive the Draggable being removed from the widget tree mid-drag, which
+// is exactly what happens here: the instant LayoutEditController.beginMove
+// flips interactionMode to movingWidget, ControlCanvas.previewLayoutCfg (via
+// LayoutEditController) drops this cell's button from the rendered map
+// entirely — its origin slot reads as vacant, like a catalogue card's
+// childWhenDragging placeholder — which unmounts this very widget mid-drag.
+// The already-armed LongPressDraggable keeps tracking the pointer and firing
+// onDragUpdate/onDragEnd regardless, because those closures were captured
+// from [widget] at the last build before removal, not re-read from a live
+// (now-gone) Element — see _handleDragUpdate/_handleDragEnd below, which
+// deliberately touch only [widget]'s own captured callbacks, mirroring
+// _DraggableCatalogCardState._handleDragEnd's own doc comment.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MoveDraggableCell extends StatefulWidget {
+  const _MoveDraggableCell({
+    required this.buttonId,
+    required this.config,
+    required this.cellSize,
+    required this.onMoveStart,
+    required this.onMoveUpdate,
+    required this.onMoveDrop,
+    required this.child,
+  });
+
+  final String buttonId;
+  final ButtonConfig config;
+
+  /// The cell's current outer grid-cell pixel size (colSpan*cellWidth x
+  /// rowSpan*cellHeight) — never the inner padded size; see [_previewSize].
+  final Size cellSize;
+
+  final ButtonMoveStartCallback onMoveStart;
+  final ButtonMoveUpdateCallback onMoveUpdate;
+  final ButtonMoveDropCallback onMoveDrop;
+  final Widget child;
+
+  @override
+  State<_MoveDraggableCell> createState() => _MoveDraggableCellState();
+}
+
+class _MoveDraggableCellState extends State<_MoveDraggableCell> {
+  Offset? _dragAnchor;
+  bool _dragFinishHandled = false;
+
+  /// The floating avatar's size — [cellSize] deflated by the same inset
+  /// _OccupiedCell's own Padding applies, so the avatar is pixel-identical
+  /// to the real button it detaches from (never a visible resize pop).
+  Size get _previewSize => Size(
+    (widget.cellSize.width - _kMoveCellInset * 2).clamp(0, double.infinity),
+    (widget.cellSize.height - _kMoveCellInset * 2).clamp(0, double.infinity),
+  );
+
+  /// Maps the touched point into the (inner, padded) preview's coordinate
+  /// space — mirrors _DraggableCatalogCardState._grabAnchor exactly (see its
+  /// doc comment), just against this cell's own outer bounds instead of a
+  /// catalogue card's.
+  Offset _grabAnchor(
+    Draggable<Object> draggable,
+    BuildContext context,
+    Offset position,
+  ) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) {
+      final fallback = _previewSize.center(Offset.zero);
+      _dragAnchor = fallback;
+      return fallback;
+    }
+    final local = renderBox.globalToLocal(position);
+    final anchor = local - const Offset(_kMoveCellInset, _kMoveCellInset);
+    _dragAnchor = anchor;
+    return anchor;
+  }
+
+  void _handleDragStarted() {
+    _dragFinishHandled = false;
+    HapticFeedback.selectionClick();
+    widget.onMoveStart(widget.buttonId);
+  }
+
+  /// See _DraggableCatalogCardState._handleDragUpdate's doc comment —
+  /// identical math, converting the pointer's own global position into the
+  /// avatar's top-left via the anchor [_grabAnchor] recorded.
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final anchor = _dragAnchor ?? _previewSize.center(Offset.zero);
+    widget.onMoveUpdate(
+      widget.buttonId,
+      details.globalPosition - anchor,
+      _previewSize,
+    );
+  }
+
+  void _handleDragEnd(bool wasAccepted, Offset offset) {
+    if (_dragFinishHandled) return;
+    _dragFinishHandled = true;
+    widget.onMoveDrop(widget.buttonId, wasAccepted, offset, _previewSize);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LongPressDraggable<String>(
+      data: widget.buttonId,
+      delay: _kMoveLongPressDelay,
+      hapticFeedbackOnStart: false,
+      dragAnchorStrategy: _grabAnchor,
+      feedback: _LiftedMovePreview(
+        config: widget.config,
+        size: _previewSize,
+        dragAnchor: () => _dragAnchor,
+      ),
+      // The dragged widget's own cell vanishes from the grid the instant the
+      // drag starts anyway (see this class's doc comment) — this is just a
+      // defensive placeholder for the single frame before that propagates.
+      childWhenDragging: const SizedBox.shrink(),
+      onDragStarted: _handleDragStarted,
+      onDragUpdate: _handleDragUpdate,
+      onDragEnd: (details) =>
+          _handleDragEnd(details.wasAccepted, details.offset),
+      onDraggableCanceled: (_, offset) => _handleDragEnd(false, offset),
+      child: widget.child,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _LiftedMovePreview
+//
+// The floating avatar for a canvas move — CatalogPreviewStage rendering the
+// SAME real ButtonConfig the origin cell showed (never a lookalike), at
+// exactly the size it rendered at there, plus a one-shot lift animation
+// (scale + soft shadow) mirroring _LiftingCataloguePreview in
+// widget_catalog_screen.dart exactly (see that widget's doc comment) — the
+// "Widget lifts" step of the required interaction. Unlike the catalogue
+// preview, there is no onLiftComplete/mode-advance here: beginMove already
+// flips interactionMode straight to movingWidget on drag start, since a
+// canvas move has no catalogue-overlay reveal to sequence around.
+//
+// Watches LayoutEditController.interactionMode so a Cancel elsewhere (the
+// Cancel bar, tapped or dropped onto with a second finger) can make this
+// preview vanish immediately, even though the underlying drag gesture may
+// still be silently active until the finger actually lifts — same reasoning
+// as _LiftingCataloguePreview's own doc comment.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LiftedMovePreview extends StatefulWidget {
+  const _LiftedMovePreview({
+    required this.config,
+    required this.size,
+    required this.dragAnchor,
+  });
+
+  final ButtonConfig config;
+  final Size size;
+  final Offset? Function() dragAnchor;
+
+  @override
+  State<_LiftedMovePreview> createState() => _LiftedMovePreviewState();
+}
+
+class _LiftedMovePreviewState extends State<_LiftedMovePreview>
+    with SingleTickerProviderStateMixin {
+  static const _liftDuration = Duration(milliseconds: 160);
+
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<int> _shadowAlpha;
+  late final Animation<double> _shadowBlur;
+  late final Animation<double> _shadowDy;
+  late final Alignment _scaleAlignment;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: _liftDuration);
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+    _scale = Tween<double>(begin: 1.0, end: 1.03).animate(curved);
+    _shadowAlpha = IntTween(begin: 0, end: 56).animate(curved);
+    _shadowBlur = Tween<double>(begin: 0, end: 10).animate(curved);
+    _shadowDy = Tween<double>(begin: 0, end: 3).animate(curved);
+    _scaleAlignment = _scaleAlignmentFor(widget.dragAnchor());
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Alignment _scaleAlignmentFor(Offset? anchor) {
+    final effectiveAnchor = anchor ?? widget.size.center(Offset.zero);
+    final x = widget.size.width <= 0
+        ? 0.0
+        : (effectiveAnchor.dx / widget.size.width) * 2 - 1;
+    final y = widget.size.height <= 0
+        ? 0.0
+        : (effectiveAnchor.dy / widget.size.height) * 2 - 1;
+    return Alignment(x, y);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = context.watch<LayoutEditController>().interactionMode;
+    final isLive = mode == CustomizationInteractionMode.movingWidget;
+
+    final stage = SizedBox(
+      width: widget.size.width,
+      height: widget.size.height,
+      child: CatalogPreviewStage(config: widget.config, previewSize: widget.size),
+    );
+
+    return Material(
+      type: MaterialType.transparency,
+      child: !isLive
+          ? const SizedBox.shrink()
+          : AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) => Transform.scale(
+                alignment: _scaleAlignment,
+                scale: _scale.value,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(_shadowAlpha.value),
+                        blurRadius: _shadowBlur.value,
+                        spreadRadius: -1,
+                        offset: Offset(0, _shadowDy.value),
+                      ),
+                    ],
+                  ),
+                  child: child,
+                ),
+              ),
+              child: stage,
+            ),
     );
   }
 }
