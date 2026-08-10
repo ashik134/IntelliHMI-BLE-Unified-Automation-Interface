@@ -46,14 +46,6 @@ class CatalogEntry {
     required this.previewSize,
   });
 
-  /// Stable identity for a catalogue entry, persisted on any [ButtonConfig]
-  /// placed from it (see `ButtonConfig.catalogEntryId`) so "Reset to
-  /// default" can restore this exact variant later — several entries share
-  /// one [ButtonType] with different `behavior`/`customProperties` (e.g. the
-  /// two push-button variants), so [buttonType] alone is ambiguous.
-  /// Derived from category/group/name, which are unique per entry in
-  /// [kWidgetCatalog] today; never renamed once shipped, since existing
-  /// saved layouts reference it by this exact string.
   String get id => '${category.name}.$group.$name';
 
   /// Page section, e.g. "Digital Controls".
@@ -276,28 +268,14 @@ final List<CatalogEntry> kWidgetCatalog = [
   CatalogEntry(
     category: _analog,
     group: 'Potentiometers',
-    name: 'Spring-Return Potentiometer',
+    name: 'Retained-Position Potentiometer',
     description:
         'Continuous analog rotary control that returns to its configured '
         'default value after release.',
-    tags: const ['Analog', 'Spring Return'],
-    buttonType: ButtonType.potentiometer,
-    customProperties: const PotentiometerConfig(
-      defaultValue: 0,
-    ).applyToCustomProperties(const {}),
-    previewSize: const Size(150, 150),
-  ),
-  CatalogEntry(
-    category: _analog,
-    group: 'Potentiometers',
-    name: 'Retained-Position Potentiometer',
-    description:
-        'Continuous analog rotary control that remains at the value '
-        'selected by the user.',
     tags: const ['Analog', 'Retained'],
     buttonType: ButtonType.potentiometer,
     customProperties: const PotentiometerConfig(
-      defaultValue: 50,
+      defaultValue: 0,
     ).applyToCustomProperties(const {}),
     previewSize: const Size(150, 150),
   ),
@@ -310,12 +288,12 @@ final List<CatalogEntry> kWidgetCatalog = [
   CatalogEntry(
     category: _analog,
     group: 'Analog Sliders',
-    name: 'Neutral-to-Retained Analog Slider',
-    notation: 'O–T',
+    name: 'Single-Point Analog Slider',
+    notation: '(O–T)/(O–R)',
     description:
         'Continuous analog slider that starts from a neutral position and '
-        'retains the selected value.',
-    tags: const ['Analog', 'Retained'],
+        'retains the selected value or returns to neutral after release, depending on the variant.',
+    tags: const ['Analog', 'Retained', 'Spring Return'],
     buttonType: ButtonType.analogSliderOT,
     customProperties: const AnalogSliderConfig(
       neutralValue: 0,
@@ -326,12 +304,12 @@ final List<CatalogEntry> kWidgetCatalog = [
   CatalogEntry(
     category: _analog,
     group: 'Analog Sliders',
-    name: 'Bidirectional Retained Analog Slider',
-    notation: 'T–O–T',
+    name: 'Two-Way Linear Analog Slider',
+    notation: '(T–O–T)/(R–O–R)',
     description:
         'Continuous bidirectional analog slider with a centred neutral '
-        'position and retained values on both sides.',
-    tags: const ['Analog', 'Retained', 'Bidirectional'],
+        'position and retained or return values on both sides.',
+    tags: const ['Analog', 'Retained', 'Bidirectional', 'Spring Return'],
     buttonType: ButtonType.analogSliderTOT,
     customProperties: const AnalogSliderConfig(
       minValue: -100,
@@ -341,24 +319,24 @@ final List<CatalogEntry> kWidgetCatalog = [
     ).applyToCustomProperties(const {}),
     previewSize: const Size(110, 260),
   ),
-  CatalogEntry(
-    category: _analog,
-    group: 'Analog Sliders',
-    name: 'Bidirectional Spring-Return Analog Slider',
-    notation: 'R–O–R',
-    description:
-        'Continuous bidirectional analog slider that returns to its '
-        'centred neutral value after release.',
-    tags: const ['Analog', 'Spring Return', 'Bidirectional'],
-    buttonType: ButtonType.analogSliderTOT,
-    customProperties: const AnalogSliderConfig(
-      minValue: -100,
-      maxValue: 100,
-      neutralValue: 0,
-      springReturnEnabled: true,
-    ).applyToCustomProperties(const {}),
-    previewSize: const Size(110, 260),
-  ),
+  // CatalogEntry(
+  //   category: _analog,
+  //   group: 'Analog Sliders',
+  //   name: 'Bidirectional Spring-Return Analog Slider',
+  //   notation: 'R–O–R',
+  //   description:
+  //       'Continuous bidirectional analog slider that returns to its '
+  //       'centred neutral value after release.',
+  //   tags: const ['Analog', 'Spring Return', 'Bidirectional'],
+  //   buttonType: ButtonType.analogSliderTOT,
+  //   customProperties: const AnalogSliderConfig(
+  //     minValue: -100,
+  //     maxValue: 100,
+  //     neutralValue: 0,
+  //     springReturnEnabled: true,
+  //   ).applyToCustomProperties(const {}),
+  //   previewSize: const Size(110, 260),
+  // ),
 
   // ── Analog Controls › Analog Joysticks ──────────────────────────────────
   CatalogEntry(

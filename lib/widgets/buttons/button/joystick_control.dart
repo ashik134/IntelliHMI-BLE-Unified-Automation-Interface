@@ -37,9 +37,89 @@ double _dualAxisSide(double maxWidth, double maxHeight) {
   );
 }
 
-double _digitalCrossGateSide(double maxWidth, double maxHeight) {
-  return math.max(0.0, math.min(maxWidth, maxHeight));
+// Cross-gate proportions, all expressed against the gate's own extent (the
+// side of the square the 3x3 cell arrangement actually occupies) rather
+// than against the raw widget box — so the plate, cells, knob, glyphs and
+// touch geometry all scale as one unit with the assigned grid footprint.
+//
+// The 3 cells and 2 gaps across an axis must sum to exactly the extent:
+//   3 * cell + 2 * gap == gateExtent
+// which is what lets the gate FILL its box instead of floating inside it.
+const double _kCrossGateGapFactor = 0.0285;
+
+// Pointer travel (in gate extents) that maps to a full-deflection value of
+// 1.0. Preserves the pre-existing feel: the drag distance needed to engage
+// a direction stays the same fraction of the visible control as before, so
+// growing the footprint never changes the dead zone / step thresholds in
+// operator-perceived terms — only their absolute pixel size.
+const double _kCrossGateTravelFactor = 0.484;
+
+/// Resolved geometry for one 2D digital joystick (cross gate) paint box.
+///
+/// The control is a 3x3 arrangement of square cells (neutral centre plus 4
+/// or 8 directions) separated by a uniform gap, with a label band beneath.
+/// [gateExtent] is the side of the square that arrangement fills: the
+/// SHORTER available dimension once the label band is reserved. Everything
+/// painted, and every touch radius, derives from [cell]/[gateExtent] here —
+/// never from the raw box — which is what keeps the knob centred on the
+/// directional zones at every size.
+///
+/// The gate stays square (never stretched) and is centred as a unit with
+/// its label, so a non-square footprint leaves symmetric margins on the
+/// longer axis rather than distorting or overflowing the control.
+class _CrossGateMetrics {
+  const _CrossGateMetrics._({
+    required this.center,
+    required this.gateExtent,
+    required this.cell,
+    required this.gap,
+    required this.labelBand,
+  });
+
+  factory _CrossGateMetrics.forBox(Size size) {
+    // Never let the label eat a tall share of a short box — on a small
+    // footprint the gate itself matters more than a readable caption.
+    final labelBand = math.max(
+      0.0,
+      math.min(ControlButtonVisualMetrics.rowHeight, size.height * 0.16),
+    );
+    final gateExtent = math.max(
+      0.0,
+      math.min(size.width, size.height - labelBand),
+    );
+    final gap = gateExtent * _kCrossGateGapFactor;
+    final cell = math.max(0.0, (gateExtent - gap * 2) / 3);
+    // Centre the gate+label as one block so the gate's own centre — which
+    // every directional cell and the knob are positioned from — stays put.
+    final top = (size.height - (gateExtent + labelBand)) / 2;
+    return _CrossGateMetrics._(
+      center: Offset(size.width / 2, top + gateExtent / 2),
+      gateExtent: gateExtent,
+      cell: cell,
+      gap: gap,
+      labelBand: labelBand,
+    );
+  }
+
+  /// Centre of the 3x3 gate (NOT of the whole box — the label band below
+  /// shifts it up), in the paint box's own coordinates.
+  final Offset center;
+  final double gateExtent;
+  final double cell;
+  final double gap;
+  final double labelBand;
+
+  /// Distance between adjacent cell centres — one direction step of knob
+  /// travel, and the radius the knob is drawn at when fully deflected.
+  double get step => cell + gap;
 }
+
+/// The side length the cross gate's 3x3 arrangement fills inside [box].
+/// Exposed only so tests can assert the fill contract directly rather than
+/// inferring it from a rendered box that also contains the label band.
+@visibleForTesting
+double digitalCrossGateExtentFor(Size box) =>
+    _CrossGateMetrics.forBox(box).gateExtent;
 
 String _formatAnalogAxisValue(double value) {
   final clamped = value.clamp(-1.0, 1.0).toDouble();
@@ -652,17 +732,27 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
         knobHitRadius: math.max(24.0, radius * 0.32),
       );
     }
-    final side = config.mode == JoystickMode.dualAxisDigital4
-        ? _digitalCrossGateSide(innerW, innerH)
-        : _dualAxisSide(innerW, innerH);
+    if (config.mode == JoystickMode.dualAxisDigital4) {
+      // Same metrics the painter uses, shifted into the gesture detector's
+      // own coordinates (which include the slot padding the painter's box
+      // is inset by) so the knob's hit target tracks exactly where the knob
+      // is drawn — including the label band's upward shift of the centre.
+      final metrics = _CrossGateMetrics.forBox(Size(innerW, innerH));
+      return _JoystickDragGeometry(
+        center: Offset(slotPadding, slotPadding) + metrics.center,
+        radius: metrics.gateExtent * _kCrossGateTravelFactor,
+        displayRadius: metrics.step,
+        // Never let a small footprint shrink the grab target below a
+        // usable touch area, even though the knob itself keeps scaling.
+        knobHitRadius: math.max(24.0, metrics.cell * 0.72),
+      );
+    }
+    final side = _dualAxisSide(innerW, innerH);
     final radius = side * _kAnalogGimbalPointerTravelFactor;
-    final displayRadius = config.mode == JoystickMode.dualAxisDigital4
-        ? side * (0.48 * 0.46 + 0.02)
-        : radius;
     return _JoystickDragGeometry(
       center: center,
       radius: radius,
-      displayRadius: displayRadius,
+      displayRadius: radius,
       knobHitRadius: math.max(24.0, side * 0.16),
     );
   }
@@ -2040,14 +2130,17 @@ class _DigitalCrossGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final side = _digitalCrossGateSide(maxWidth, maxHeight);
     final cellX = display.dx.round().clamp(-1, 1);
     final cellY = display.dy.round().clamp(-1, 1);
 
+    // Paint across the FULL assigned box rather than pre-squaring it: the
+    // gate squares itself from whichever dimension is binding (see
+    // _CrossGateMetrics), which on a tall footprint yields a larger gate
+    // than squaring to the shorter side up front would allow.
     return Center(
       child: SizedBox(
-        width: side,
-        height: side,
+        width: maxWidth,
+        height: maxHeight,
         child: TweenAnimationBuilder<Offset>(
           tween: Tween(
             begin: Offset.zero,
@@ -2071,7 +2164,7 @@ class _DigitalCrossGate extends StatelessWidget {
                 label: label,
                 icon: icon,
               ),
-              child: SizedBox(width: side, height: side),
+              child: SizedBox(width: maxWidth, height: maxHeight),
             );
           },
         ),
@@ -2107,16 +2200,18 @@ class _CrossGatePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final side = math.min(size.width, size.height);
-    final center = Offset(size.width / 2, size.height / 2);
-    final plateR = side * 0.48;
+    final metrics = _CrossGateMetrics.forBox(size);
+    final gateExtent = metrics.gateExtent;
+    if (gateExtent <= 0) return;
+    final center = metrics.center;
+    final plateR = gateExtent * 0.5;
 
     canvas.drawCircle(
-      center + Offset(0, side * 0.025),
+      center + Offset(0, gateExtent * 0.025),
       plateR,
       Paint()
         ..color = Colors.black.withAlpha(130)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, gateExtent * 0.06),
     );
 
     // Angular square plate (distinct from the gimbal's round dish).*
@@ -2127,35 +2222,34 @@ class _CrossGatePainter extends CustomPainter {
     );
     final plateRRect = RRect.fromRectAndRadius(
       plateRect,
-      Radius.circular(side * 0.09),
+      Radius.circular(gateExtent * 0.09),
     );
-    canvas.drawRRect(
-      plateRRect,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF23262E), Color(0xFF121319)],
-        ).createShader(plateRect),
-    );
-    canvas.drawRRect(
-      plateRRect.deflate(1.2),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..color = Colors.white.withAlpha(24),
-    );
+    // canvas.drawRRect(
+    //   plateRRect,
+    //   Paint()
+    //     ..shader = const LinearGradient(
+    //       begin: Alignment.topLeft,
+    //       end: Alignment.bottomRight,
+    //       colors: [Color.fromARGB(255, 7, 53, 180), Color(0xFF121319)],
+    //     ).createShader(plateRect),
+    // );
+    // canvas.drawRRect(
+    //   plateRRect.deflate(1.2),
+    //   Paint()
+    //     ..style = PaintingStyle.stroke
+    //     ..strokeWidth = 1.6
+    //     ..color = Colors.white.withAlpha(24),
+    // );
 
     // Cross-shaped gate carved from 5 cells: center + N/E/S/W. Each is a*
     // distinct angular block with a visible seam — reads as "gated slots"*
     // rather than a free field.*
-    final armLen = plateR * 0.62;
-    final cell = plateR * 0.46;
-    final gap = side * 0.02;
+    final cell = metrics.cell;
+    final step = metrics.step;
 
     Rect cellRect(int cx, int cy) {
-      final dx = cx * (cell + gap);
-      final dy = -cy * (cell + gap);
+      final dx = cx * step;
+      final dy = -cy * step;
       return Rect.fromCenter(
         center: center + Offset(dx, dy),
         width: cell,
@@ -2174,7 +2268,7 @@ class _CrossGatePainter extends CustomPainter {
 
     for (final (cx, cy) in positions) {
       final rect = cellRect(cx, cy);
-      final rrect = RRect.fromRectAndRadius(rect, Radius.circular(side * 0.03));
+      final rrect = RRect.fromRectAndRadius(rect, Radius.circular(cell * 0.136));
       final isNeutral = cx == 0 && cy == 0;
       final isEngaged =
           !isNeutral && activeCellX == cx && activeCellY == cy && isActive;
@@ -2191,14 +2285,16 @@ class _CrossGatePainter extends CustomPainter {
           rrect,
           Paint()
             ..color = activeColor.withAlpha(230)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, cell * 0.033),
         );
       }
       canvas.drawRRect(
         rrect,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = isNeutral ? 1.6 : 1.1
+          ..strokeWidth = isNeutral
+              ? math.max(1.0, cell * 0.027)
+              : math.max(0.8, cell * 0.018)
           ..color = isNeutral
               ? Colors.white.withAlpha(100)
               : Colors.black.withAlpha(210),
@@ -2209,11 +2305,11 @@ class _CrossGatePainter extends CustomPainter {
         final glyphColor = isEngaged && enabled
             ? Colors.black.withAlpha(190)
             : AppColors.darkTextMuted.withAlpha(enabled ? 150 : 80);
-        _drawChevron(canvas, rect.center, cx, cy, side * 0.05, glyphColor);
+        _drawChevron(canvas, rect.center, cx, cy, cell * 0.226, glyphColor);
       } else {
         canvas.drawCircle(
           rect.center,
-          side * 0.018,
+          cell * 0.082,
           Paint()..color = Colors.white.withAlpha(110),
         );
       }
@@ -2222,22 +2318,22 @@ class _CrossGatePainter extends CustomPainter {
     // Connective seams between center and arms (visual "gate track").*
     final seamPaint = Paint()
       ..color = Colors.black.withAlpha(160)
-      ..strokeWidth = side * 0.012;
+      ..strokeWidth = math.max(0.8, gateExtent * 0.017);
+    final seamHalf = gateExtent * 0.148;
     canvas.drawLine(
-      center + Offset(0, -armLen * 0.35),
-      center + Offset(0, armLen * 0.35),
+      center + Offset(0, -seamHalf),
+      center + Offset(0, seamHalf),
       seamPaint,
     );
     canvas.drawLine(
-      center + Offset(-armLen * 0.35, 0),
-      center + Offset(armLen * 0.35, 0),
+      center + Offset(-seamHalf, 0),
+      center + Offset(seamHalf, 0),
       seamPaint,
     );
 
     // Latching knob — square-ish puck that jumps between cells and holds.*
     final knobCenter =
-        center +
-        Offset(animatedCell.dx * (cell + gap), -animatedCell.dy * (cell + gap));
+        center + Offset(animatedCell.dx * step, -animatedCell.dy * step);
     final knobSize = cell * 0.54;
     final knobRect = Rect.fromCenter(
       center: knobCenter,
@@ -2246,7 +2342,7 @@ class _CrossGatePainter extends CustomPainter {
     );
     final knobRRect = RRect.fromRectAndRadius(
       knobRect,
-      Radius.circular(side * 0.025),
+      Radius.circular(cell * 0.113),
     );
     final base = isActive && enabled ? activeColor : const Color(0xFF576675);
     final light = isActive && enabled
@@ -2254,10 +2350,10 @@ class _CrossGatePainter extends CustomPainter {
         : const Color(0xFFC0CAD3);
 
     canvas.drawRRect(
-      knobRRect.shift(const Offset(0, 3)),
+      knobRRect.shift(Offset(0, cell * 0.05)),
       Paint()
         ..color = Colors.black.withAlpha(170)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, cell * 0.1),
     );
     canvas.drawRRect(
       knobRRect,
@@ -2272,15 +2368,15 @@ class _CrossGatePainter extends CustomPainter {
       knobRRect,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
+        ..strokeWidth = math.max(1.0, cell * 0.027)
         ..color = Colors.white.withAlpha(90),
     );
     if (isActive && enabled) {
       canvas.drawRRect(
-        knobRRect.inflate(side * 0.015),
+        knobRRect.inflate(cell * 0.068),
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
+          ..strokeWidth = math.max(1.2, cell * 0.033)
           ..color = activeColorLight.withAlpha(110),
       );
     }
@@ -2295,16 +2391,23 @@ class _CrossGatePainter extends CustomPainter {
         iconColor: isActive && enabled
             ? activeColorLight
             : AppColors.darkTextMuted.withAlpha(enabled ? 210 : 110),
-        bounds: Size(side * 0.66, ControlButtonVisualMetrics.rowHeight),
+        bounds: Size(gateExtent * 0.9, ControlButtonVisualMetrics.rowHeight),
       ),
       maxLines: 1,
       ellipsis: '…',
       textAlign: TextAlign.center,
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: side * 0.66);
+    )..layout(maxWidth: gateExtent * 0.9);
+    // Sits in the band reserved beneath the gate, so it can never overlap
+    // the directional cells nor spill past the bottom of the paint box.
     labelPainter.paint(
       canvas,
-      Offset(center.dx - labelPainter.width / 2, size.height - side * 0.10),
+      Offset(
+        center.dx - labelPainter.width / 2,
+        center.dy +
+            gateExtent / 2 +
+            math.max(0.0, metrics.labelBand - labelPainter.height) / 2,
+      ),
     );
   }
 
