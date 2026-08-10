@@ -562,8 +562,9 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool isEditing;
 
   @override
-  Size get preferredSize =>
-      const Size.fromHeight(kToolbarHeight + ControlModeAppBarFooter.height);
+  Size get preferredSize => Size.fromHeight(
+    kToolbarHeight + ControlModeAppBarFooter.heightFor(isEditing),
+  );
 
   @override
   Widget build(BuildContext context) {

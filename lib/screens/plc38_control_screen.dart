@@ -609,8 +609,9 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool isEditing;
 
   @override
-  Size get preferredSize =>
-      const Size.fromHeight(kToolbarHeight + ControlModeAppBarFooter.height);
+  Size get preferredSize => const Size.fromHeight(
+    kToolbarHeight + ControlModeAppBarFooter.editingHeight,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -619,7 +620,7 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
       children: [
         AppBar(
           actionsPadding: const EdgeInsets.only(right: 8),
-          // automaticallyImplyLeading: false,
+          automaticallyImplyLeading: false,
           backgroundColor: isEditing
               ? AppColors.appBarEditingBg
               : AppColors.appBarBg,

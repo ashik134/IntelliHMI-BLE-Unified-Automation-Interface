@@ -117,40 +117,36 @@ class EditModeAppBarTitle extends StatelessWidget {
 // isEditing is true).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Fixed-height AppBar footer for both control-screen modes.
+/// Mode-aware AppBar footer shared by both control screens.
 ///
-/// Only its paint changes by mode. Its footprint stays constant so the
-/// Scaffold body and the Expanded control canvas receive identical viewport
-/// constraints before and after Edit Mode.
+/// Normal mode reserves only the thin accent line. Edit Mode expands the
+/// footer to fit the safety banner, so normal operation does not sacrifice
+/// usable control-canvas space for editing-only chrome.
 class ControlModeAppBarFooter extends StatelessWidget
     implements PreferredSizeWidget {
   const ControlModeAppBarFooter({super.key, required this.isEditing});
 
   final bool isEditing;
 
-  static const double height = 28;
+  static const double normalHeight = 3;
+  static const double editingHeight = 28;
+
+  static double heightFor(bool isEditing) =>
+      isEditing ? editingHeight : normalHeight;
 
   @override
-  Size get preferredSize => const Size.fromHeight(height);
+  Size get preferredSize => Size.fromHeight(heightFor(isEditing));
 
   @override
   Widget build(BuildContext context) {
     if (isEditing) return const CustomizationModeBanner();
 
-    return const SizedBox(
-      height: height,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.appBarBanner,
-            border: Border(
-              bottom: BorderSide(color: AppColors.appBarBannerBorder),
-            ),
-          ),
-          child: SizedBox(height: 3, width: double.infinity),
-        ),
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.appBarBanner,
+        border: Border(bottom: BorderSide(color: AppColors.appBarBannerBorder)),
       ),
+      child: SizedBox(height: normalHeight, width: double.infinity),
     );
   }
 }
@@ -161,7 +157,7 @@ class CustomizationModeBanner extends StatelessWidget
 
   @override
   Size get preferredSize =>
-      const Size.fromHeight(ControlModeAppBarFooter.height);
+      const Size.fromHeight(ControlModeAppBarFooter.editingHeight);
 
   @override
   Widget build(BuildContext context) {
