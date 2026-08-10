@@ -251,62 +251,20 @@ class _ResetSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            CircleAvatar(
-              radius: compact ? 13 : 16,
-              backgroundColor: AppColors.eStopColor,
-              child: Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.white,
-                size: compact ? 15 : 18,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'EMERGENCY STOP ACTIVE',
-                    style: TextStyle(
-                      color: AppColors.eStopColorLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 10,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  Text(
-                    'All crane controls are locked',
-                    style: TextStyle(
-                      color: AppColors.darkTextSub,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return AbsorbPointer(
+      absorbing: !enabled,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: EStopSwipeButton(
+          onActivated: onResetActivated,
+          instructionLabel: enabled
+              ? 'EMERGENCY STOP ACTIVE'
+              : 'EXIT EDIT MODE TO RESET',
+          instructionSubtitle: enabled
+              ? 'Swipe right to clear emergency lockout'
+              : 'Return to normal mode before clearing E-Stop',
         ),
-        SizedBox(height: compact ? 6 : 8),
-        AbsorbPointer(
-          absorbing: !enabled,
-          child: Opacity(
-            opacity: enabled ? 1.0 : 0.45,
-            child: EStopSwipeButton(
-              onActivated: onResetActivated,
-              instructionLabel: enabled
-                  ? 'SWIPE TO RESET E-STOP'
-                  : 'EXIT EDIT MODE TO RESET',
-              instructionSubtitle: enabled
-                  ? 'Slide right to clear emergency lockout'
-                  : 'Return to normal mode before clearing E-Stop',
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
