@@ -36,6 +36,7 @@ class _FakeControlHost extends StatefulWidget {
 
 class _FakeControlHostState extends State<_FakeControlHost> {
   late final LayoutEditController _editCtrl;
+  final PageController _pageController = PageController();
 
   @override
   void initState() {
@@ -45,8 +46,8 @@ class _FakeControlHostState extends State<_FakeControlHost> {
       this,
       PlacementSurface(
         canvasRect: _canvasRect,
-        currentPageIndex: () => 0,
-        navigateToPage: (_) {},
+        currentPageIndex: _currentPageIndex,
+        navigateToPage: _navigateToPage,
       ),
     );
   }
@@ -58,9 +59,25 @@ class _FakeControlHostState extends State<_FakeControlHost> {
     return box.localToGlobal(Offset.zero) & box.size;
   }
 
+  int _currentPageIndex() {
+    if (!_pageController.hasClients) return 0;
+    return _pageController.page?.round() ?? 0;
+  }
+
+  // Mirrors Plc14ControlScreen._navigateCanvasToPage's own timing exactly.
+  void _navigateToPage(int pageIndex) {
+    if (!_pageController.hasClients) return;
+    _pageController.animateToPage(
+      pageIndex,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   void dispose() {
     _editCtrl.unregisterPlacementSurface(this);
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -93,6 +110,7 @@ class _FakeControlHostState extends State<_FakeControlHost> {
                       child: ControlCanvas(
                         layoutCfg: layoutCfg,
                         isEditing: true,
+                        pageController: _pageController,
                         activeStateFor: (_) => ControlState.idle,
                         isDisabled: (_) => true,
                         onCommand: (_, __) {},
@@ -140,10 +158,21 @@ class _FakeControlHostState extends State<_FakeControlHost> {
   }
 }
 
+/// Grid-placed (non-safety-role) buttons only — 'estop'/'resetEstop' are
+/// seeded by LayoutEditController.enter() into the same resolvedButtons map
+/// but are role-bearing and rendered by SafetyActionPanel, never through
+/// ControlCanvas's grid (see buildControlGridPages/predictInsertionLayout's
+/// own _isPageControl filtering) — mirrors catalogue_placement_session_test
+/// .dart's placedCount() helper.
+Map<String, ButtonConfig> gridButtons(LayoutEditController editCtrl) => {
+  for (final entry in editCtrl.draft.resolvedButtons.entries)
+    if (entry.value.role == null) entry.key: entry.value,
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Offset _cellCenter(Rect canvasRect, int col, int row) {
+  Offset cellCenter(Rect canvasRect, int col, int row) {
     final cellW = canvasRect.width / ButtonConfig.controlGridColumns;
     final cellH = canvasRect.height / ButtonConfig.controlGridRows;
     return Offset(
@@ -216,7 +245,7 @@ void main() {
     required int targetRow,
   }) async {
     final canvasRect = tester.getRect(find.byKey(canvasKey));
-    final origin = _cellCenter(canvasRect, 1, 0);
+    final origin = cellCenter(canvasRect, 1, 0);
 
     final gesture = await tester.startGesture(origin);
     // Long-press delay (400ms, see _kMoveLongPressDelay in control_canvas.dart)
@@ -225,7 +254,7 @@ void main() {
     // once the delay clears.
     await tester.pump(const Duration(milliseconds: 500));
 
-    final target = _cellCenter(canvasRect, targetCol, targetRow);
+    final target = cellCenter(canvasRect, targetCol, targetRow);
     await gesture.moveTo(target);
     await tester.pump();
     return gesture;
@@ -273,7 +302,7 @@ void main() {
       await tester.pump();
       expect(editCtrl.interactionMode, CustomizationInteractionMode.editing);
 
-      final buttons = editCtrl.draft.resolvedButtons;
+      final buttons = gridButtons(editCtrl);
       expect(buttons, hasLength(2), reason: 'move must never create a new widget');
       final movedAfter = buttons['mover']!;
       expect(movedAfter.gridX, 1);
@@ -335,7 +364,7 @@ void main() {
       await tester.pump();
       expect(editCtrl.interactionMode, CustomizationInteractionMode.editing);
 
-      final buttons = editCtrl.draft.resolvedButtons;
+      final buttons = gridButtons(editCtrl);
       expect(buttons, hasLength(2));
       expect(buttons['mover']!.gridX, 0);
       expect(buttons['mover']!.gridY, 0);
@@ -381,7 +410,7 @@ void main() {
 
       expect(editCtrl.interactionMode, CustomizationInteractionMode.editing);
       expect(editCtrl.movingButtonId, isNull);
-      final buttons = editCtrl.draft.resolvedButtons;
+      final buttons = gridButtons(editCtrl);
       expect(buttons, hasLength(2));
       expect(buttons['mover'], originalMover);
       expect(buttons['occupant'], originalOccupant);

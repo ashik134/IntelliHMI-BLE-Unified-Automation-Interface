@@ -619,7 +619,7 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
       children: [
         AppBar(
           actionsPadding: const EdgeInsets.only(right: 8),
-          automaticallyImplyLeading: false,
+          // automaticallyImplyLeading: false,
           backgroundColor: isEditing
               ? AppColors.appBarEditingBg
               : AppColors.appBarBg,
@@ -955,19 +955,24 @@ class _CanvasSection extends StatelessWidget {
         ? context.select<LayoutEditController, bool>(
             (c) =>
                 c.interactionMode == CustomizationInteractionMode.editing ||
-                c.interactionMode == CustomizationInteractionMode.resizingWidget,
+                c.interactionMode ==
+                    CustomizationInteractionMode.resizingWidget,
           )
         : false;
-    // Unlike canResize, deliberately NOT extended to also allow starting a
-    // NEW move while movingWidget/settlingMovedWidget is already active —
-    // only one widget may be carried at a time, and the cell already being
-    // dragged vanishes from layoutCfg's own buttons map the instant its own
-    // move starts (see LayoutEditController.previewLayoutCfg), so its own
-    // onMoveUpdate/onMoveDrop stay wired via the closure ControlCanvas
-    // already captured at drag-start, not via this gate staying true.
+    // Mirrors canResize's own shape exactly, for the same reason: the
+    // dragged cell's _MoveDraggableCell stays mounted at the same grid
+    // position for the WHOLE live drag (see LayoutEditController
+    // .previewLayoutCfg's doc comment), so onMoveUpdate/onMoveDrop must stay
+    // wired through movingWidget too — gating only on `editing` would null
+    // them out mid-gesture and strand the drag. A second widget can never
+    // start its own move while one is already active regardless of this
+    // gate: LayoutEditController.beginMove's own guard refuses unless
+    // interactionMode is exactly `editing`.
     final canMove = isEditing
         ? context.select<LayoutEditController, bool>(
-            (c) => c.interactionMode == CustomizationInteractionMode.editing,
+            (c) =>
+                c.interactionMode == CustomizationInteractionMode.editing ||
+                c.interactionMode == CustomizationInteractionMode.movingWidget,
           )
         : false;
     // Only meaningful while editing — live mode's NeverScrollableScrollPhysics

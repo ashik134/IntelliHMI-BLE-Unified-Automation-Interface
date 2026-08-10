@@ -322,15 +322,33 @@ class LayoutEditController extends ChangeNotifier {
   /// `placingWidget`, `settlingWidget`, `movingWidget`, or
   /// `settlingMovedWidget`.
   ///
-  /// While a canvas move is in flight ([_movingButtonId] non-null), the
-  /// moved button is also removed from the returned map entirely — its
-  /// origin cell reads as vacant (exactly like a catalogue card's
-  /// childWhenDragging placeholder) because the widget itself is being
-  /// rendered separately as a floating avatar attached to the finger (see
-  /// control_canvas.dart's move-draggable), never through the grid, until
-  /// [commitMovedPlacement] hands it back to a real occupied cell.
+  /// While a canvas move is SETTLING ([_interactionMode] is
+  /// [CustomizationInteractionMode.settlingMovedWidget] — the drag has
+  /// already ended, only the release-to-target animation is still playing),
+  /// the moved button is removed from the returned map entirely, exactly
+  /// like a catalogue card's childWhenDragging placeholder: the widget is
+  /// rendered separately by SettlingPreviewOverlay's floating avatar, never
+  /// through the grid, until [commitMovedPlacement] hands it back to a real
+  /// occupied cell.
+  ///
+  /// Deliberately NOT excluded during the live
+  /// [CustomizationInteractionMode.movingWidget] drag itself, unlike the
+  /// settling stage above — the moved button's occupied cell must stay
+  /// exactly where it is in this map so control_canvas.dart's
+  /// _MoveDraggableCell (the SAME LongPressDraggable element the whole
+  /// gesture is running on) never gets removed from the widget tree
+  /// mid-drag. Flutter's Draggable is designed to survive that in
+  /// principle, but this codebase's catalogue-carry flow deliberately never
+  /// relies on it either (see CatalogueOverlayHost's doc comment — it keeps
+  /// the source card mounted throughout the whole drag for the exact same
+  /// reason). _MoveDraggableCell instead swaps to a childWhenDragging vacant
+  /// placeholder at that same grid position — visually identical to
+  /// exclusion, without ever touching the Element.
   ControlLayoutConfig get previewLayoutCfg {
-    final movingId = _movingButtonId;
+    final movingId =
+        _interactionMode == CustomizationInteractionMode.settlingMovedWidget
+        ? _movingButtonId
+        : null;
     if (_previewMoves.isEmpty &&
         _previewTarget == null &&
         !_rightEdgeHover &&

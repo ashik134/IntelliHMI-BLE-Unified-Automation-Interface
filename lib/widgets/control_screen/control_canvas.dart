@@ -752,19 +752,24 @@ class _VacantCell extends StatelessWidget {
 // widget's doc comment in widget_catalog_screen.dart for why
 // LongPressDraggable specifically — its DelayedMultiDragGestureRecognizer
 // arbitrates correctly against tap-to-select/the badges' own GestureDetectors
-// below it in the tree, and its avatar/recognizer are explicitly designed to
-// survive the Draggable being removed from the widget tree mid-drag, which
-// is exactly what happens here: the instant LayoutEditController.beginMove
-// flips interactionMode to movingWidget, ControlCanvas.previewLayoutCfg (via
-// LayoutEditController) drops this cell's button from the rendered map
-// entirely — its origin slot reads as vacant, like a catalogue card's
-// childWhenDragging placeholder — which unmounts this very widget mid-drag.
-// The already-armed LongPressDraggable keeps tracking the pointer and firing
-// onDragUpdate/onDragEnd regardless, because those closures were captured
-// from [widget] at the last build before removal, not re-read from a live
-// (now-gone) Element — see _handleDragUpdate/_handleDragEnd below, which
-// deliberately touch only [widget]'s own captured callbacks, mirroring
-// _DraggableCatalogCardState._handleDragEnd's own doc comment.
+// below it in the tree).
+//
+// Deliberately STAYS MOUNTED at the same grid position for the ENTIRE live
+// drag: LayoutEditController.previewLayoutCfg keeps this cell's button in
+// its returned map throughout CustomizationInteractionMode.movingWidget
+// (only removing it once the drag has fully ended and settlingMovedWidget's
+// non-cancelable animation begins — see that getter's own doc comment), so
+// this widget's own Element is never a candidate for removal from
+// ControlCanvas's Stack children while its LongPressDraggable's gesture is
+// still live. The origin cell instead reads as vacant via [childWhenDragging]
+// — Flutter's own built-in, zero-risk mechanism for exactly this ("look
+// empty while carrying"), swapped in by Draggable's own internal dragging
+// state without ever touching this Element. This mirrors why
+// CatalogueOverlayHost keeps the catalogue's source card mounted (just
+// slid off-screen) for the whole placingWidget drag too, rather than
+// leaning on Draggable's "survives removal mid-drag" guarantee — that
+// guarantee is real, but both flows deliberately avoid depending on it for
+// the live portion of the gesture, only unmounting after the drag ends.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _MoveDraggableCell extends StatefulWidget {
@@ -863,10 +868,10 @@ class _MoveDraggableCellState extends State<_MoveDraggableCell> {
         size: _previewSize,
         dragAnchor: () => _dragAnchor,
       ),
-      // The dragged widget's own cell vanishes from the grid the instant the
-      // drag starts anyway (see this class's doc comment) — this is just a
-      // defensive placeholder for the single frame before that propagates.
-      childWhenDragging: const SizedBox.shrink(),
+      // Reuses the exact same vacant-cell visual a truly empty slot would
+      // show — see this class's doc comment for why the origin cell stays
+      // mounted (never removed from the tree) throughout the live drag.
+      childWhenDragging: const _VacantCell(),
       onDragStarted: _handleDragStarted,
       onDragUpdate: _handleDragUpdate,
       onDragEnd: (details) =>
