@@ -186,6 +186,25 @@ class _ControlCanvasState extends State<ControlCanvas> {
   PageController get _pageController =>
       widget.pageController ?? (_ownedPageController ??= PageController());
 
+  // True from the moment a resize handle's pointer goes down until it goes
+  // up/cancels (see _ResizeHandle's Listener) — NOT the same window as
+  // LayoutEditController.isResizing, which only flips once onPanStart has
+  // already won the gesture arena. By then it's too late: the PageView's own
+  // horizontal-drag recognizer is a SIBLING recognizer competing for the same
+  // pointer (the handle lives inside this PageView's itemBuilder), so it can
+  // win that arena and swipe the page instead of resizing. Locking on raw
+  // pointer-down, before either recognizer has had a chance to accept,
+  // removes the PageView's recognizer from the arena entirely for the
+  // duration of the gesture — matching LayoutEditController's own rule that
+  // a resize never leaves the widget's current page (see its
+  // beginResize/updateResize/endResize doc comments).
+  bool _resizeScrollLocked = false;
+
+  void _setResizeScrollLocked(bool locked) {
+    if (_resizeScrollLocked == locked) return;
+    setState(() => _resizeScrollLocked = locked);
+  }
+
   @override
   void dispose() {
     _ownedPageController?.dispose();
@@ -205,7 +224,7 @@ class _ControlCanvasState extends State<ControlCanvas> {
 
     return PageView.builder(
       controller: _pageController,
-      physics: widget.isEditing
+      physics: widget.isEditing && !_resizeScrollLocked
           ? const PageScrollPhysics()
           : const NeverScrollableScrollPhysics(),
       itemCount: pages.isEmpty ? 1 : pages.length,
@@ -288,6 +307,7 @@ class _ControlCanvasState extends State<ControlCanvas> {
                       onResizeStart: widget.onResizeStart,
                       onResizeUpdate: widget.onResizeUpdate,
                       onResizeEnd: widget.onResizeEnd,
+                      onScrollLockChanged: _setResizeScrollLocked,
                     ),
                   ),
               ],
@@ -547,6 +567,7 @@ class _ResizeHandleOverlay extends StatelessWidget {
     required this.onResizeStart,
     required this.onResizeUpdate,
     required this.onResizeEnd,
+    required this.onScrollLockChanged,
   });
 
   final String buttonId;
@@ -555,6 +576,12 @@ class _ResizeHandleOverlay extends StatelessWidget {
   final ButtonResizeStartCallback? onResizeStart;
   final ButtonResizeUpdateCallback? onResizeUpdate;
   final ButtonResizeStartCallback? onResizeEnd;
+
+  /// Fired straight from each handle's raw pointer-down (true) and
+  /// pointer-up/cancel/dispose (false) — see _ResizeHandle's Listener and
+  /// _ControlCanvasState._setResizeScrollLocked's doc comment for why this
+  /// can't wait for onResizeStart/onResizeEnd instead.
+  final ValueChanged<bool> onScrollLockChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -611,6 +638,7 @@ class _ResizeHandleOverlay extends StatelessWidget {
         cellHeight <= 0 ? 0 : (dy / cellHeight).round(),
       ),
       onDragEnd: () => onResizeEnd?.call(buttonId, edge),
+      onScrollLockChanged: onScrollLockChanged,
     );
   }
 }
@@ -621,6 +649,7 @@ class _ResizeHandle extends StatefulWidget {
     required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
+    required this.onScrollLockChanged,
   });
 
   final Axis axis;
@@ -633,6 +662,9 @@ class _ResizeHandle extends StatefulWidget {
   final void Function(double dx, double dy) onDragUpdate;
   final VoidCallback onDragEnd;
 
+  /// See _ResizeHandleOverlay.onScrollLockChanged's doc comment.
+  final ValueChanged<bool> onScrollLockChanged;
+
   @override
   State<_ResizeHandle> createState() => _ResizeHandleState();
 }
@@ -640,6 +672,24 @@ class _ResizeHandle extends StatefulWidget {
 class _ResizeHandleState extends State<_ResizeHandle> {
   Offset? _dragOrigin;
   bool _dragging = false;
+
+  // Tracks the raw pointer, independent of _dragOrigin (which only exists
+  // once onPanStart has WON the gesture arena — already too late to head off
+  // the PageView's competing recognizer). Locking here, on pointer-down, is
+  // what actually keeps the resize handle from losing a drag to the page
+  // swipe — see _ControlCanvasState._resizeScrollLocked's doc comment.
+  bool _pointerDown = false;
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _pointerDown = true;
+    widget.onScrollLockChanged(true);
+  }
+
+  void _unlockScroll() {
+    if (!_pointerDown) return;
+    _pointerDown = false;
+    widget.onScrollLockChanged(false);
+  }
 
   void _handlePanStart(DragStartDetails details) {
     _dragOrigin = details.globalPosition;
@@ -655,6 +705,7 @@ class _ResizeHandleState extends State<_ResizeHandle> {
   }
 
   void _endDrag() {
+    _unlockScroll();
     if (_dragOrigin == null) return;
     _dragOrigin = null;
     if (mounted) setState(() => _dragging = false);
@@ -666,7 +717,10 @@ class _ResizeHandleState extends State<_ResizeHandle> {
     // A drag that's still active when this handle unmounts (e.g. the
     // selection changed mid-gesture) must still tell the controller to
     // close its history batch — otherwise every later edit would silently
-    // keep coalescing into the abandoned resize's undo entry.
+    // keep coalescing into the abandoned resize's undo entry. Same reasoning
+    // applies to the scroll lock: an unmount mid-drag must not leave the
+    // PageView permanently unswipeable.
+    _unlockScroll();
     if (_dragOrigin != null) widget.onDragEnd();
     super.dispose();
   }
@@ -680,41 +734,59 @@ class _ResizeHandleState extends State<_ResizeHandle> {
     final visibleHeight = isHorizontal ? _kHandleVisibleShort : _kHandleVisibleLong;
     const growth = 4.0;
 
+    // Drag axis is the OPPOSITE of the handle's own pill orientation
+    // (widget.axis/isHorizontal above): a top/bottom handle's pill is a
+    // horizontal bar but the resize itself moves the pointer vertically
+    // (rows), and a left/right handle's pill is a vertical bar but the
+    // resize moves horizontally (columns) — see ResizeEdge callers in
+    // _ResizeHandleOverlay._buildHandle. Using the matching axis-locked
+    // recognizer (instead of a generic pan) means a top/bottom handle never
+    // even enters the arena for a horizontal drag in the first place, which
+    // is exactly the drag direction the PageView cares about.
     return MouseRegion(
       cursor: isHorizontal
           ? SystemMouseCursors.resizeUpDown
           : SystemMouseCursors.resizeLeftRight,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: _handlePanStart,
-        onPanUpdate: _handlePanUpdate,
-        onPanEnd: (_) => _endDrag(),
-        onPanCancel: _endDrag,
-        child: SizedBox(
-          width: touchWidth,
-          height: touchHeight,
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              curve: Curves.easeOut,
-              width: visibleWidth + (_dragging ? growth : 0),
-              height: visibleHeight + (_dragging ? growth : 0),
-              decoration: BoxDecoration(
-                color: _dragging
-                    ? AppColors.selectionVioletDeep
-                    : AppColors.selectionViolet,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.white.withAlpha(_dragging ? 230 : 170),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.selectionGlow,
-                    blurRadius: _dragging ? 14 : 6,
-                    spreadRadius: _dragging ? 2 : 0,
+      child: Listener(
+        onPointerDown: _handlePointerDown,
+        onPointerUp: (_) => _unlockScroll(),
+        onPointerCancel: (_) => _unlockScroll(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: isHorizontal ? null : _handlePanStart,
+          onHorizontalDragUpdate: isHorizontal ? null : _handlePanUpdate,
+          onHorizontalDragEnd: isHorizontal ? null : (_) => _endDrag(),
+          onHorizontalDragCancel: isHorizontal ? null : _endDrag,
+          onVerticalDragStart: isHorizontal ? _handlePanStart : null,
+          onVerticalDragUpdate: isHorizontal ? _handlePanUpdate : null,
+          onVerticalDragEnd: isHorizontal ? (_) => _endDrag() : null,
+          onVerticalDragCancel: isHorizontal ? _endDrag : null,
+          child: SizedBox(
+            width: touchWidth,
+            height: touchHeight,
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                curve: Curves.easeOut,
+                width: visibleWidth + (_dragging ? growth : 0),
+                height: visibleHeight + (_dragging ? growth : 0),
+                decoration: BoxDecoration(
+                  color: _dragging
+                      ? AppColors.selectionVioletDeep
+                      : AppColors.selectionViolet,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withAlpha(_dragging ? 230 : 170),
+                    width: 1.2,
                   ),
-                ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.selectionGlow,
+                      blurRadius: _dragging ? 14 : 6,
+                      spreadRadius: _dragging ? 2 : 0,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
