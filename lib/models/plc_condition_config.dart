@@ -5,9 +5,11 @@ import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 //
 // Shared trigger-condition bag for PLC-status-DRIVEN feedback widgets (horn/
 // buzzer, alarm indicator). These widgets never emit a PLC command — they
-// only ever READ the live composed PlcOutputCommand (via
-// CraneController.isFieldActive, see crane_controllers.dart) and decide
-// whether their configured condition over [watchedFields] is currently true.
+// only ever READ the PLC's CONFIRMED status (via
+// CraneController.isReportedFieldActive, see crane_controllers.dart) and
+// decide whether their configured condition over [watchedFields] is currently
+// true. Never wire one of these to a commanded/optimistic value: a feedback
+// widget must report what the PLC says, not what the app asked for.
 //
 // "If DF2 is ON" -> watchedFields = {DF2}, combinator = any (or all, with one
 // field they're equivalent).
@@ -35,7 +37,7 @@ class PlcConditionConfig {
   bool get hasCondition => watchedFields.isNotEmpty;
 
   /// Evaluates this condition against a live field-lookup callback (normally
-  /// `CraneController.isFieldActive`). An empty [watchedFields] set is
+  /// `CraneController.isReportedFieldActive`). An empty [watchedFields] set is
   /// always inactive — an unconfigured feedback widget is inert, never
   /// "always on" by default.
   bool isActive(bool Function(PlcOutputVariant) fieldValue) {

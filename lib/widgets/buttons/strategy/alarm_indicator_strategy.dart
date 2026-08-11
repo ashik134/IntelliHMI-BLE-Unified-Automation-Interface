@@ -13,11 +13,16 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strat
 // AlarmIndicatorStrategy
 //
 // PLC STATUS-DRIVEN FEEDBACK strategy — never sends a PLC output ([onCommand]
-// is unused here). Reads the live composed PlcOutputCommand via
-// CraneController.isFieldActive and evaluates AlarmIndicatorConfig's three
-// PlcConditionConfigs (critical/alarm/warning, each an "any of" or "all of"
-// selected PlcOutputVariant variants) most-severe first, exactly mirroring how
-// live_led_row.dart's control screens already read PLC status for LEDs.
+// is unused here). Reads CONFIRMED PLC readback via
+// CraneController.isReportedFieldActive and evaluates AlarmIndicatorConfig's
+// three PlcConditionConfigs (critical/alarm/warning, each an "any of" or "all
+// of" selected PlcOutputVariant variants) most-severe first, exactly mirroring
+// the inner core of live_led_row.dart's output LEDs.
+//
+// Readback, NOT isFieldActive: an alarm that could be raised by the app's own
+// optimistic command echo would annunciate a field condition the PLC has not
+// actually reported. An alarm indicator states what IS, never what was asked
+// for.
 //
 // Acknowledge is handled entirely inside AlarmIndicatorControl as LOCAL,
 // UI-only state — it never reaches onCommand, so this widget can never send
@@ -61,7 +66,10 @@ class AlarmIndicatorStrategy extends ButtonTypeStrategy {
       config.customProperties,
     );
     final craneController = context.watch<CraneController>();
-    final severity = severityFor(alarmConfig, craneController.isFieldActive);
+    final severity = severityFor(
+      alarmConfig,
+      craneController.isReportedFieldActive,
+    );
 
     return AlarmIndicatorControl(
       label: config.label,

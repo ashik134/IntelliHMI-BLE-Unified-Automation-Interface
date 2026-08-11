@@ -10,17 +10,8 @@ import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/services/buzzer_tone_service.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IndustrialHornControl
-//
-// Pure PLC-status FEEDBACK widget — a horn/buzzer that reflects whether its
-// configured trigger condition is currently true. It has no gestures: it is
-// never tapped, pressed, or dragged, and it never calls back into the app
-// (no onPressed/onChanged/onCommand). [isActive] is caller-supplied (see
-// HornButtonStrategy, which derives it from live PLC output/status fields),
-// and this widget only ever renders that boolean — plus starts/stops the
-// optional local buzzer tone, sound-ring animation, and haptic pulse.
-// ─────────────────────────────────────────────────────────────────────────────
+
+enum HornControlPresentation { canvas, compact }
 
 class IndustrialHornControl extends StatefulWidget {
   const IndustrialHornControl({
@@ -33,6 +24,7 @@ class IndustrialHornControl extends StatefulWidget {
     this.icon = Icons.campaign_rounded,
     this.config = const HornConfig(),
     this.rotation = ButtonRotation.none,
+    this.presentation = HornControlPresentation.canvas,
   });
 
   final String label;
@@ -40,6 +32,7 @@ class IndustrialHornControl extends StatefulWidget {
   final Color activeColor;
   final Color activeColorLight;
   final ButtonRotation rotation;
+  final HornControlPresentation presentation;
 
   /// Whether the configured PLC condition is currently true. Purely
   /// caller-supplied — this widget never evaluates or sends anything itself.
@@ -161,6 +154,16 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
         child: AnimatedBuilder(
           animation: _ringCtrl,
           builder: (context, _) {
+            if (widget.presentation == HornControlPresentation.compact) {
+              return _CompactHornContent(
+                icon: widget.icon,
+                activeColor: widget.activeColor,
+                activeColorLight: widget.activeColorLight,
+                ringT: _ringCtrl.value,
+                isActive: isActive,
+                showRing: widget.config.visualPulseEnabled,
+              );
+            }
             return LayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.hasBoundedWidth
@@ -192,6 +195,89 @@ class _IndustrialHornControlState extends State<IndustrialHornControl>
           },
         ),
       ),
+    );
+  }
+}
+
+class _CompactHornContent extends StatelessWidget {
+  const _CompactHornContent({
+    required this.icon,
+    required this.activeColor,
+    required this.activeColorLight,
+    required this.ringT,
+    required this.isActive,
+    required this.showRing,
+  });
+
+  final IconData icon;
+  final Color activeColor;
+  final Color activeColorLight;
+  final double ringT;
+  final bool isActive;
+  final bool showRing;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulse = Curves.easeOut.transform(ringT);
+    return Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.none,
+      children: [
+        if (isActive && showRing)
+          Opacity(
+            opacity: 1 - pulse,
+            child: Transform.scale(
+              scale: 0.82 + pulse * 0.58,
+              child: Container(
+                width: 27,
+                height: 27,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: activeColorLight.withAlpha(180),
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        AnimatedContainer(
+          key: const ValueKey('appbar-plc-status-buzzer'),
+          duration: const Duration(milliseconds: 180),
+          width: 27,
+          height: 27,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isActive
+                ? activeColor.withAlpha(55)
+                : AppColors.idleColor.withAlpha(150),
+            border: Border.all(
+              color: isActive ? activeColorLight : AppColors.darkBorder,
+            ),
+            boxShadow: isActive
+                ? [BoxShadow(color: activeColor.withAlpha(105), blurRadius: 7)]
+                : null,
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: isActive ? activeColorLight : AppColors.darkTextMuted,
+          ),
+        ),
+        Positioned(
+          right: 1,
+          bottom: 1,
+          child: Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isActive ? AppColors.darkSuccess : AppColors.disabled,
+              border: Border.all(color: AppColors.appBarBg, width: 1),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

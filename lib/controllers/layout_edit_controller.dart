@@ -13,38 +13,11 @@ import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
+import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
 import 'package:rev_crane_control_ops/services/layout_validation_service.dart';
 import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LayoutEditController
-//
-// Holds the transient "Edit Mode" session: a draft ControlLayoutConfig that
-// is freely mutated (add/delete a button, apply a template, edit labels/
-// arrangement/sizing) without ever touching SharedPreferences. Nothing this
-// controller does is visible to LayoutSettingsController — and therefore
-// never persisted — until save()/exit() explicitly commits the draft via
-// LayoutSettingsController.replaceConfig, which validates before writing.
-//
-// Kept deliberately separate from LayoutSettingsController so that
-// controller stays a pure persisted-config store with no transient UI state.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PlacementSurface
-//
-// The geometry a mounted control screen exposes to LayoutEditController so
-// a catalogue drop (handled from LayoutEditController, which has no
-// BuildContext of its own — see handleCatalogueDrop's doc comment) can be
-// converted into a grid position: the on-screen rectangle of the control
-// grid itself (global/overlay coordinates, matching Draggable's own
-// DraggableDetails.offset space), which page is currently displayed, and how
-// to animate the PageView to a different one. Registered once by whichever
-// control screen (PLC14/PLC38) is currently mounted; only one is ever
-// mounted at a time in this app.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class PlacementSurface {
   const PlacementSurface({
@@ -953,10 +926,7 @@ class LayoutEditController extends ChangeNotifier {
     // Guarantees _previewTarget/_previewMoves reflect the exact release
     // position even if updateMovePreview never fired for it (e.g. an
     // instant tap-release with no intervening pointer move).
-    updateMovePreview(
-      globalOffset: globalDropOffset,
-      previewSize: previewSize,
-    );
+    updateMovePreview(globalOffset: globalDropOffset, previewSize: previewSize);
     _cancelEdgeTurn();
     _rightEdgeHover = false;
 
@@ -1307,6 +1277,10 @@ class LayoutEditController extends ChangeNotifier {
     _applyDraft(_draft.copyWith(arrangementConfig: next));
   }
 
+  void updateDraftAppBarBuzzerConfig(HornConfig next) {
+    _applyDraft(_draft.copyWith(appBarBuzzerConfig: next));
+  }
+
   /// Replaces the entire draft with [template]'s layout — a full overwrite,
   /// not a merge. Callers (Load Template sheet) are responsible for warning
   /// the operator first when [hasUnsavedChanges] is true.
@@ -1386,7 +1360,8 @@ class LayoutEditController extends ChangeNotifier {
   /// entry the operator perceives as "one resize," exactly like the
   /// Properties sheet's sliders.
   void beginResize(String id) {
-    if (!_isEditing || _interactionMode != CustomizationInteractionMode.editing) {
+    if (!_isEditing ||
+        _interactionMode != CustomizationInteractionMode.editing) {
       return;
     }
     final button = _draft.resolvedButtons[id];

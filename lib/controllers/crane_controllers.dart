@@ -36,19 +36,39 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   List<BleScanDevice> _devices = const [];
   Map<String, int> _analogValues = {};
 
+  // ── Output-state model ────────────────────────────────────────────────────
+  //
+  // Three deliberately separate views of PLC output state. They are NOT
+  // collapsed into one field, because an output indicator has to be able to
+  // show that the app and the PLC currently disagree:
+  //
+  //   _commandedCommand       What THIS APP asked for. Written ONLY by the
+  //                           send paths (_sendCommand / triggerEStop /
+  //                           triggerSafeDisconnect) and cleared on
+  //                           disconnect. A PLC readback NEVER touches it.
+  //   _reportedStatusCommand  What the PLC CONFIRMED. Written ONLY by the
+  //                           status/readback stream (_handlePlcStatus).
+  //                           Sending a command NEVER touches it.
+  //   _activeCommand          "Latest known" effective state — the optimistic
+  //                           command echo, overwritten by readback whenever
+  //                           one arrives. Kept for the status chip / status
+  //                           label and the E-STOP entry lock only.
+  //
+  // Output indicators (see live_led_row.dart) must read the first two and
+  // never the third: ring = commanded, core = confirmed, disagreement =
+  // pending. Reading _activeCommand for an indicator is exactly the bug this
+  // split exists to prevent — it makes a sent command indistinguishable from
+  // a PLC confirmation.
   PlcOutputCommand _activeCommand = PlcOutputCommand.idle();
+  PlcOutputCommand _commandedCommand = PlcOutputCommand.idle();
+  PlcOutputCommand _reportedStatusCommand = PlcOutputCommand.idle();
 
   // ── BLE write serializer ──────────────────────────────────────────────────
 
   bool _commandInFlight = false;
   List<int>? _pendingCommandBytes;
 
-  // ── Analog output throttle ────────────────────────────────────────────────
-  // Leading+trailing throttle: a value arriving inside the throttle window is
-  // remembered and (if nothing newer supersedes it first) flushed by
-  // _analogTrailingTimer once the window elapses — this is what guarantees
-  // the last value dragged to before release is never dropped, without the
-  // widget layer needing its own explicit "drag ended" signal.
+
   DateTime? _analogLastSentAt;
   Timer? _analogTrailingTimer;
   List<int>? _pendingAnalogBytes;
@@ -74,21 +94,10 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _deviceTrustRejected = false;
 
-  // ── Button-centric state ───────────────────────────────────────────────────
-  // buttonId -> the set of PLC output variants that button is currently
-  // asserting (already resolved by the caller from ButtonConfig.stateMappings
-  // — see setButtonState's doc comment). Used for every PLC type; the wire
-  // format itself (4 vs 10 fields) is decided only at serialization time by
-  // PlcOutputCommand.wireBytesFor.
+  
   final Map<String, Set<PlcOutputVariant>> _buttonFields = {};
 
-  // ── Shared-field ownership ────────────────────────────────────────────────
-  // PlcOutputVariant field → the buttonId that currently owns (actively asserts)
-  // that field. Enforces the invariant that each PLC field is driven by at
-  // most one button at a time. A second button attempting to activate the
-  // same field while it is already owned is silently discarded; the UI layer
-  // reads isFieldBlockedForButton() to clamp the slider before the drag
-  // reaches the zone boundary, giving a physical "stuck" sensation.
+
   final Map<PlcOutputVariant, String> _fieldOwners = {};
   // bool _conflictActive = false;
   // bool _upActive = false;
@@ -119,6 +128,20 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get hasPendingEnrollmentOffer => _pendingEnrollmentOffer;
   PlcOutputCommand get activeCommand => _activeCommand;
+
+  /// The output state this app has REQUESTED, and nothing else. Never written
+  /// by the PLC status stream, so it stays put while a command is in flight or
+  /// while the PLC is refusing/failing to follow it — which is what lets an
+  /// output indicator draw a pending/mismatch state.
+  PlcOutputCommand get commandedCommand => _commandedCommand;
+
+  /// Most recent status received from the PLC, kept separate from
+  /// [activeCommand], which is also updated optimistically before an outgoing
+  /// BLE write completes. Feedback-only UI such as the AppBar buzzer must use
+  /// this value so sending a command cannot be mistaken for PLC confirmation.
+  PlcOutputCommand get reportedStatusCommand => _reportedStatusCommand;
+
+  bool get hasActivePlcStatus => !_reportedStatusCommand.isIdle;
   bool get estopLatched => _estopLatched;
   String? get sessionEmail => _sessionEmail;
   String? get errorMessage => _errorMessage ?? _transportConnState.message;
@@ -176,24 +199,37 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   int get a1 => _analogValues['A1'] ?? 0;
   int get a2 => _analogValues['A2'] ?? 0;
 
-  /// LED-display value for [variant] — suppressed to false during E-STOP,
-  /// except for DF1/E-STOP itself (which IS the estop indicator). Generic
-  /// replacement for the old fixed set of ledUp/ledDown-style getters: the
-  /// caller supplies which PlcOutputVariant it wants to display as an LED.
-  bool ledStateFor(PlcOutputVariant variant) => variant.isEmergencyStop
-      ? _activeCommand.estop
-      : (_activeCommand.fieldValue(variant) && !_activeCommand.estop);
+  /// OUTER-RING value for [variant]: is this output currently REQUESTED by
+  /// the app? Reads [commandedCommand] only, so it flips the instant the
+  /// operator actuates a control and stays put until the app asks for
+  /// something else.
+  ///
+  /// No E-STOP suppression is needed (or wanted) here: a latched E-STOP makes
+  /// the commanded command `{DF1}` outright, so every other field is already
+  /// false by construction rather than by a display-time override.
+  bool isCommandedFieldActive(PlcOutputVariant variant) =>
+      _commandedCommand.fieldValue(variant);
 
-  /// Generic "is this PLC output/status field currently ON" lookup, sourced
-  /// from the same live [_activeCommand] echo the ledUp/ledDown-style
-  /// getters above read — the one source of truth for PLC-status-driven
-  /// feedback widgets (see PlcConditionStrategy) that watch a
-  /// user-configured set of PlcOutputVariant variants rather than one fixed field.
-  /// Unlike the ledX getters, this does NOT suppress on estop — a feedback
-  /// widget watching, say, `forward` should still reflect the PLC's actual
-  /// reported field state even during an E-STOP condition.
-  bool isFieldActive(PlcOutputVariant mapping) =>
-      _activeCommand.fieldValue(mapping);
+  /// INNER-CORE value for [variant]: has the PLC CONFIRMED this output? Reads
+  /// [reportedStatusCommand] only. Sending a command must never move this —
+  /// it changes only when a readback notification says so. Alias of
+  /// [isReportedFieldActive], named for the indicator role it serves.
+  bool isConfirmedFieldActive(PlcOutputVariant variant) =>
+      _reportedStatusCommand.fieldValue(variant);
+
+  /// The one source of truth for PLC-status-driven feedback widgets (horn /
+  /// buzzer, alarm indicator) that watch a user-configured set of
+  /// PlcOutputVariant variants rather than one fixed field.
+  ///
+  /// Deliberately reads received status ONLY. There is intentionally no
+  /// "latest known" variant of this lookup: a feedback widget that could be
+  /// triggered by the app's own optimistic command echo would annunciate a
+  /// field condition the PLC never reported.
+  ///
+  /// Does NOT suppress on estop — a widget watching, say, DF8 should still
+  /// reflect the PLC's actual reported field state during an E-STOP condition.
+  bool isReportedFieldActive(PlcOutputVariant mapping) =>
+      _reportedStatusCommand.fieldValue(mapping);
 
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;
@@ -367,6 +403,8 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
       _transportConnState = snapshot;
       if (snapshot.status == BleConnectionStatus.disconnected) {
         _activeCommand = PlcOutputCommand.idle();
+        _commandedCommand = PlcOutputCommand.idle();
+        _reportedStatusCommand = PlcOutputCommand.idle();
         _estopLatched = false;
         _sessionEmail = null;
         _startupEmergencyArmedForConnection = false;
@@ -416,6 +454,11 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
           ? 'PLC_STATUS_IDLE (hardware echo, status/LED only)'
           : 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)',
     );
+    // Readback updates the confirmed view (and the legacy "latest known"
+    // echo) — never _commandedCommand. Letting a notification overwrite what
+    // the app asked for would erase the very disagreement the pending state
+    // is there to surface.
+    _reportedStatusCommand = command;
     _activeCommand = command;
     notifyListeners();
   }
@@ -591,6 +634,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     if (!command.isValid) return;
 
     _activeCommand = command;
+    _commandedCommand = command;
     notifyListeners();
     final bytes = command.wireBytesFor(connectedPlcType).toList();
     if (_commandInFlight) {
@@ -630,6 +674,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _fieldOwners.clear();
     final cmd = PlcOutputCommand.emergencyStop();
     _activeCommand = cmd;
+    _commandedCommand = cmd;
     notifyListeners();
     final bytes = cmd.wireBytesFor(connectedPlcType).toList();
     // E-stop bypasses the serializer: preempts any pending command and sends
@@ -651,6 +696,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     _buttonFields.clear();
     _fieldOwners.clear();
     _activeCommand = PlcOutputCommand.emergencyStop();
+    _commandedCommand = _activeCommand;
 
     _pendingCommandBytes = null;
     notifyListeners();

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/buzzer_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/grid_layout_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/load_template_sheet.dart';
@@ -175,6 +176,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       builder: (_) => _MoreActionsSheet(
         onSaveLayout: () => _saveLayout(context),
         onOpenLayoutSettings: () => showLayoutSettingsSheet(context),
+        onOpenBuzzerSettings: () => showBuzzerSettingsSheet(context),
       ),
     );
   }
@@ -569,10 +571,12 @@ class _MoreActionsSheet extends StatelessWidget {
   const _MoreActionsSheet({
     required this.onSaveLayout,
     required this.onOpenLayoutSettings,
+    required this.onOpenBuzzerSettings,
   });
 
   final VoidCallback onSaveLayout;
   final VoidCallback onOpenLayoutSettings;
+  final VoidCallback onOpenBuzzerSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -654,6 +658,29 @@ class _MoreActionsSheet extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).pop();
                 onOpenLayoutSettings();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
+                Icons.campaign_rounded,
+                color: AppColors.selectionViolet,
+              ),
+              title: const Text(
+                'Buzzer Settings',
+                style: TextStyle(
+                  color: AppColors.darkText,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: const Text(
+                'PLC trigger, local sound, haptics, and visual pulse.',
+                style: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                onOpenBuzzerSettings();
               },
             ),
           ],

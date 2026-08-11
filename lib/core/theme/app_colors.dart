@@ -42,6 +42,20 @@ class AppColors {
   static const Color darkTextMuted = Color(0xFF94A6B7);
   static const Color darkBorder = Color(0xFF30363D);
 
+  // ── PLC output indicator (LiveLedRow ring / core) ─────────────────────
+  // The ring shows what the app COMMANDED, the core only what the PLC has
+  // CONFIRMED — see live_led_row.dart. These two tokens are the states that
+  // exist purely because those two values can disagree, so they must stay
+  // visually distinct from every "real" output colour (accent / eStopColor).
+  /// Commanded state not yet confirmed by PLC readback — blinking ring.
+  static const Color ledPendingAmber = Color(0xFFFFA726);
+
+  /// Dim end of the pending blink, so the ring breathes rather than flashes.
+  static const Color ledPendingAmberDim = Color(0xFF7A4E12);
+
+  /// Channel no control in the active layout can drive — dashed ring.
+  static const Color ledUnmappedGrey = Color(0xFF5A6672);
+
   // ── Control Screen AppBar (violet-tinted) ─────────────────────────────
   static const Color appBarBg = Color(0xFF12101E);
   static const Color appBarGlow = Color(0xFF8B5CF6);

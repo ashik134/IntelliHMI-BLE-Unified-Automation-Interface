@@ -7,7 +7,29 @@ import 'package:rev_crane_control_ops/models/app_enums.dart'
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
+import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/legacy_layout_migration.dart';
+import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
+import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+
+/// Fresh layouts sound the AppBar buzzer when any non-E-STOP digital status
+/// reported by the PLC is active. DF1 keeps its dedicated safety indication.
+const HornConfig kDefaultAppBarBuzzerConfig = HornConfig(
+  trigger: PlcConditionConfig(
+    watchedFields: <PlcOutputVariant>{
+      PlcOutputVariant.df2,
+      PlcOutputVariant.df3,
+      PlcOutputVariant.df4,
+      PlcOutputVariant.df5,
+      PlcOutputVariant.df6,
+      PlcOutputVariant.df7,
+      PlcOutputVariant.df8,
+      PlcOutputVariant.df9,
+      PlcOutputVariant.df10,
+    },
+  ),
+  hapticFeedback: false,
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetType
@@ -648,6 +670,7 @@ class ControlLayoutConfig {
     this.sizeConfig = const ControlWidgetSizeConfig(),
     this.labelConfig = const ControlLabelConfig(),
     this.arrangementConfig = const ControlArrangementConfig(),
+    this.appBarBuzzerConfig = kDefaultAppBarBuzzerConfig,
     this.axisConfigs = const AxisConfigSet(),
     this.roleStyles = const RoleStyleConfig(),
     this.buttons = const <String, ButtonConfig>{},
@@ -685,11 +708,13 @@ class ControlLayoutConfig {
   /// back to [GridLayoutOption.fallback] (`twoByThree`) via [fromJson],
   /// which reproduces the pre-existing fixed grid exactly — no other
   /// migration is needed.
-  static const int schemaVersion = 9;
+  /// Bumped 9 -> 10 by the configurable AppBar PLC-status buzzer.
+  static const int schemaVersion = 10;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
   final ControlArrangementConfig arrangementConfig;
+  final HornConfig appBarBuzzerConfig;
 
   /// Per-axis control type, spring/latch wiring, and height scale.
   /// LEGACY (v2 shape) — kept permanently as the migration source for old
@@ -732,6 +757,39 @@ class ControlLayoutConfig {
 
   ButtonConfig? buttonFor(ControlRole role) => resolvedButtons[role.name];
 
+  /// Every PLC output channel some control in this layout can actually drive.
+  ///
+  /// Derived from the authoritative composition source — each button's
+  /// [ButtonConfig.stateMappings] plus, for joysticks, every virtual
+  /// sub-button table in [ButtonConfig.joystickSubButtonMappings]. A channel
+  /// absent from this set is UNMAPPED: no gesture anywhere in the layout can
+  /// command it, which is why output indicators draw it as a dashed grey ring
+  /// rather than as a permanently-off output.
+  ///
+  /// DF1 is always present. It is the controller-owned E-STOP channel and is
+  /// deliberately never allowed into a stateMappings entry (see
+  /// `ButtonStateOutputMapping.isValid`), so deriving it would report the
+  /// safety channel as unmapped on every layout.
+  ///
+  /// Deliberately ignores [ButtonConfig.plcMappingEnabled] and `visible` /
+  /// `enabled`: those are cosmetic/gating flags, and a channel a hidden or
+  /// momentarily-disabled control owns is still a mapped channel, not a
+  /// spare one.
+  Set<PlcOutputVariant> get mappedOutputVariants {
+    final mapped = <PlcOutputVariant>{PlcOutputVariant.df1};
+    for (final button in resolvedButtons.values) {
+      for (final mapping in button.stateMappings.values) {
+        mapped.addAll(mapping.activeVariants);
+      }
+      for (final subTable in button.joystickSubButtonMappings.values) {
+        for (final mapping in subTable.values) {
+          mapped.addAll(mapping.activeVariants);
+        }
+      }
+    }
+    return mapped;
+  }
+
   ControlLayoutConfig withButton(String id, ButtonConfig config) =>
       copyWith(buttons: {...resolvedButtons, id: config});
 
@@ -739,6 +797,7 @@ class ControlLayoutConfig {
     ControlWidgetSizeConfig? sizeConfig,
     ControlLabelConfig? labelConfig,
     ControlArrangementConfig? arrangementConfig,
+    HornConfig? appBarBuzzerConfig,
     AxisConfigSet? axisConfigs,
     RoleStyleConfig? roleStyles,
     Map<String, ButtonConfig>? buttons,
@@ -749,6 +808,7 @@ class ControlLayoutConfig {
       sizeConfig: sizeConfig ?? this.sizeConfig,
       labelConfig: labelConfig ?? this.labelConfig,
       arrangementConfig: arrangementConfig ?? this.arrangementConfig,
+      appBarBuzzerConfig: appBarBuzzerConfig ?? this.appBarBuzzerConfig,
       axisConfigs: axisConfigs ?? this.axisConfigs,
       roleStyles: roleStyles ?? this.roleStyles,
       buttons: buttons ?? this.buttons,
@@ -765,6 +825,7 @@ class ControlLayoutConfig {
     'sizeConfig': sizeConfig.toJson(),
     'labelConfig': labelConfig.toJson(),
     'arrangementConfig': arrangementConfig.toJson(),
+    'appBarBuzzerConfig': appBarBuzzerConfig.toJson(),
     'axisConfigs': axisConfigs.toJson(),
     'roleStyles': roleStyles.toJson(),
     'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
@@ -861,6 +922,9 @@ class ControlLayoutConfig {
               json['arrangementConfig'] as Map<String, dynamic>,
             )
           : const ControlArrangementConfig(),
+      appBarBuzzerConfig: _appBarBuzzerConfigFromJson(
+        json['appBarBuzzerConfig'],
+      ),
       axisConfigs: axisConfigs,
       roleStyles: roleStyles,
       buttons: buttons,
@@ -900,6 +964,7 @@ class ControlLayoutConfig {
           other.sizeConfig == sizeConfig &&
           other.labelConfig == labelConfig &&
           other.arrangementConfig == arrangementConfig &&
+          other.appBarBuzzerConfig == appBarBuzzerConfig &&
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
           _buttonsEqual(other.resolvedButtons, resolvedButtons) &&
@@ -911,6 +976,7 @@ class ControlLayoutConfig {
     sizeConfig,
     labelConfig,
     arrangementConfig,
+    appBarBuzzerConfig,
     axisConfigs,
     roleStyles,
     Object.hashAllUnordered(
@@ -919,6 +985,16 @@ class ControlLayoutConfig {
     controlPageCount,
     gridLayout,
   );
+}
+
+HornConfig _appBarBuzzerConfigFromJson(dynamic value) {
+  try {
+    if (value is Map<String, dynamic>) return HornConfig.fromJson(value);
+    if (value is Map) {
+      return HornConfig.fromJson(value.cast<String, dynamic>());
+    }
+  } catch (_) {}
+  return kDefaultAppBarBuzzerConfig;
 }
 
 int _parsePositiveInt(dynamic value, {int fallback = 1}) {

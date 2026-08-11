@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 
@@ -24,6 +25,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/compact_plc_status_buzzer.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
@@ -368,7 +370,11 @@ class _ControlScreenState extends State<ControlScreen>
           child: Scaffold(
             backgroundColor: AppColors.darkBg,
             resizeToAvoidBottomInset: false,
-            appBar: _ControlAppBar(labels: labels, isEditing: isEditing),
+            appBar: _ControlAppBar(
+              labels: labels,
+              buzzerConfig: layoutCfg.appBarBuzzerConfig,
+              isEditing: isEditing,
+            ),
             body: SafeArea(
               maintainBottomViewPadding: true,
               child: Stack(
@@ -393,7 +399,9 @@ class _ControlScreenState extends State<ControlScreen>
                           SizedBox(height: metrics.itemSpacing),
                         ],
                         if (metrics.showLEDs) ...[
-                          const _LiveLedSection(),
+                          _LiveLedSection(
+                            mappedVariants: layoutCfg.mappedOutputVariants,
+                          ),
                           SizedBox(height: metrics.itemSpacing),
                         ],
                         Expanded(
@@ -556,9 +564,14 @@ class _LayoutShape {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _ControlAppBar({required this.labels, required this.isEditing});
+  const _ControlAppBar({
+    required this.labels,
+    required this.buzzerConfig,
+    required this.isEditing,
+  });
 
   final ControlLabelConfig labels;
+  final HornConfig buzzerConfig;
   final bool isEditing;
 
   @override
@@ -578,7 +591,7 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
       titleSpacing: NavigationToolbar.kMiddleSpacing,
       title: isEditing
           ? const EditModeAppBarTitle()
-          : _DeviceTitle(labels: labels),
+          : _DeviceTitle(labels: labels, buzzerConfig: buzzerConfig),
       actions: [
         if (!isEditing)
           IconButton(
@@ -599,9 +612,10 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 class _DeviceTitle extends StatelessWidget {
-  const _DeviceTitle({required this.labels});
+  const _DeviceTitle({required this.labels, required this.buzzerConfig});
 
   final ControlLabelConfig labels;
+  final HornConfig buzzerConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -609,10 +623,18 @@ class _DeviceTitle extends StatelessWidget {
     final screenTitle = labels.screenTitle.isNotEmpty
         ? labels.screenTitle
         : (controller.connectedDeviceName ?? BLEConstants.deviceName);
-    return DeviceInfoAppBarTitle(
-      deviceName: screenTitle,
-      plcType: controller.connectedPlcType,
-      rssi: controller.connectedDeviceRssi,
+    return Row(
+      children: [
+        Expanded(
+          child: DeviceInfoAppBarTitle(
+            deviceName: screenTitle,
+            plcType: controller.connectedPlcType,
+            rssi: controller.connectedDeviceRssi,
+          ),
+        ),
+        const SizedBox(width: 8),
+        CompactPlcStatusBuzzer(config: buzzerConfig),
+      ],
     );
   }
 }
@@ -706,36 +728,57 @@ const List<PlcOutputVariant> _ledVariants = [
   PlcOutputVariant.df4,
 ];
 
+/// Both halves of every LED's state in one selector value: what the app
+/// commanded (ring) and what the PLC confirmed (core). They are read together
+/// so a single `context.select` rebuild covers the whole row, but they are
+/// never merged — see live_led_row.dart.
 class _LiveLedRowValues {
-  const _LiveLedRowValues(this.states);
+  const _LiveLedRowValues({required this.commanded, required this.confirmed});
 
-  final List<bool> states;
+  final List<bool> commanded;
+  final List<bool> confirmed;
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    if (other is! _LiveLedRowValues || other.states.length != states.length) {
-      return false;
-    }
-    for (var i = 0; i < states.length; i++) {
-      if (other.states[i] != states[i]) return false;
+    return other is _LiveLedRowValues &&
+        _listEquals(other.commanded, commanded) &&
+        _listEquals(other.confirmed, confirmed);
+  }
+
+  static bool _listEquals(List<bool> a, List<bool> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
     }
     return true;
   }
 
   @override
-  int get hashCode => Object.hashAll(states);
+  int get hashCode => Object.hash(
+    Object.hashAll(commanded),
+    Object.hashAll(confirmed),
+  );
 }
 
 class _LiveLedSection extends StatelessWidget {
-  const _LiveLedSection();
+  const _LiveLedSection({required this.mappedVariants});
+
+  /// Channels some control in the active layout can actually drive; everything
+  /// else renders as a dashed grey ring.
+  final Set<PlcOutputVariant> mappedVariants;
 
   @override
   Widget build(BuildContext context) {
     final values = context.select<CraneController, _LiveLedRowValues>(
-      (c) => _LiveLedRowValues([
-        for (final variant in _ledVariants) c.ledStateFor(variant),
-      ]),
+      (c) => _LiveLedRowValues(
+        commanded: [
+          for (final variant in _ledVariants) c.isCommandedFieldActive(variant),
+        ],
+        confirmed: [
+          for (final variant in _ledVariants) c.isConfirmedFieldActive(variant),
+        ],
+      ),
     );
     return RepaintBoundary(
       child: LiveLedRow(
@@ -745,7 +788,10 @@ class _LiveLedSection extends StatelessWidget {
               label: _ledVariants[i].isEmergencyStop
                   ? 'ESTOP'
                   : _ledVariants[i].storageKey,
-              active: values.states[i],
+              pin: _ledVariants[i].storageKey,
+              commanded: values.commanded[i],
+              confirmed: values.confirmed[i],
+              mapped: mappedVariants.contains(_ledVariants[i]),
               color: _ledVariants[i].isEmergencyStop
                   ? AppColors.eStopColor
                   : AppColors.accent,
