@@ -6,30 +6,19 @@ import 'package:rev_crane_control_ops/models/app_enums.dart'
     show LayoutBucket, PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/feedback/buzzer_feedback_config.dart';
+import 'package:rev_crane_control_ops/models/feedback/feedback_settings_config.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/legacy_layout_migration.dart';
-import 'package:rev_crane_control_ops/models/plc_condition_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 
 /// Fresh layouts sound the AppBar buzzer when any non-E-STOP digital status
 /// reported by the PLC is active. DF1 keeps its dedicated safety indication.
-const HornConfig kDefaultAppBarBuzzerConfig = HornConfig(
-  trigger: PlcConditionConfig(
-    watchedFields: <PlcOutputVariant>{
-      PlcOutputVariant.df2,
-      PlcOutputVariant.df3,
-      PlcOutputVariant.df4,
-      PlcOutputVariant.df5,
-      PlcOutputVariant.df6,
-      PlcOutputVariant.df7,
-      PlcOutputVariant.df8,
-      PlcOutputVariant.df9,
-      PlcOutputVariant.df10,
-    },
-  ),
-  hapticFeedback: false,
-);
+///
+/// Now owned by the feedback models — see [kDefaultBuzzerHornConfig]. Kept as
+/// an alias so existing references keep reading the same value.
+const HornConfig kDefaultAppBarBuzzerConfig = kDefaultBuzzerHornConfig;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ControlWidgetType
@@ -670,7 +659,7 @@ class ControlLayoutConfig {
     this.sizeConfig = const ControlWidgetSizeConfig(),
     this.labelConfig = const ControlLabelConfig(),
     this.arrangementConfig = const ControlArrangementConfig(),
-    this.appBarBuzzerConfig = kDefaultAppBarBuzzerConfig,
+    this.feedbackConfig = const FeedbackSettingsConfig(),
     this.axisConfigs = const AxisConfigSet(),
     this.roleStyles = const RoleStyleConfig(),
     this.buttons = const <String, ButtonConfig>{},
@@ -709,12 +698,32 @@ class ControlLayoutConfig {
   /// which reproduces the pre-existing fixed grid exactly — no other
   /// migration is needed.
   /// Bumped 9 -> 10 by the configurable AppBar PLC-status buzzer.
-  static const int schemaVersion = 10;
+  ///
+  /// Bumped 10 -> 11 by Feedback Settings (Customization Toolbar -> More ->
+  /// Feedback Settings): adds `feedbackConfig` (see [FeedbackSettingsConfig])
+  /// covering the alarm annunciator, buzzer, analog readers, LED indicator
+  /// row and communication/heartbeat status in one bag. The v10 top-level
+  /// `appBarBuzzerConfig` key is absorbed into `feedbackConfig.buzzer.horn`
+  /// and is no longer written; old JSON is migrated on load via
+  /// [FeedbackSettingsConfig.fromLegacyBuzzer], whose other areas all default
+  /// to the pre-existing rendering, so an upgrading install looks unchanged
+  /// until Feedback Settings is opened.
+  static const int schemaVersion = 11;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;
   final ControlArrangementConfig arrangementConfig;
-  final HornConfig appBarBuzzerConfig;
+
+  /// Every non-control feedback/status setting — alarms, buzzer, sensor
+  /// readings, LED/status indication, heartbeat. Never consulted by any
+  /// command path: see [FeedbackSettingsConfig]'s doc comment.
+  final FeedbackSettingsConfig feedbackConfig;
+
+  /// The layout buzzer's PLC trigger and sound behaviour. A view onto
+  /// [feedbackConfig] rather than a field of its own, so Feedback Settings
+  /// stays the single place the buzzer is configured while existing render
+  /// paths keep reading the shape they already expect.
+  HornConfig get appBarBuzzerConfig => feedbackConfig.buzzer.horn;
 
   /// Per-axis control type, spring/latch wiring, and height scale.
   /// LEGACY (v2 shape) — kept permanently as the migration source for old
@@ -797,6 +806,7 @@ class ControlLayoutConfig {
     ControlWidgetSizeConfig? sizeConfig,
     ControlLabelConfig? labelConfig,
     ControlArrangementConfig? arrangementConfig,
+    FeedbackSettingsConfig? feedbackConfig,
     HornConfig? appBarBuzzerConfig,
     AxisConfigSet? axisConfigs,
     RoleStyleConfig? roleStyles,
@@ -804,11 +814,20 @@ class ControlLayoutConfig {
     int? controlPageCount,
     GridLayoutOption? gridLayout,
   }) {
+    // [appBarBuzzerConfig] is a convenience alias that writes through to the
+    // feedback bag, so callers that only care about the buzzer's PLC trigger
+    // don't have to rebuild the whole feedback config themselves.
+    var nextFeedback = feedbackConfig ?? this.feedbackConfig;
+    if (appBarBuzzerConfig != null) {
+      nextFeedback = nextFeedback.copyWith(
+        buzzer: nextFeedback.buzzer.copyWith(horn: appBarBuzzerConfig),
+      );
+    }
     return ControlLayoutConfig(
       sizeConfig: sizeConfig ?? this.sizeConfig,
       labelConfig: labelConfig ?? this.labelConfig,
       arrangementConfig: arrangementConfig ?? this.arrangementConfig,
-      appBarBuzzerConfig: appBarBuzzerConfig ?? this.appBarBuzzerConfig,
+      feedbackConfig: nextFeedback,
       axisConfigs: axisConfigs ?? this.axisConfigs,
       roleStyles: roleStyles ?? this.roleStyles,
       buttons: buttons ?? this.buttons,
@@ -825,7 +844,7 @@ class ControlLayoutConfig {
     'sizeConfig': sizeConfig.toJson(),
     'labelConfig': labelConfig.toJson(),
     'arrangementConfig': arrangementConfig.toJson(),
-    'appBarBuzzerConfig': appBarBuzzerConfig.toJson(),
+    'feedbackConfig': feedbackConfig.toJson(),
     'axisConfigs': axisConfigs.toJson(),
     'roleStyles': roleStyles.toJson(),
     'buttons': resolvedButtons.map((id, cfg) => MapEntry(id, cfg.toJson())),
@@ -922,8 +941,9 @@ class ControlLayoutConfig {
               json['arrangementConfig'] as Map<String, dynamic>,
             )
           : const ControlArrangementConfig(),
-      appBarBuzzerConfig: _appBarBuzzerConfigFromJson(
-        json['appBarBuzzerConfig'],
+      feedbackConfig: _feedbackConfigFromJson(
+        json['feedbackConfig'],
+        legacyBuzzer: json['appBarBuzzerConfig'],
       ),
       axisConfigs: axisConfigs,
       roleStyles: roleStyles,
@@ -964,7 +984,7 @@ class ControlLayoutConfig {
           other.sizeConfig == sizeConfig &&
           other.labelConfig == labelConfig &&
           other.arrangementConfig == arrangementConfig &&
-          other.appBarBuzzerConfig == appBarBuzzerConfig &&
+          other.feedbackConfig == feedbackConfig &&
           other.axisConfigs == axisConfigs &&
           other.roleStyles == roleStyles &&
           _buttonsEqual(other.resolvedButtons, resolvedButtons) &&
@@ -976,7 +996,7 @@ class ControlLayoutConfig {
     sizeConfig,
     labelConfig,
     arrangementConfig,
-    appBarBuzzerConfig,
+    feedbackConfig,
     axisConfigs,
     roleStyles,
     Object.hashAllUnordered(
@@ -987,14 +1007,25 @@ class ControlLayoutConfig {
   );
 }
 
-HornConfig _appBarBuzzerConfigFromJson(dynamic value) {
+/// Parses the v11 `feedbackConfig` bag, falling back to the v10 shape where
+/// the only feedback setting that existed was a bare `appBarBuzzerConfig`
+/// HornConfig at the top level. Every other feedback area then takes its
+/// default, which reproduces the pre-v11 rendering exactly.
+FeedbackSettingsConfig _feedbackConfigFromJson(
+  dynamic value, {
+  required dynamic legacyBuzzer,
+}) {
   try {
-    if (value is Map<String, dynamic>) return HornConfig.fromJson(value);
     if (value is Map) {
-      return HornConfig.fromJson(value.cast<String, dynamic>());
+      return FeedbackSettingsConfig.fromJson(value.cast<String, dynamic>());
+    }
+    if (legacyBuzzer is Map) {
+      return FeedbackSettingsConfig.fromLegacyBuzzer(
+        HornConfig.fromJson(legacyBuzzer.cast<String, dynamic>()),
+      );
     }
   } catch (_) {}
-  return kDefaultAppBarBuzzerConfig;
+  return const FeedbackSettingsConfig();
 }
 
 int _parsePositiveInt(dynamic value, {int fallback = 1}) {

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
-import 'package:rev_crane_control_ops/widgets/control_screen/buzzer_settings_sheet.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/feedback_settings/feedback_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/grid_layout_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/load_template_sheet.dart';
@@ -176,7 +176,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       builder: (_) => _MoreActionsSheet(
         onSaveLayout: () => _saveLayout(context),
         onOpenLayoutSettings: () => showLayoutSettingsSheet(context),
-        onOpenBuzzerSettings: () => showBuzzerSettingsSheet(context),
+        onOpenFeedbackSettings: () => showFeedbackSettingsSheet(context),
       ),
     );
   }
@@ -567,23 +567,28 @@ class _DoneCircleButtonState extends State<_DoneCircleButton> {
 // _MoreActionsSheet
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Two clearly separated groups, because they configure different things:
+/// LAYOUT is about the arrangement of controls the operator drives, FEEDBACK &
+/// STATUS is about what the app annunciates back. Buzzer configuration used to
+/// sit here as its own entry; it now lives inside Feedback Settings alongside
+/// every other feedback area, so there is exactly one route to it.
 class _MoreActionsSheet extends StatelessWidget {
   const _MoreActionsSheet({
     required this.onSaveLayout,
     required this.onOpenLayoutSettings,
-    required this.onOpenBuzzerSettings,
+    required this.onOpenFeedbackSettings,
   });
 
   final VoidCallback onSaveLayout;
   final VoidCallback onOpenLayoutSettings;
-  final VoidCallback onOpenBuzzerSettings;
+  final VoidCallback onOpenFeedbackSettings;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(20),
@@ -606,84 +611,149 @@ class _MoreActionsSheet extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             const Text(
-              'More Actions',
+              'More',
               style: TextStyle(
                 color: AppColors.darkText,
                 fontSize: 16.5,
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 6),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.save_rounded,
-                color: AppColors.selectionViolet,
-              ),
-              title: const Text(
-                'Save Layout',
-                style: TextStyle(
-                  color: AppColors.darkText,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: const Text(
-                'Persist changes without leaving Edit Mode.',
-                style: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
-              ),
+            const _MoreSectionLabel('LAYOUT'),
+            _MoreActionTile(
+              icon: Icons.save_rounded,
+              title: 'Save Layout',
+              subtitle: 'Persist changes without leaving Edit Mode.',
               onTap: () {
                 Navigator.of(context).pop();
                 onSaveLayout();
               },
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.tune_rounded,
-                color: AppColors.selectionViolet,
-              ),
-              title: const Text(
-                'Layout Settings',
-                style: TextStyle(
-                  color: AppColors.darkText,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: const Text(
-                'E-Stop instructions, arrangement, and sizing.',
-                style: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
-              ),
+            _MoreActionTile(
+              icon: Icons.tune_rounded,
+              title: 'Layout Settings',
+              subtitle: 'E-Stop instructions, arrangement, and sizing.',
               onTap: () {
                 Navigator.of(context).pop();
                 onOpenLayoutSettings();
               },
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.campaign_rounded,
-                color: AppColors.selectionViolet,
-              ),
-              title: const Text(
-                'Buzzer Settings',
-                style: TextStyle(
-                  color: AppColors.darkText,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: const Text(
-                'PLC trigger, local sound, haptics, and visual pulse.',
-                style: TextStyle(color: AppColors.darkTextMuted, fontSize: 12),
-              ),
+            const _MoreSectionLabel('FEEDBACK & STATUS'),
+            _MoreActionTile(
+              icon: Icons.notifications_active_rounded,
+              title: 'Feedback Settings',
+              subtitle:
+                  'Alarms, buzzer, sensor readings, LED and status indication, '
+                  'calibration and heartbeat — all in one place.',
+              featured: true,
               onTap: () {
                 Navigator.of(context).pop();
-                onOpenBuzzerSettings();
+                onOpenFeedbackSettings();
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreSectionLabel extends StatelessWidget {
+  const _MoreSectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.1,
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreActionTile extends StatelessWidget {
+  const _MoreActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.featured = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  /// Draws the tile as a filled card rather than a plain row — used for the
+  /// section's primary destination so it reads as the way in, not one option
+  /// among several.
+  final bool featured;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+          decoration: BoxDecoration(
+            color: featured
+                ? AppColors.selectionViolet.withAlpha(22)
+                : AppColors.darkBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: featured
+                  ? AppColors.selectionViolet.withAlpha(110)
+                  : AppColors.darkBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: AppColors.selectionViolet),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.darkText,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: AppColors.darkTextMuted,
+                        fontSize: 11.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.darkTextMuted,
+                size: 22,
+              ),
+            ],
+          ),
         ),
       ),
     );

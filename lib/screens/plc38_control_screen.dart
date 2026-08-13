@@ -9,7 +9,6 @@ import 'package:vibration/vibration.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
-import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
 
@@ -19,23 +18,23 @@ import 'package:rev_crane_control_ops/utils/control_grid_utils.dart';
 import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/feedback_manager.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
-import 'package:rev_crane_control_ops/widgets/control_screen/compact_plc_status_buzzer.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.dart';
-import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_alarm_banner.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_appbar_indicators.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_sections.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
-import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/settling_preview.dart';
-import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -384,6 +383,11 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     final labels = layoutCfg.labelConfig;
     final sizing = layoutCfg.sizeConfig;
     final arrangement = layoutCfg.arrangementConfig;
+    // Hand the feedback stack the config for the layout actually on screen —
+    // the edit draft while customizing, so Feedback Settings previews live.
+    // Safe from a build: FeedbackManager defers its notification when the
+    // scheduler is mid-frame (see updateConfig).
+    context.read<FeedbackManager>().updateConfig(layoutCfg.feedbackConfig);
     final metrics = ControlLayoutMetrics.compute(
       MediaQuery.of(context).size.height -
           kToolbarHeight -
@@ -402,11 +406,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
           child: Scaffold(
             backgroundColor: AppColors.darkBg,
             resizeToAvoidBottomInset: false,
-            appBar: _Plc38AppBar(
-              labels: labels,
-              buzzerConfig: layoutCfg.appBarBuzzerConfig,
-              isEditing: isEditing,
-            ),
+            appBar: _Plc38AppBar(labels: labels, isEditing: isEditing),
             body: SafeArea(
               maintainBottomViewPadding: true,
               child: Stack(
@@ -415,6 +415,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                     padding: metrics.bodyPadding,
                     child: Column(
                       children: [
+                        // ── Alarm banner ────────────────────────────────
+                        const FeedbackAlarmBanner(),
+
                         // ── E-Stop / Reset ──────────────────────────────
                         _SafetyPanelSection(
                           compact: metrics.isCompact,
@@ -430,13 +433,14 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
 
                         // ── Sensor row ────────────────────────────────
                         if (metrics.showSensorRow) ...[
-                          const _SensorSection(),
+                          const FeedbackSensorSection(),
                           SizedBox(height: metrics.itemSpacing),
                         ],
 
                         // ── PLC38 10-output LED indicators ─────────────
                         if (metrics.showLEDs) ...[
-                          _LiveLedSection(
+                          FeedbackLedSection(
+                            variants: _ledVariants,
                             mappedVariants: layoutCfg.mappedOutputVariants,
                           ),
                           SizedBox(height: metrics.itemSpacing),
@@ -462,7 +466,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
                         // ── Status bar ────────────────────────────────
                         BottomActionsRecede(
                           recede: isEditing,
-                          child: const _StatusChipSection(),
+                          child: const FeedbackStatusChipSection(),
                         ),
                         SizedBox(height: metrics.itemSpacing),
                       ],
@@ -611,14 +615,9 @@ class _LayoutShape {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _Plc38AppBar({
-    required this.labels,
-    required this.buzzerConfig,
-    required this.isEditing,
-  });
+  const _Plc38AppBar({required this.labels, required this.isEditing});
 
   final ControlLabelConfig labels;
-  final HornConfig buzzerConfig;
   final bool isEditing;
 
   @override
@@ -641,7 +640,7 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
           titleSpacing: NavigationToolbar.kMiddleSpacing,
           title: isEditing
               ? const EditModeAppBarTitle()
-              : _DeviceTitle(labels: labels, buzzerConfig: buzzerConfig),
+              : _DeviceTitle(labels: labels),
           actions: [
             // The customize action only makes sense in normal mode — while
             // editing it would be a duplicate way to (re-)enter a mode
@@ -669,10 +668,9 @@ class _Plc38AppBar extends StatelessWidget implements PreferredSizeWidget {
 /// Isolated because it watches connection/device-name/RSSI fields that
 /// update independently of (and more often than) the AppBar's other actions.
 class _DeviceTitle extends StatelessWidget {
-  const _DeviceTitle({required this.labels, required this.buzzerConfig});
+  const _DeviceTitle({required this.labels});
 
   final ControlLabelConfig labels;
-  final HornConfig buzzerConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -689,8 +687,7 @@ class _DeviceTitle extends StatelessWidget {
             rssi: controller.connectedDeviceRssi,
           ),
         ),
-        const SizedBox(width: 8),
-        CompactPlcStatusBuzzer(config: buzzerConfig),
+        const FeedbackAppBarIndicators(),
       ],
     );
   }
@@ -773,20 +770,9 @@ class _SafetyPanelSection extends StatelessWidget {
   }
 }
 
-class _SensorSection extends StatelessWidget {
-  const _SensorSection();
-
-  @override
-  Widget build(BuildContext context) {
-    final a1 = context.select<CraneController, int>((c) => c.a1);
-    final a2 = context.select<CraneController, int>((c) => c.a2);
-    return RepaintBoundary(
-      child: SensorRow(a1: a1, a2: a2),
-    );
-  }
-}
-
-// PLC38 exposes the full 10-field wire format (DF1/E-STOP..DF10).
+/// PLC38 exposes the full 10-field wire format (DF1/E-STOP..DF10). Which of
+/// them actually renders, and how, is resolved by FeedbackManager from the
+/// layout's LED feedback config — see FeedbackLedSection.
 const List<PlcOutputVariant> _ledVariants = [
   PlcOutputVariant.df1,
   PlcOutputVariant.df2,
@@ -799,103 +785,6 @@ const List<PlcOutputVariant> _ledVariants = [
   PlcOutputVariant.df9,
   PlcOutputVariant.df10,
 ];
-
-/// Both halves of every LED's state in one selector value: what the app
-/// commanded (ring) and what the PLC confirmed (core). They are read together
-/// so a single `context.select` rebuild covers the whole row, but they are
-/// never merged — see live_led_row.dart.
-class _LiveLedRowValues {
-  const _LiveLedRowValues({required this.commanded, required this.confirmed});
-
-  final List<bool> commanded;
-  final List<bool> confirmed;
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is _LiveLedRowValues &&
-        _listEquals(other.commanded, commanded) &&
-        _listEquals(other.confirmed, confirmed);
-  }
-
-  static bool _listEquals(List<bool> a, List<bool> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
-
-  @override
-  int get hashCode => Object.hash(
-    Object.hashAll(commanded),
-    Object.hashAll(confirmed),
-  );
-}
-
-class _LiveLedSection extends StatelessWidget {
-  const _LiveLedSection({required this.mappedVariants});
-
-  /// Channels some control in the active layout can actually drive; everything
-  /// else renders as a dashed grey ring.
-  final Set<PlcOutputVariant> mappedVariants;
-
-  @override
-  Widget build(BuildContext context) {
-    final values = context.select<CraneController, _LiveLedRowValues>(
-      (c) => _LiveLedRowValues(
-        commanded: [
-          for (final variant in _ledVariants) c.isCommandedFieldActive(variant),
-        ],
-        confirmed: [
-          for (final variant in _ledVariants) c.isConfirmedFieldActive(variant),
-        ],
-      ),
-    );
-    return RepaintBoundary(
-      child: LiveLedRow(
-        leds: [
-          for (var i = 0; i < _ledVariants.length; i++)
-            LedSpec(
-              label: _ledVariants[i].isEmergencyStop
-                  ? 'ESTOP'
-                  : _ledVariants[i].storageKey,
-              pin: _ledVariants[i].storageKey,
-              commanded: values.commanded[i],
-              confirmed: values.confirmed[i],
-              mapped: mappedVariants.contains(_ledVariants[i]),
-              color: _ledVariants[i].isEmergencyStop
-                  ? AppColors.eStopColor
-                  : AppColors.accent,
-              inactiveColor: _ledVariants[i].isEmergencyStop
-                  ? AppColors.darkSuccess
-                  : null,
-              pulseWhenInactive: _ledVariants[i].isEmergencyStop,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusChipSection extends StatelessWidget {
-  const _StatusChipSection();
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.watch<CraneController>();
-    return RepaintBoundary(
-      child: StatusBarChip(
-        color: controller.estopLatched
-            ? AppColors.eStopColor
-            : controller.activeCommand.isIdle
-            ? AppColors.idleColor
-            : AppColors.accent,
-        label: controller.statusLabel,
-      ),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _CanvasSection

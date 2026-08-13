@@ -12,6 +12,7 @@ import 'package:rev_crane_control_ops/models/button_rotation.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
+import 'package:rev_crane_control_ops/models/feedback/feedback_settings_config.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
 import 'package:rev_crane_control_ops/models/horn_config.dart';
 import 'package:rev_crane_control_ops/models/widget_catalog.dart';
@@ -1279,6 +1280,15 @@ class LayoutEditController extends ChangeNotifier {
 
   void updateDraftAppBarBuzzerConfig(HornConfig next) {
     _applyDraft(_draft.copyWith(appBarBuzzerConfig: next));
+  }
+
+  /// The mutation entry point for Customization Toolbar -> More -> Feedback
+  /// Settings. Writes only to the draft, exactly like every other
+  /// customization surface, so nothing reaches SharedPreferences until Save
+  /// Layout / Done — and nothing here can reach a PLC command path (see
+  /// FeedbackSettingsConfig).
+  void updateDraftFeedbackConfig(FeedbackSettingsConfig next) {
+    _applyDraft(_draft.copyWith(feedbackConfig: next));
   }
 
   /// Replaces the entire draft with [template]'s layout — a full overwrite,

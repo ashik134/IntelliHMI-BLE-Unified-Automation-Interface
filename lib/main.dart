@@ -17,6 +17,7 @@ import 'package:rev_crane_control_ops/screens/scan_page.dart';
 import 'package:rev_crane_control_ops/screens/plc38_control_screen.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/controllers/feedback_manager.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
@@ -64,6 +65,18 @@ class IntelliHMIApp extends StatelessWidget {
             craneController: ctx.read<CraneController>(),
           ),
           update: (ctx, crane, layout, previous) => previous!,
+        ),
+        // The feedback stack's single entry point. Constructed with the
+        // CraneController seen only through FeedbackSource — a read-only view
+        // with no command path — so alarms, buzzer, LEDs, values and the
+        // heartbeat are structurally unable to write to the PLC. Its config is
+        // pushed in by the control screens from the layout being rendered (see
+        // FeedbackManager.updateConfig), which is the edit draft while
+        // Feedback Settings is open, so changes preview live.
+        ChangeNotifierProxyProvider<CraneController, FeedbackManager>(
+          create: (ctx) =>
+              FeedbackManager(source: ctx.read<CraneController>()),
+          update: (ctx, crane, previous) => previous!,
         ),
         ChangeNotifierProvider(create: (_) => NavigationController()),
       ],

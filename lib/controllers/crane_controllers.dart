@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
+import 'package:rev_crane_control_ops/controllers/feedback_manager.dart'
+    show FeedbackSource;
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
@@ -19,7 +21,13 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/preferences.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
-class CraneController extends ChangeNotifier with WidgetsBindingObserver {
+/// Implements [FeedbackManager]'s read-only [FeedbackSource] view. That
+/// interface exposes only status/analog/link reads — no command path — so the
+/// whole feedback stack (alarms, buzzer, LEDs, values, heartbeat) is
+/// structurally incapable of writing to the PLC.
+class CraneController extends ChangeNotifier
+    with WidgetsBindingObserver
+    implements FeedbackSource {
   final BleService _bleService = BleService();
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
   final PermissionService _permissionService = PermissionService();
@@ -62,6 +70,10 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   PlcOutputCommand _activeCommand = PlcOutputCommand.idle();
   PlcOutputCommand _commandedCommand = PlcOutputCommand.idle();
   PlcOutputCommand _reportedStatusCommand = PlcOutputCommand.idle();
+
+  /// Arrival time of the most recent status notification — see
+  /// [lastPlcStatusAt].
+  DateTime? _lastPlcStatusAt;
 
   // ── BLE write serializer ──────────────────────────────────────────────────
 
@@ -199,6 +211,24 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   int get a1 => _analogValues['A1'] ?? 0;
   int get a2 => _analogValues['A2'] ?? 0;
 
+  /// Raw counts for any analog channel key the firmware reports. The
+  /// generic form of [a1]/[a2], used by feedback readers that are configured
+  /// against a channel key rather than a fixed field.
+  @override
+  int analogValue(String channelKey) => _analogValues[channelKey] ?? 0;
+
+  /// [FeedbackSource]'s view of the link. Alias of [isConnected], named for
+  /// the role it serves in heartbeat/communication feedback.
+  @override
+  bool get isPlcConnected => isConnected;
+
+  /// When the last PLC status notification arrived — the only input the
+  /// derived heartbeat has. Null until the first notification of a
+  /// connection, and cleared on disconnect so a stale timestamp from a
+  /// previous session can never read as a live link.
+  @override
+  DateTime? get lastPlcStatusAt => _lastPlcStatusAt;
+
   /// OUTER-RING value for [variant]: is this output currently REQUESTED by
   /// the app? Reads [commandedCommand] only, so it flips the instant the
   /// operator actuates a control and stays put until the app asks for
@@ -207,6 +237,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   /// No E-STOP suppression is needed (or wanted) here: a latched E-STOP makes
   /// the commanded command `{DF1}` outright, so every other field is already
   /// false by construction rather than by a display-time override.
+  @override
   bool isCommandedFieldActive(PlcOutputVariant variant) =>
       _commandedCommand.fieldValue(variant);
 
@@ -228,6 +259,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
   ///
   /// Does NOT suppress on estop — a widget watching, say, DF8 should still
   /// reflect the PLC's actual reported field state during an E-STOP condition.
+  @override
   bool isReportedFieldActive(PlcOutputVariant mapping) =>
       _reportedStatusCommand.fieldValue(mapping);
 
@@ -405,6 +437,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
         _activeCommand = PlcOutputCommand.idle();
         _commandedCommand = PlcOutputCommand.idle();
         _reportedStatusCommand = PlcOutputCommand.idle();
+        _lastPlcStatusAt = null;
         _estopLatched = false;
         _sessionEmail = null;
         _startupEmergencyArmedForConnection = false;
@@ -460,6 +493,7 @@ class CraneController extends ChangeNotifier with WidgetsBindingObserver {
     // is there to surface.
     _reportedStatusCommand = command;
     _activeCommand = command;
+    _lastPlcStatusAt = DateTime.now();
     notifyListeners();
   }
 

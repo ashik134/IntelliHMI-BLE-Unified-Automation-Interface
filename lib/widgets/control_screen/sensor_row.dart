@@ -9,10 +9,11 @@ import 'package:rev_crane_control_ops/widgets/control_screen/analog_gauge.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // SensorRow
 //
-// Live read-out strip for the two analog channels the PLC notifies over
-// BLEConstants.analogCharUuid ("A1:<v>,A2:<v>"). Both channels render as
-// industrial radial gauges (see AnalogGauge); the row owns nothing but layout
-// and sizing — values arrive from CraneController.a1 / .a2.
+// Live read-out strip for the layout's analog readers. Every gauge is fully
+// described by the [SensorGaugeSpec]s handed in — scaling, units, thresholds
+// and colours are all resolved upstream (FeedbackManager + the analog area of
+// Feedback Settings), exactly like LiveLedRow takes resolved LedSpecs. The row
+// owns nothing but layout and sizing, and never reads a controller itself.
 //
 // Sizing is driven by the device first and the row's own width second: a
 // diagnostic strip that is merely *proportionate* still reads as oversized on a
@@ -22,28 +23,80 @@ import 'package:rev_crane_control_ops/widgets/control_screen/analog_gauge.dart';
 // [height] when a layout needs a fixed budget.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class SensorRow extends StatelessWidget {
-  const SensorRow({
-    super.key,
-    required this.a1,
-    required this.a2,
-    this.fullScale = AnalogGauge.defaultFullScale,
-    this.height,
+/// One resolved gauge. Purely presentational — nothing here refers to a PLC
+/// channel or a config, so the row cannot read or write anything itself.
+@immutable
+class SensorGaugeSpec {
+  const SensorGaugeSpec({
+    required this.tag,
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.colorLight,
+    this.unit = '',
+    this.minValue = 0,
+    this.maxValue = AnalogGauge.defaultFullScale,
+    this.warningFraction = 0.75,
+    this.criticalFraction = 0.9,
   });
 
-  final int a1;
-  final int a2;
+  /// Short channel id shown in the header chip (`A1`).
+  final String tag;
 
-  /// Top of the scale for both channels. Defaults to the PLC's raw 12-bit ADC
-  /// full scale — override if the firmware ever scales the analog payload into
-  /// engineering units.
-  final double fullScale;
+  /// Operator-facing name (`Load 1`).
+  final String label;
+
+  /// Already-scaled reading, in [unit]s.
+  final double value;
+
+  final Color color;
+  final Color colorLight;
+  final String unit;
+  final double minValue;
+  final double maxValue;
+  final double warningFraction;
+  final double criticalFraction;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SensorGaugeSpec &&
+          other.tag == tag &&
+          other.label == label &&
+          other.value == value &&
+          other.color == color &&
+          other.colorLight == colorLight &&
+          other.unit == unit &&
+          other.minValue == minValue &&
+          other.maxValue == maxValue &&
+          other.warningFraction == warningFraction &&
+          other.criticalFraction == criticalFraction;
+
+  @override
+  int get hashCode => Object.hash(
+    tag,
+    label,
+    value,
+    color,
+    colorLight,
+    unit,
+    minValue,
+    maxValue,
+    warningFraction,
+    criticalFraction,
+  );
+}
+
+class SensorRow extends StatelessWidget {
+  const SensorRow({super.key, required this.gauges, this.height});
+
+  final List<SensorGaugeSpec> gauges;
 
   /// Optional fixed strip height. When null the row derives one from the
   /// screen's size class and its own width — see [heightFor].
   final double? height;
 
-  /// Gap between the two gauge cards.
+  /// Gap between gauge cards.
   static const double _kGap = 8;
 
   // ── Sizing bands ───────────────────────────────────────────────────────────
@@ -66,20 +119,26 @@ class SensorRow extends StatelessWidget {
   static const double _kAspectCompact = 0.46;
   static const double _kAspectExpanded = 0.62;
 
-  /// Strip height for a device of [screenWidth] rendering a row [rowWidth] wide.
+  /// Strip height for a device of [screenWidth] rendering a row [rowWidth]
+  /// wide holding [cardCount] gauges.
   ///
   /// [screenWidth] is the screen's *shortest* side — the usual size-class
   /// signal — so a handset held in landscape is still sized as a handset.
   static double heightFor({
     required double screenWidth,
     required double rowWidth,
+    int cardCount = 2,
   }) {
     final t =
         ((screenWidth - _kCompactScreen) / (_kExpandedScreen - _kCompactScreen))
             .clamp(0.0, 1.0)
             .toDouble();
 
-    final cardWidth = math.max(0.0, (rowWidth - _kGap) / 2);
+    final cards = math.max(1, cardCount);
+    final cardWidth = math.max(
+      0.0,
+      (rowWidth - _kGap * (cards - 1)) / cards,
+    );
     final proportional =
         cardWidth * lerpDouble(_kAspectCompact, _kAspectExpanded, t)!;
 
@@ -93,6 +152,8 @@ class SensorRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (gauges.isEmpty) return const SizedBox.shrink();
+
     final screen = MediaQuery.sizeOf(context);
     final screenWidth = math.min(screen.width, screen.height);
 
@@ -102,33 +163,34 @@ class SensorRow extends StatelessWidget {
             ? constraints.maxWidth
             : 320.0;
         final stripHeight =
-            height ?? heightFor(screenWidth: screenWidth, rowWidth: width);
+            height ??
+            heightFor(
+              screenWidth: screenWidth,
+              rowWidth: width,
+              cardCount: gauges.length,
+            );
 
         return SizedBox(
           height: stripHeight,
           child: Row(
             children: [
-              Expanded(
-                child: AnalogGaugeCard(
-                  tag: 'A1',
-                  label: 'Load 1',
-                  value: a1.toDouble(),
-                  color: AppColors.upColor,
-                  colorLight: AppColors.upColorLight,
-                  maxValue: fullScale,
+              for (var i = 0; i < gauges.length; i++) ...[
+                if (i > 0) const SizedBox(width: _kGap),
+                Expanded(
+                  child: AnalogGaugeCard(
+                    tag: gauges[i].tag,
+                    label: gauges[i].label,
+                    value: gauges[i].value,
+                    color: gauges[i].color,
+                    colorLight: gauges[i].colorLight,
+                    unit: gauges[i].unit,
+                    minValue: gauges[i].minValue,
+                    maxValue: gauges[i].maxValue,
+                    warningFraction: gauges[i].warningFraction,
+                    criticalFraction: gauges[i].criticalFraction,
+                  ),
                 ),
-              ),
-              const SizedBox(width: _kGap),
-              Expanded(
-                child: AnalogGaugeCard(
-                  tag: 'A2',
-                  label: 'Load 2',
-                  value: a2.toDouble(),
-                  color: AppColors.downColor,
-                  colorLight: AppColors.downColorLight,
-                  maxValue: fullScale,
-                ),
-              ),
+              ],
             ],
           ),
         );
@@ -136,3 +198,23 @@ class SensorRow extends StatelessWidget {
     );
   }
 }
+
+/// Raw-counts convenience for callers with no resolved feedback config — the
+/// two stock channels at the PLC's 12-bit full scale, in the app's default
+/// channel colours.
+List<SensorGaugeSpec> rawSensorGauges({required int a1, required int a2}) => [
+  SensorGaugeSpec(
+    tag: 'A1',
+    label: 'Load 1',
+    value: a1.toDouble(),
+    color: AppColors.upColor,
+    colorLight: AppColors.upColorLight,
+  ),
+  SensorGaugeSpec(
+    tag: 'A2',
+    label: 'Load 2',
+    value: a2.toDouble(),
+    color: AppColors.downColor,
+    colorLight: AppColors.downColorLight,
+  ),
+];
