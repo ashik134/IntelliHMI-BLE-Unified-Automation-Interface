@@ -89,6 +89,11 @@ class BleService {
 
   int _cryptoSessionGeneration = 0;
   Future<void> _encryptedWriteLane = Future<void>.value();
+  // The firmware uses one monotonically increasing nonce counter for every
+  // encrypted notification characteristic. Preserve BLE arrival order across
+  // auth, analog and status decryptions so replay protection sees that same
+  // ordering even though the characteristic callbacks are asynchronous.
+  Future<void> _encryptedReadLane = Future<void>.value();
 
   // ── Bluetooth adapter ──────────────────────────────────────────────────────
 
@@ -811,7 +816,7 @@ class BleService {
     }
 
     try {
-      final decrypted = await BleCrypto.decrypt(bytes);
+      final decrypted = await _decryptNotification(bytes, label: 'analog');
       final encryptedPayload = _tryDecodeUtf8(decrypted)?.trim();
       if (_applyAnalogPayload(encryptedPayload, source: 'encrypted')) {
         return;
@@ -895,7 +900,41 @@ class BleService {
   // ── Processes raw status bytes and sends them to the statusStream ──────────
 
   void _handleStatusNotification(List<int> bytes) {
-    final command = PlcOutputCommand.fromStatusNotification(bytes);
+    unawaited(_handleStatusNotificationAsync(bytes));
+  }
+
+  Future<void> _handleStatusNotificationAsync(List<int> bytes) async {
+    if (!_sessionAuthenticated || !BleCrypto.sessionActive) {
+      _logger.w(
+        'Encrypted status notification received outside an authenticated '
+        'session; ignored.',
+      );
+      return;
+    }
+
+    try {
+      final decrypted = await _decryptNotification(bytes, label: 'status');
+      final payload = _tryDecodeUtf8(decrypted)?.trim();
+      final command = PlcOutputCommand.tryParseStatusNotification(decrypted);
+      if (command == null) {
+        _logger.w('Invalid decrypted PLC status payload ignored: "$payload"');
+        return;
+      }
+      _logger.i('Decrypted PLC status payload: $payload');
+      _publishStatus(command);
+    } on BleCryptoException catch (e) {
+      _logger.e('Encrypted status notification rejected: $e');
+      await _cryptoSafeState('Status notification decrypt failed: $e');
+    } on StateError catch (e) {
+      _logger.e('Encrypted status notification session error: $e');
+      await _cryptoSafeState('Status notification session error: $e');
+    } catch (e) {
+      _logger.e('Encrypted status notification error: $e');
+      await _cryptoSafeState('Status notification error: $e');
+    }
+  }
+
+  void _publishStatus(PlcOutputCommand command) {
     if (command.estop || command.isIdle) {
       final pending = _pendingSafeStateCompleter;
       if (pending != null && !pending.isCompleted) {
@@ -934,7 +973,7 @@ class BleService {
     }
 
     try {
-      final decrypted = await BleCrypto.decrypt(bytes);
+      final decrypted = await _decryptNotification(bytes, label: 'auth');
       final encryptedPayload = _tryDecodeUtf8(decrypted)?.trim();
       if (await _handleAuthPayload(encryptedPayload, source: 'encrypted')) {
         return;
@@ -1265,6 +1304,33 @@ class BleService {
   }
 
   // ── Write helpers ──────────────────────────────────────────────────────────
+
+  Future<List<int>> _decryptNotification(
+    List<int> wireBytes, {
+    required String label,
+  }) {
+    final generation = _cryptoSessionGeneration;
+    final readFuture = _encryptedReadLane.then((_) async {
+      if (_isDisposing ||
+          generation != _cryptoSessionGeneration ||
+          !BleCrypto.sessionActive) {
+        throw StateError(
+          'Encrypted $label notification belongs to an inactive session.',
+        );
+      }
+
+      return BleCrypto.decrypt(wireBytes);
+    });
+
+    _encryptedReadLane = readFuture.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        _logger.w('Encrypted BLE read lane recovered after $label: $error');
+      },
+    );
+
+    return readFuture;
+  }
 
   Future<void> _writeEncryptedCharacteristic({
     required BluetoothCharacteristic characteristic,

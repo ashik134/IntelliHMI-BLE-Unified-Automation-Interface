@@ -33,25 +33,46 @@ class PlcOutputCommand {
 
   /// Parses a PLC status notification. Auto-detects 4-field (PLC14/PLC21)
   /// and 10-field (PLC38) formats based on the number of values present.
-  factory PlcOutputCommand.fromStatusNotification(List<int> bytes) {
-    try {
-      final raw = utf8.decode(bytes).trim();
-      final cleaned = raw.replaceAll('[', '').replaceAll(']', '');
-      final parts = cleaned
-          .split(',')
-          .map((s) => int.tryParse(s.trim()) ?? 0)
-          .toList();
+  ///
+  /// Status feedback contains the physical output levels. DF1/E-STOP is
+  /// wired active-low, so its status bit has the opposite polarity from the
+  /// logical command bit: `0` means E-STOP active and `1` means safe/inactive.
+  /// DF2 onward remain active-high (`1` means active).
+  factory PlcOutputCommand.fromStatusNotification(List<int> bytes) =>
+      tryParseStatusNotification(bytes) ?? PlcOutputCommand.idle();
 
-      if (parts.isEmpty) return PlcOutputCommand.idle();
-      if (parts[0] != 0) return PlcOutputCommand.emergencyStop();
+  /// Strict form used by the live BLE path. Returning null lets the service
+  /// retain the last valid PLC state instead of turning a malformed or still-
+  /// encrypted packet into a plausible but incorrect all-off indication.
+  static PlcOutputCommand? tryParseStatusNotification(List<int> bytes) {
+    try {
+      var payload = utf8.decode(bytes).trim();
+      if (payload.startsWith('[') && payload.endsWith(']')) {
+        payload = payload.substring(1, payload.length - 1).trim();
+      }
+
+      final tokens = payload.split(',');
+      if (tokens.length != 4 && tokens.length != 10) return null;
+      final parts = <int>[];
+      for (final token in tokens) {
+        final value = token.trim();
+        if (value != '0' && value != '1') return null;
+        parts.add(value == '1' ? 1 : 0);
+      }
+
+      if (parts[0] == 0) return PlcOutputCommand.emergencyStop();
 
       final fields = <PlcOutputVariant>{};
-      for (var i = 1; i < parts.length && i < PlcOutputVariant.values.length; i++) {
+      for (
+        var i = 1;
+        i < parts.length && i < PlcOutputVariant.values.length;
+        i++
+      ) {
         if (parts[i] != 0) fields.add(PlcOutputVariant.values[i]);
       }
       return PlcOutputCommand._(fields);
     } catch (_) {
-      return PlcOutputCommand.idle();
+      return null;
     }
   }
 

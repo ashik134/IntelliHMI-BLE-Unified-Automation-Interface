@@ -151,6 +151,8 @@ class FeedbackSnapshot {
     this.buzzerActive = false,
     this.comms = CommsHealth.offline,
     this.analog = const <AnalogFeedbackReading>[],
+    this.reportedOutputBits = 0,
+    this.commandedOutputBits = 0,
   });
 
   /// Severity the PLC/sensors/link report right now, before latching and
@@ -172,6 +174,19 @@ class FeedbackSnapshot {
 
   /// Visible analog readers, in configured order.
   final List<AnalogFeedbackReading> analog;
+
+  /// Frame-stable copies of all DF1..DF10 values used by the LED row.
+  /// Keeping them in the snapshot is essential: a transition such as
+  /// DF2 -> DF3 can leave the alarm/buzzer summary unchanged, but the LEDs
+  /// still have to rebuild and show the newly reported characteristic value.
+  final int reportedOutputBits;
+  final int commandedOutputBits;
+
+  bool isReportedFieldActive(PlcOutputVariant variant) =>
+      reportedOutputBits & (1 << variant.index) != 0;
+
+  bool isCommandedFieldActive(PlcOutputVariant variant) =>
+      commandedOutputBits & (1 << variant.index) != 0;
 
   bool get isAnnunciating => severity.isAnnunciating;
 
@@ -195,7 +210,9 @@ class FeedbackSnapshot {
           other.acknowledged == acknowledged &&
           other.buzzerActive == buzzerActive &&
           other.comms == comms &&
-          _analogEqual(other.analog, analog);
+          _analogEqual(other.analog, analog) &&
+          other.reportedOutputBits == reportedOutputBits &&
+          other.commandedOutputBits == commandedOutputBits;
 
   @override
   int get hashCode => Object.hash(
@@ -205,6 +222,8 @@ class FeedbackSnapshot {
     buzzerActive,
     comms,
     Object.hashAll(analog),
+    reportedOutputBits,
+    commandedOutputBits,
   );
 }
 
@@ -273,7 +292,9 @@ class FeedbackManager extends ChangeNotifier {
     if (!next.alarm.latched) _latchedSeverity = null;
     if (!next.buzzer.latched) _buzzerLatched = false;
     _syncHeartbeatTimer();
-    _publish();
+    // LED presentation settings do not otherwise alter FeedbackSnapshot's
+    // resolved state, but the row must still rebuild to apply them.
+    _publish(forceNotify: true);
   }
 
   /// Silences the current episode: clears the alarm latch and mutes the
@@ -342,7 +363,7 @@ class FeedbackManager extends ChangeNotifier {
       final mapped = mappedVariants.contains(variant);
       if (!mapped && !row.showUnmappedChannels) continue;
 
-      final confirmed = _source.isReportedFieldActive(variant);
+      final confirmed = _snapshot.isReportedFieldActive(variant);
       readings.add(
         LedFeedbackReading(
           variant: variant,
@@ -351,7 +372,7 @@ class FeedbackManager extends ChangeNotifier {
           // confirmed value on both halves, so ring and core always agree and
           // no blink can be produced downstream.
           commanded: row.showPendingState && channel.blinkWhenPending
-              ? _source.isCommandedFieldActive(variant)
+              ? _snapshot.isCommandedFieldActive(variant)
               : confirmed,
           confirmed: confirmed,
           mapped: mapped,
@@ -373,10 +394,10 @@ class FeedbackManager extends ChangeNotifier {
     _publish();
   }
 
-  void _publish() {
+  void _publish({bool forceNotify = false}) {
     if (_disposed) return;
     final next = _compute();
-    if (next == _snapshot) return;
+    if (!forceNotify && next == _snapshot) return;
     _snapshot = next;
     _notifySafely();
   }
@@ -398,6 +419,8 @@ class FeedbackManager extends ChangeNotifier {
     final analog = _resolveAnalog();
     final comms = _resolveComms();
     final rawSeverity = _resolveRawSeverity(analog: analog, comms: comms);
+    final reportedOutputBits = _outputBitsFor(_source.isReportedFieldActive);
+    final commandedOutputBits = _outputBitsFor(_source.isCommandedFieldActive);
 
     // Episode bookkeeping. A raw severity that climbs past what was
     // acknowledged re-annunciates; a return to normal ends the episode
@@ -434,7 +457,17 @@ class FeedbackManager extends ChangeNotifier {
       buzzerActive: buzzerActive,
       comms: comms,
       analog: analog,
+      reportedOutputBits: reportedOutputBits,
+      commandedOutputBits: commandedOutputBits,
     );
+  }
+
+  int _outputBitsFor(bool Function(PlcOutputVariant) isActive) {
+    var bits = 0;
+    for (final variant in PlcOutputVariant.values) {
+      if (isActive(variant)) bits |= 1 << variant.index;
+    }
+    return bits;
   }
 
   List<AnalogFeedbackReading> _resolveAnalog() {
