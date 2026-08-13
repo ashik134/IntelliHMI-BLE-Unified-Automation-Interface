@@ -12,6 +12,11 @@ class AppStartupInitializer {
 
   final CraneController _controller;
 
+  /// Number of `onProgress` milestones [initialize] reports. The splash screen
+  /// turns this into a real progress fraction, so keep it in step with the
+  /// callbacks below.
+  static const int totalSteps = 3;
+
   Future<void> initialize({StartupProgressCallback? onProgress}) async {
     onProgress?.call('Applying runtime policies');
     await _safeTask(() async {

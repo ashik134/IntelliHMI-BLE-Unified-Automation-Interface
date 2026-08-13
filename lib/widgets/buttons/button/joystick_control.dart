@@ -2268,7 +2268,10 @@ class _CrossGatePainter extends CustomPainter {
 
     for (final (cx, cy) in positions) {
       final rect = cellRect(cx, cy);
-      final rrect = RRect.fromRectAndRadius(rect, Radius.circular(cell * 0.136));
+      final rrect = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(cell * 0.136),
+      );
       final isNeutral = cx == 0 && cy == 0;
       final isEngaged =
           !isNeutral && activeCellX == cx && activeCellY == cy && isActive;

@@ -483,7 +483,10 @@ InputDecoration _plcWebserverInputDecoration({
     filled: true,
     fillColor: AppColors.connBg,
     labelStyle: const TextStyle(color: AppColors.connTextMuted),
-    hintStyle: const TextStyle(color: AppColors.connTextMuted, fontSize: 12),
+    hintStyle: const TextStyle(
+      color: Color.fromARGB(255, 11, 87, 187),
+      fontSize: 12,
+    ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -512,7 +515,7 @@ class _TargetNetworkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ssidLabel = ssid.isEmpty ? 'SSID required' : ssid;
+    final ssidLabel = ssid.isEmpty ? ssid : 'SSID required';
     final securityLabel = hasPassword ? 'secured' : 'open';
 
     return Row(

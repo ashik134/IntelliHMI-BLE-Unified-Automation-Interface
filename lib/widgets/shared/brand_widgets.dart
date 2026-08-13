@@ -3,14 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Shared design-system primitives for the Home, Scan and Authentication
-// screens. Everything here leans on AppColors' "brand*" tokens so the
-// three screens visually belong to one product, with the violet accent
-// tying back to the Control Screen.
+// Shared design-system primitives for the Home, Scan and Authentication screens.
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Small uppercase eyebrow label used above section groups
-/// ("QUICK ACTIONS", "NEARBY DEVICES", etc).
 class BrandSectionLabel extends StatelessWidget {
   const BrandSectionLabel({super.key, required this.label, this.trailing});
 
@@ -308,7 +303,10 @@ class BrandPrimaryButton extends StatelessWidget {
             : (icon != null ? Icon(icon, size: 18) : const SizedBox.shrink()),
         label: Text(
           label,
-          style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.6),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
         ),
         style: FilledButton.styleFrom(
           backgroundColor: color,
@@ -346,10 +344,7 @@ class BrandSecondaryButton extends StatelessWidget {
       child: OutlinedButton.icon(
         onPressed: onPressed,
         icon: icon != null ? Icon(icon, size: 16) : const SizedBox.shrink(),
-        label: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.brandTextSub,
           side: const BorderSide(color: AppColors.brandBorderStrong),
