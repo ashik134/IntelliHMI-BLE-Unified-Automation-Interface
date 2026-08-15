@@ -1,18 +1,20 @@
 import 'package:flutter/painting.dart' show Color;
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AnalogFeedbackConfig
 //
 // One analog READER channel — a sensor reading / analog value display, never
-// an analog output. The channel's raw counts arrive from the PLC's analog
-// characteristic (CraneController.analogValue, fed by BLEConstants
-// .analogCharUuid's "A1:<v>,A2:<v>" payload); everything here describes how
-// that raw number is turned into an engineering value and annunciated. No
-// field on this class can produce a PLC write — see FeedbackManager.
+// an analog output. The channel value arrives from the PLC's analog
+// characteristic after AES-GCM decryption of an `H1,<v>` / `H2,<v>` hoist
+// notification. The firmware has already applied its 400-count deadband and
+// 3.0303 scale; everything here describes any further operator calibration
+// into engineering units and annunciation. No field on this class can produce
+// a PLC write — see FeedbackManager.
 //
 // Two separate ranges, deliberately:
-//   * [rawMin]/[rawMax]  — what the transducer actually sends (12-bit ADC
-//     counts by default). This is calibration: "4 mA reads as 410 counts".
+//   * [rawMin]/[rawMax]  — the span received from the firmware. This is
+//     calibration after the firmware's own deadband and scaling.
 //   * [displayMin]/[displayMax] — the engineering span those counts mean
 //     ("0..25 tonnes"). This is scaling.
 // [calibrationOffset] is applied last, in engineering units, so a field zero
@@ -30,9 +32,9 @@ class AnalogFeedbackConfig {
     this.label = '',
     this.unit = '',
     this.rawMin = 0,
-    this.rawMax = defaultRawFullScale,
+    this.rawMax = defaultFirmwareFullScale,
     this.displayMin = 0,
-    this.displayMax = defaultRawFullScale,
+    this.displayMax = defaultFirmwareFullScale,
     this.calibrationOffset = 0,
     this.warningFraction = defaultWarningFraction,
     this.criticalFraction = defaultCriticalFraction,
@@ -42,15 +44,20 @@ class AnalogFeedbackConfig {
     this.soundBuzzer = false,
   });
 
-  /// Raw 12-bit ADC full scale the firmware reports today.
-  static const double defaultRawFullScale = 4095;
+  /// Full scale after the firmware applies `(raw - 400) * 3.0303f` to a
+  /// 12-bit ADC reading and casts the result to `uint16_t`.
+  static const double defaultFirmwareFullScale =
+      HoistNotification.firmwareFullScale;
+
+  /// Full scale used by layouts saved against the former A1/A2 wire format.
+  static const double _legacyAdcFullScale = 4095;
 
   static const double defaultWarningFraction = 0.75;
   static const double defaultCriticalFraction = 0.90;
 
-  /// Feedback SOURCE: which analog channel this reader watches (`A1`, `A2`,
-  /// ... — matched against CraneController.analogValues' keys). Never a
-  /// writable target.
+  /// Feedback SOURCE: which hoist channel this reader watches (`H1` or `H2`,
+  /// matched against CraneController.analogValues' keys). Never a writable
+  /// target.
   final String channelKey;
 
   /// Operator-facing name. Empty falls back to the channel key at render time
@@ -120,9 +127,8 @@ class AnalogFeedbackConfig {
     return AnalogFeedbackZone.normal;
   }
 
-  /// Whether raw counts and engineering units are the same number — i.e. the
-  /// channel is unscaled. Lets the UI show "raw counts" rather than a
-  /// meaningless 1:1 conversion.
+  /// Whether the received firmware values and displayed values use the same
+  /// span — i.e. the channel has no additional app-side scaling.
   bool get isUnscaled =>
       rawMin == displayMin && rawMax == displayMax && calibrationOffset == 0;
 
@@ -131,13 +137,13 @@ class AnalogFeedbackConfig {
   /// [copyWith] and [fromJson] so no downstream consumer has to re-check.
   AnalogFeedbackConfig normalized() {
     final safeRawMin = rawMin.isFinite ? rawMin : 0.0;
-    var safeRawMax = rawMax.isFinite ? rawMax : defaultRawFullScale;
+    var safeRawMax = rawMax.isFinite ? rawMax : defaultFirmwareFullScale;
     if (safeRawMax <= safeRawMin) safeRawMax = safeRawMin + 1;
 
     final safeDisplayMin = displayMin.isFinite ? displayMin : 0.0;
     var safeDisplayMax = displayMax.isFinite
         ? displayMax
-        : defaultRawFullScale;
+        : defaultFirmwareFullScale;
     if (safeDisplayMax <= safeDisplayMin) safeDisplayMax = safeDisplayMin + 1;
 
     final safeWarning = warningFraction.isFinite
@@ -221,15 +227,32 @@ class AnalogFeedbackConfig {
 
   factory AnalogFeedbackConfig.fromJson(Map<String, dynamic> json) {
     final rawColor = json['color'] as num?;
+    final storedChannelKey =
+        json['channelKey'] as String? ?? HoistNotification.hoist1Key;
+    final isLegacyChannel =
+        storedChannelKey == 'A1' || storedChannelKey == 'A2';
+    final channelKey = switch (storedChannelKey) {
+      'A1' => HoistNotification.hoist1Key,
+      'A2' => HoistNotification.hoist2Key,
+      _ => storedChannelKey,
+    };
+    final storedRawMax =
+        (json['rawMax'] as num?)?.toDouble() ?? defaultFirmwareFullScale;
+    final storedDisplayMax =
+        (json['displayMax'] as num?)?.toDouble() ?? defaultFirmwareFullScale;
+
     return AnalogFeedbackConfig(
-      channelKey: json['channelKey'] as String? ?? 'A1',
+      channelKey: channelKey,
       label: json['label'] as String? ?? '',
       unit: json['unit'] as String? ?? '',
       rawMin: (json['rawMin'] as num?)?.toDouble() ?? 0,
-      rawMax: (json['rawMax'] as num?)?.toDouble() ?? defaultRawFullScale,
+      rawMax: isLegacyChannel && storedRawMax == _legacyAdcFullScale
+          ? defaultFirmwareFullScale
+          : storedRawMax,
       displayMin: (json['displayMin'] as num?)?.toDouble() ?? 0,
-      displayMax:
-          (json['displayMax'] as num?)?.toDouble() ?? defaultRawFullScale,
+      displayMax: isLegacyChannel && storedDisplayMax == _legacyAdcFullScale
+          ? defaultFirmwareFullScale
+          : storedDisplayMax,
       calibrationOffset: (json['calibrationOffset'] as num?)?.toDouble() ?? 0,
       warningFraction:
           (json['warningFraction'] as num?)?.toDouble() ??
@@ -282,10 +305,15 @@ class AnalogFeedbackConfig {
   );
 }
 
-/// The analog channels a fresh layout reads. Matches what the firmware pushes
-/// today (A1/A2, raw counts, unscaled) so an untouched install renders exactly
-/// as it did before Feedback Settings existed.
+/// The hoist channels a fresh layout reads. Values use the firmware's
+/// post-deadband, post-scale range and are displayed unchanged by default.
 const List<AnalogFeedbackConfig> kDefaultAnalogFeedbackChannels = [
-  AnalogFeedbackConfig(channelKey: 'A1', label: 'Load 1'),
-  AnalogFeedbackConfig(channelKey: 'A2', label: 'Load 2'),
+  AnalogFeedbackConfig(
+    channelKey: HoistNotification.hoist1Key,
+    label: 'Load 1',
+  ),
+  AnalogFeedbackConfig(
+    channelKey: HoistNotification.hoist2Key,
+    label: 'Load 2',
+  ),
 ];

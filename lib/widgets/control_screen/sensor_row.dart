@@ -3,6 +3,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/analog_gauge.dart';
 
@@ -40,7 +41,7 @@ class SensorGaugeSpec {
     this.criticalFraction = 0.9,
   });
 
-  /// Short channel id shown in the header chip (`A1`).
+  /// Short channel id shown in the header chip (`H1`).
   final String tag;
 
   /// Operator-facing name (`Load 1`).
@@ -135,10 +136,7 @@ class SensorRow extends StatelessWidget {
             .toDouble();
 
     final cards = math.max(1, cardCount);
-    final cardWidth = math.max(
-      0.0,
-      (rowWidth - _kGap * (cards - 1)) / cards,
-    );
+    final cardWidth = math.max(0.0, (rowWidth - _kGap * (cards - 1)) / cards);
     final proportional =
         cardWidth * lerpDouble(_kAspectCompact, _kAspectExpanded, t)!;
 
@@ -199,21 +197,19 @@ class SensorRow extends StatelessWidget {
   }
 }
 
-/// Raw-counts convenience for callers with no resolved feedback config — the
-/// two stock channels at the PLC's 12-bit full scale, in the app's default
-/// channel colours.
-List<SensorGaugeSpec> rawSensorGauges({required int a1, required int a2}) => [
+/// Firmware-value convenience for callers with no resolved feedback config.
+List<SensorGaugeSpec> rawSensorGauges({required int h1, required int h2}) => [
   SensorGaugeSpec(
-    tag: 'A1',
+    tag: HoistNotification.hoist1Key,
     label: 'Load 1',
-    value: a1.toDouble(),
+    value: h1.toDouble(),
     color: AppColors.upColor,
     colorLight: AppColors.upColorLight,
   ),
   SensorGaugeSpec(
-    tag: 'A2',
+    tag: HoistNotification.hoist2Key,
     label: 'Load 2',
-    value: a2.toDouble(),
+    value: h2.toDouble(),
     color: AppColors.downColor,
     colorLight: AppColors.downColorLight,
   ),

@@ -11,6 +11,7 @@ import 'package:rev_crane_control_ops/services/ble_crypto.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
@@ -67,7 +68,10 @@ class BleService {
   int _scanGeneration = 0;
 
   final Map<String, BleScanDevice> _deviceCache = {};
-  final Map<String, int> _lastAnalog = {'A1': 0, 'A2': 0};
+  final Map<String, int> _lastHoistValues = {
+    HoistNotification.hoist1Key: 0,
+    HoistNotification.hoist2Key: 0,
+  };
 
   Timer? _pruneTimer;
   Timer? _rssiTimer;
@@ -747,6 +751,7 @@ class BleService {
       _handleDisconnect();
     } else {
       _connectedDevice = null;
+      _resetHoistValues(emit: !_isDisposing);
     }
   }
 
@@ -786,7 +791,7 @@ class BleService {
     _analogSubscription = null;
     _authSubscription = null;
     _statusSubscription = null;
-    _analogController.add(const {'A1': 0, 'A2': 0});
+    _resetHoistValues(emit: true);
 
     if (!_statusController.isClosed) {
       _statusController.add(PlcOutputCommand.idle());
@@ -796,32 +801,28 @@ class BleService {
   }
 
   // ── Characteristic callbacks ───────────────────────────────────────────────
-  // ── Processes raw sensor bytes and sends the values to the analogStream ────
+  // ── Decrypts hoist sensor packets and publishes H1/H2 snapshots ────
 
   void _handleAnalogNotification(List<int> bytes) {
     unawaited(_handleAnalogNotificationAsync(bytes));
   }
 
   Future<void> _handleAnalogNotificationAsync(List<int> bytes) async {
-    final plainPayload = _tryDecodeUtf8(bytes)?.trim();
-    if (plainPayload != null && plainPayload.contains(':')) {
-      if (_applyAnalogPayload(plainPayload, source: 'plain')) {
-        return;
-      }
-    }
-
     if (!_sessionAuthenticated || !BleCrypto.sessionActive) {
-      _logUnexpectedAnalogPayload(plainPayload, bytes.length);
+      _logger.w(
+        'Encrypted hoist notification received outside an authenticated '
+        'session; ignored.',
+      );
       return;
     }
 
     try {
       final decrypted = await _decryptNotification(bytes, label: 'analog');
-      final encryptedPayload = _tryDecodeUtf8(decrypted)?.trim();
-      if (_applyAnalogPayload(encryptedPayload, source: 'encrypted')) {
+      final payload = _tryDecodeUtf8(decrypted)?.trim();
+      if (_applyHoistPayload(payload)) {
         return;
       }
-      _logger.w('Unexpected encrypted analog payload: "$encryptedPayload"');
+      _logger.w('Invalid decrypted hoist payload ignored: "$payload"');
     } on BleCryptoException catch (e) {
       _logger.e('Encrypted analog notification rejected: $e');
       await _cryptoSafeState('Analog notification decrypt failed: $e');
@@ -834,66 +835,31 @@ class BleService {
     }
   }
 
-  bool _applyAnalogPayload(String? payload, {required String source}) {
+  bool _applyHoistPayload(String? payload) {
     if (payload == null || payload.isEmpty) {
       return false;
     }
 
-    try {
-      final updated = Map<String, int>.from(_lastAnalog);
-      var handled = false;
+    final notification = HoistNotification.tryParse(payload);
+    if (notification == null) return false;
 
-      for (final part in payload.split(',')) {
-        final token = part.trim();
-        if (token.isEmpty) {
-          continue;
-        }
-
-        final kv = token.split(':');
-        if (kv.length != 2) {
-          _logger.w('Unexpected analog token ($source): $token');
-          continue;
-        }
-
-        handled = true;
-        final key = kv[0].trim();
-        final value = int.tryParse(kv[1].trim());
-        if (value == null) {
-          _logger.w('Invalid analog value ($source): $token');
-          continue;
-        }
-
-        if (updated.containsKey(key)) {
-          updated[key] = value;
-        } else {
-          _logger.w('Unknown analog key ($source): $key');
-        }
-      }
-
-      if (!handled) {
-        return false;
-      }
-
-      _lastAnalog
-        ..['A1'] = updated['A1']!
-        ..['A2'] = updated['A2']!;
-      _analogController.add(Map.unmodifiable(updated));
-      return true;
-    } catch (error) {
-      _logger.e('Analog parse error ($source)', error: error);
-      return true;
+    _lastHoistValues.addAll(notification.values);
+    if (!_analogController.isClosed) {
+      _analogController.add(
+        Map.unmodifiable(Map<String, int>.from(_lastHoistValues)),
+      );
     }
+    return true;
   }
 
-  void _logUnexpectedAnalogPayload(String? payload, int byteLength) {
-    if (payload == null) {
-      _logger.w(
-        'Analog notification: non-UTF8 data ($byteLength bytes) ignored.',
+  void _resetHoistValues({required bool emit}) {
+    _lastHoistValues
+      ..[HoistNotification.hoist1Key] = 0
+      ..[HoistNotification.hoist2Key] = 0;
+    if (emit && !_analogController.isClosed) {
+      _analogController.add(
+        Map.unmodifiable(Map<String, int>.from(_lastHoistValues)),
       );
-      return;
-    }
-    if (payload.isNotEmpty) {
-      _logger.w('Unexpected analog payload: "$payload"');
     }
   }
 

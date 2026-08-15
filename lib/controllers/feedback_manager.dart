@@ -48,7 +48,7 @@ abstract interface class FeedbackSource implements Listenable {
   bool isReportedFieldActive(PlcOutputVariant variant);
   bool isCommandedFieldActive(PlcOutputVariant variant);
 
-  /// Raw counts for an analog channel key (`A1`, `A2`, ...); 0 when the
+  /// Firmware-scaled value for a hoist channel key (`H1` or `H2`); 0 when the
   /// channel has never reported.
   int analogValue(String channelKey);
 

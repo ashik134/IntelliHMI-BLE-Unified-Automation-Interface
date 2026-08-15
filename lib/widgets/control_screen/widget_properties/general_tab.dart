@@ -181,13 +181,15 @@ class _GeneralTabState extends State<GeneralTab> {
         const PropertySectionHeader('State'),
         PropertySwitchTile(
           title: 'Enabled',
-          subtitle: 'Disabled widgets stay on the grid but never send PLC output.',
+          subtitle:
+              'Disabled widgets stay on the grid but never send PLC output.',
           value: config.enabled,
           onChanged: (v) => widget.onUpdate((b) => b.copyWith(enabled: v)),
         ),
         PropertySwitchTile(
           title: 'Lock position',
-          subtitle: 'Prevents this widget from being moved or resized on the canvas.',
+          subtitle:
+              'Prevents this widget from being moved or resized on the canvas.',
           value: config.locked,
           onChanged: (v) => widget.onUpdate((b) => b.copyWith(locked: v)),
         ),
@@ -197,12 +199,13 @@ class _GeneralTabState extends State<GeneralTab> {
             options: const [
               (ButtonRotation.none, '0°'),
               (ButtonRotation.deg90, '90°'),
+              (ButtonRotation.deg180, '180°'),
               (ButtonRotation.deg270, '270°'),
+
               // 360° is the same underlying state as 0° (ButtonRotation.none)
               // — both pills light up together whenever rotation == none.
               // See ButtonConfig.supportsStructuralRotation's doc comment
               // for why 180° is never offered for these two types.
-              (ButtonRotation.none, '360°'),
             ],
             selected: config.rotation,
             onChanged: (r) => widget.onUpdate((b) => b.copyWith(rotation: r)),

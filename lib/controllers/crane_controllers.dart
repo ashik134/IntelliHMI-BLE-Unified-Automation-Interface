@@ -13,6 +13,7 @@ import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/services/ble_service.dart';
 import 'package:rev_crane_control_ops/services/permission_service.dart';
@@ -160,8 +161,8 @@ class CraneController extends ChangeNotifier
   BleScanDevice? get cancellingDevice => _cancellingDevice;
 
   // ── Analog sensor values ────────────────────────────────────────────────
-  int get a1 => _analogValues['A1'] ?? 0;
-  int get a2 => _analogValues['A2'] ?? 0;
+  int get h1 => _analogValues[HoistNotification.hoist1Key] ?? 0;
+  int get h2 => _analogValues[HoistNotification.hoist2Key] ?? 0;
 
   @override
   int analogValue(String channelKey) => _analogValues[channelKey] ?? 0;

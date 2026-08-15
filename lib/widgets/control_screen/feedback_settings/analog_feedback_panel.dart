@@ -6,6 +6,7 @@ import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/button_catalog_entry.dart';
 import 'package:rev_crane_control_ops/models/feedback/analog_feedback_config.dart';
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_palette.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback_settings/feedback_settings_widgets.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/color_picker_field.dart';
@@ -16,18 +17,18 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
 //
 //   More -> Feedback Settings -> Sensor Readings & Analog Values
 //
-// One editor per analog READER. A reader watches a channel key the PLC pushes
-// over the analog characteristic and turns its raw counts into an engineering
-// value: min/max calibration first, then the engineering span it maps onto,
-// then a field offset. Thresholds band the result; the gauge, the alarm link
-// and the buzzer link all read that band. Nothing here writes an analog
-// output — this app has no analog write path from feedback at all.
+// One editor per analog READER. A reader watches an H1/H2 channel the PLC
+// pushes over the analog characteristic and can turn that firmware-scaled
+// value into an engineering value: min/max calibration first, then the
+// engineering span it maps onto, then a field offset. Thresholds band the
+// result; the gauge, alarm link and buzzer link all read that band. Nothing
+// here writes an analog output.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Channel keys the firmware currently reports. A reader may point at any of
 /// them; two readers on the same key is a legitimate (if unusual) dual
 /// display, not an error.
-const List<String> kKnownAnalogChannelKeys = ['A1', 'A2'];
+const List<String> kKnownAnalogChannelKeys = HoistNotification.channelKeys;
 
 Future<void> showAnalogFeedbackPanel(BuildContext context) {
   return showModalBottomSheet<void>(
@@ -206,8 +207,8 @@ class _ChannelEditorState extends State<_ChannelEditor> {
         ),
         const PropertySectionHeader('Min / max calibration'),
         const Text(
-          'The raw counts the transducer actually sends at each end of its '
-          'range.',
+          'The firmware-scaled hoist values received at each end of the '
+          'transducer range.',
           style: TextStyle(
             color: AppColors.darkTextMuted,
             fontSize: 11.5,
@@ -220,7 +221,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
             Expanded(
               child: FeedbackNumberField(
                 controller: _rawMin,
-                label: 'Raw min',
+                label: 'Received min',
                 onChanged: (value) => onChanged(config.copyWith(rawMin: value)),
               ),
             ),
@@ -228,7 +229,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
             Expanded(
               child: FeedbackNumberField(
                 controller: _rawMax,
-                label: 'Raw max',
+                label: 'Received max',
                 onChanged: (value) => onChanged(config.copyWith(rawMax: value)),
               ),
             ),
@@ -236,8 +237,8 @@ class _ChannelEditorState extends State<_ChannelEditor> {
         ),
         const PropertySectionHeader('Analog scaling'),
         const Text(
-          'The engineering span those counts represent. Leave equal to the raw '
-          'range to display raw counts.',
+          'The engineering span those values represent. Leave it equal to the '
+          'received range to display the firmware value unchanged.',
           style: TextStyle(
             color: AppColors.darkTextMuted,
             fontSize: 11.5,
@@ -322,7 +323,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
   }
 }
 
-/// Shows the live raw count next to what the current calibration turns it
+/// Shows the live firmware value next to what the current calibration turns it
 /// into — the fastest way to tell whether a scaling entry is right.
 class _LivePreview extends StatelessWidget {
   const _LivePreview({required this.config});
@@ -333,7 +334,7 @@ class _LivePreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final manager = context.watch<FeedbackManager>();
     // A hidden reader has no snapshot entry, but its calibration still needs
-    // to be checkable against live counts — so fall back to null (rendered as
+    // to be checkable against live values — so fall back to null (rendered as
     // "not reporting") rather than pretending the channel reads zero.
     int? raw;
     for (final reading in manager.snapshot.analog) {
@@ -359,7 +360,7 @@ class _LivePreview extends StatelessWidget {
             child: Text(
               raw == null
                   ? '${config.channelKey} — not reporting'
-                  : '${config.channelKey} raw $rawValue',
+                  : '${config.channelKey} received $rawValue',
               style: const TextStyle(
                 color: AppColors.darkTextMuted,
                 fontSize: 12,

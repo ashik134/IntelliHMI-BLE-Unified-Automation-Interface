@@ -34,7 +34,7 @@ class ControlLayoutMetrics {
     required this.isCompact,
   });
 
-  /// Whether the A1/A2 load-sensor row should be rendered on this screen.
+  /// Whether the H1/H2 hoist-sensor row should be rendered on this screen.
   final bool showSensorRow;
 
   /// Whether the PLC output LED indicator row should be rendered.

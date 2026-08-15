@@ -708,7 +708,11 @@ class ControlLayoutConfig {
   /// [FeedbackSettingsConfig.fromLegacyBuzzer], whose other areas all default
   /// to the pre-existing rendering, so an upgrading install looks unchanged
   /// until Feedback Settings is opened.
-  static const int schemaVersion = 11;
+  ///
+  /// Bumped 11 -> 12 for the firmware's encrypted hoist-input contract.
+  /// AnalogFeedbackConfig migrates saved A1/A2 reader sources to H1/H2 and
+  /// upgrades the former 4095 default span to the firmware-scaled 11196 span.
+  static const int schemaVersion = 12;
 
   final ControlWidgetSizeConfig sizeConfig;
   final ControlLabelConfig labelConfig;

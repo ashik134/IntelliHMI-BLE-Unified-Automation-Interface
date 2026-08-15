@@ -3,14 +3,15 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AnalogGauge / AnalogGaugeCard
 //
 // Industrial radial dial for the live analog channels the PLC pushes over the
-// analog characteristic (BLEConstants.analogCharUuid — payload "A1:<v>,A2:<v>",
-// parsed in BleService and surfaced as CraneController.a1 / .a2).
+// analog characteristic (BLEConstants.analogCharUuid). BleService decrypts
+// its AES-GCM packet and parses `H1,<v>` / `H2,<v>` into CraneController.h1/h2.
 //
 // The dial is purely an indicator: it never writes back to the PLC and holds no
 // state of its own beyond the value sweep animation, so it is safe to drop into
@@ -81,10 +82,10 @@ class AnalogGauge extends StatelessWidget {
     this.semanticLabel,
   });
 
-  /// Full-scale reading assumed for the PLC's analog channels — the firmware
-  /// reports raw 12-bit ADC counts. Pass [maxValue] explicitly if a channel is
-  /// scaled into engineering units before it reaches the app.
-  static const double defaultFullScale = 4095;
+  /// Full-scale value after the firmware's ADC deadband and 3.0303 multiplier.
+  /// Pass [maxValue] explicitly when Feedback Settings maps it into
+  /// engineering units.
+  static const double defaultFullScale = HoistNotification.firmwareFullScale;
 
   /// Live reading, in the same units as [minValue] / [maxValue]. Values outside
   /// the range are clamped for the sweep but still shown verbatim in the
@@ -242,7 +243,7 @@ class AnalogGaugeCard extends StatelessWidget {
     this.criticalFraction = 0.9,
   });
 
-  /// Short channel id (`A1`, `A2`) shown in the header chip.
+  /// Short channel id (`H1`, `H2`) shown in the header chip.
   final String tag;
 
   /// Operator-facing channel name (`Load 1`).
@@ -643,7 +644,10 @@ class _HeadroomBar extends StatelessWidget {
                 ),
               ),
               marker(warningFraction, AppColors.accent.withAlpha(150)),
-              marker(criticalFraction, AppColors.eStopColorLight.withAlpha(170)),
+              marker(
+                criticalFraction,
+                AppColors.eStopColorLight.withAlpha(170),
+              ),
             ],
           );
         },

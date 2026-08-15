@@ -72,21 +72,27 @@ class AvailableDeviceCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        device.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isStale
-                              ? AppColors.connTextSub
-                              : AppColors.connText,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
+                      // Expanded takes remaining space
+                      Expanded(
+                        flex: 3, // Takes 3 parts of the space
+                        child: Text(
+                          device.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.clip,
+                          style: TextStyle(
+                            color: isStale
+                                ? AppColors.connTextSub
+                                : AppColors.connText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 2),
+                      // Signal pill with fixed width
                       _SignalPill(rssi: device.rssi, label: device.signalLabel),
+                      const SizedBox(width: 4),
                       if (isStale) _StaleIndicatorRow(isExpired: isExpired),
                     ],
                   ),
@@ -96,10 +102,10 @@ class AvailableDeviceCard extends StatelessWidget {
                   Text(
                     device.id,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    overflow: TextOverflow.clip,
                     style: const TextStyle(
                       color: AppColors.connTextMuted,
-                      fontSize: 11,
+                      fontSize: 10,
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -192,26 +198,36 @@ class _SignalPill extends StatelessWidget {
         ? AppColors.brandWarning
         : AppColors.brandDanger;
 
+    // Just show signal strength as a single character indicator
+    final String signalChar = rssi >= -50
+        ? '▄'
+        : rssi >= -65
+        ? '▃'
+        : rssi >= -75
+        ? '▂'
+        : rssi >= -85
+        ? '▁'
+        : '·';
+
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Icon(Icons.signal_cellular_alt_rounded, size: 13, color: tone),
-        // const SizedBox(width: 5),
         Text(
-          '$rssi dBm',
+          signalChar,
           style: TextStyle(
             color: tone,
-            fontSize: 10.5,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
-            fontFamily: 'monospace',
           ),
         ),
-        const SizedBox(width: 6),
-        Container(
-          width: 3,
-          height: 3,
-          decoration: const BoxDecoration(
-            color: AppColors.brandTextMuted,
-            shape: BoxShape.circle,
+        const SizedBox(width: 2),
+        Text(
+          '$rssi',
+          style: TextStyle(
+            color: tone,
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'monospace',
           ),
         ),
       ],
@@ -282,7 +298,7 @@ class ConnectedDeviceCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: AppColors.brandText,
-                              fontSize: 16,
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                               letterSpacing: -0.2,
                             ),
@@ -329,7 +345,7 @@ class ConnectedDeviceCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 1),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -352,7 +368,7 @@ class ConnectedDeviceCard extends StatelessWidget {
                       ? AppColors.brandBorder.withAlpha(80)
                       : AppColors.brandBorderStrong,
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 1),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
                 ),
@@ -393,12 +409,12 @@ class _PlcTypeBadge extends StatelessWidget {
     final Color textColor = _isKnown
         ? AppColors.brandVioletDeep
         : AppColors.brandTextMuted;
-    final double fontSize = compact ? 9.5 : 11.0;
+    final double fontSize = compact ? 8 : 10.0;
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 6 : 8,
-        vertical: compact ? 2 : 3,
+        horizontal: compact ? 4 : 8,
+        vertical: compact ? 0 : 3,
       ),
       decoration: BoxDecoration(
         color: bg,

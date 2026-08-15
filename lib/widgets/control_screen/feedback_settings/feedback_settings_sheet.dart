@@ -60,10 +60,7 @@ class _FeedbackSettingsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final config = context
-        .watch<LayoutEditController>()
-        .draft
-        .feedbackConfig;
+    final config = context.watch<LayoutEditController>().draft.feedbackConfig;
     final arrangement = context
         .watch<LayoutEditController>()
         .draft
@@ -161,10 +158,7 @@ String _buzzerSummary(FeedbackSettingsConfig config) {
       '${buzzer.priority.name} priority';
 }
 
-String _analogSummary(
-  FeedbackSettingsConfig config, {
-  required bool showRow,
-}) {
+String _analogSummary(FeedbackSettingsConfig config, {required bool showRow}) {
   if (!showRow) return 'Sensor row hidden';
   final visible = config.visibleAnalogChannels;
   if (visible.isEmpty) return 'No reader visible';
@@ -174,7 +168,7 @@ String _analogSummary(
       .where((u) => u.isNotEmpty)
       .toSet();
   final suffix = scaled == 0
-      ? 'raw counts'
+      ? 'firmware values'
       : units.isEmpty
       ? '$scaled scaled'
       : units.join(', ');
