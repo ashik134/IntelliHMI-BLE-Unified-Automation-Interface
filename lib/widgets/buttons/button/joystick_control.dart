@@ -265,11 +265,24 @@ class _IndustrialJoystickControlState extends State<IndustrialJoystickControl>
   JoystickConfig get _config => widget.config.normalizedForMode();
 
   void _emit() {
+    final previousOutput = _lastOutput;
     final output = _config.isDigital
         ? _stableDigitalOutputFor(_value)
         : _outputFor(_value);
-    if (output == _lastOutput) return;
+
+    // Digital controls expose raw x/y values for rendering, but those values
+    // have no wire-level meaning. A command changes only when the resolved
+    // detent/direction changes; movement within the same detent must not keep
+    // resending the same PLC state.
+    final changed = _config.isDigital
+        ? output.xStep != previousOutput.xStep ||
+              output.yStep != previousOutput.yStep
+        : output != previousOutput;
+
+    // Keep the latest raw values for the visual state even when the logical
+    // digital output is unchanged.
     _lastOutput = output;
+    if (!changed) return;
     widget.onChanged(output);
   }
 
