@@ -2214,18 +2214,6 @@ class _CrossGatePainter extends CustomPainter {
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, gateExtent * 0.06),
     );
 
-    // Angular square plate (distinct from the gimbal's round dish).*
-    final plateRect = Rect.fromCenter(
-      center: center,
-      width: plateR * 2,
-      height: plateR * 2,
-    );
-    final plateRRect = RRect.fromRectAndRadius(
-      plateRect,
-      Radius.circular(gateExtent * 0.09),
-    );
-    // canvas.drawRRect(
-    //   plateRRect,
     //   Paint()
     //     ..shader = const LinearGradient(
     //       begin: Alignment.topLeft,

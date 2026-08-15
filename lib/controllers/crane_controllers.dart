@@ -21,10 +21,6 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/utils/preferences.dart';
 import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 
-/// Implements [FeedbackManager]'s read-only [FeedbackSource] view. That
-/// interface exposes only status/analog/link reads — no command path — so the
-/// whole feedback stack (alarms, buzzer, LEDs, values, heartbeat) is
-/// structurally incapable of writing to the PLC.
 class CraneController extends ChangeNotifier
     with WidgetsBindingObserver
     implements FeedbackSource {
@@ -44,42 +40,16 @@ class CraneController extends ChangeNotifier
   List<BleScanDevice> _devices = const [];
   Map<String, int> _analogValues = {};
 
-  // ── Output-state model ────────────────────────────────────────────────────
-  //
-  // Three deliberately separate views of PLC output state. They are NOT
-  // collapsed into one field, because an output indicator has to be able to
-  // show that the app and the PLC currently disagree:
-  //
-  //   _commandedCommand       What THIS APP asked for. Written ONLY by the
-  //                           send paths (_sendCommand / triggerEStop /
-  //                           triggerSafeDisconnect) and cleared on
-  //                           disconnect. A PLC readback NEVER touches it.
-  //   _reportedStatusCommand  What the PLC CONFIRMED. Written ONLY by the
-  //                           status/readback stream (_handlePlcStatus).
-  //                           Sending a command NEVER touches it.
-  //   _activeCommand          "Latest known" effective state — the optimistic
-  //                           command echo, overwritten by readback whenever
-  //                           one arrives. Kept for the status chip / status
-  //                           label and the E-STOP entry lock only.
-  //
-  // Output indicators (see live_led_row.dart) must read the first two and
-  // never the third: ring = commanded, core = confirmed, disagreement =
-  // pending. Reading _activeCommand for an indicator is exactly the bug this
-  // split exists to prevent — it makes a sent command indistinguishable from
-  // a PLC confirmation.
   PlcOutputCommand _activeCommand = PlcOutputCommand.idle();
   PlcOutputCommand _commandedCommand = PlcOutputCommand.idle();
   PlcOutputCommand _reportedStatusCommand = PlcOutputCommand.idle();
 
-  /// Arrival time of the most recent status notification — see
-  /// [lastPlcStatusAt].
   DateTime? _lastPlcStatusAt;
 
   // ── BLE write serializer ──────────────────────────────────────────────────
 
   bool _commandInFlight = false;
   List<int>? _pendingCommandBytes;
-
 
   DateTime? _analogLastSentAt;
   Timer? _analogTrailingTimer;
@@ -106,15 +76,9 @@ class CraneController extends ChangeNotifier
 
   bool _deviceTrustRejected = false;
 
-  
   final Map<String, Set<PlcOutputVariant>> _buttonFields = {};
 
-
   final Map<PlcOutputVariant, String> _fieldOwners = {};
-  // bool _conflictActive = false;
-  // bool _upActive = false;
-  // bool _downActive = false;
-  // bool _fastActive = false;
 
   bool _cancellingConnection = false;
   BleScanDevice? _cancellingDevice;
@@ -129,10 +93,6 @@ class CraneController extends ChangeNotifier
     _permissionBannerDismissed = true;
     notifyListeners();
   }
-  //  bool get conflictActive => _conflictActive;
-  //  bool get upActive => _upActive;
-  // bool get downActive => _downActive;
-  // bool get fastActive => _fastActive;
 
   bool get rememberCredentials => _rememberCredentials;
   bool get isBiometricAvailable => _biometricAvailable;
@@ -141,16 +101,8 @@ class CraneController extends ChangeNotifier
   bool get hasPendingEnrollmentOffer => _pendingEnrollmentOffer;
   PlcOutputCommand get activeCommand => _activeCommand;
 
-  /// The output state this app has REQUESTED, and nothing else. Never written
-  /// by the PLC status stream, so it stays put while a command is in flight or
-  /// while the PLC is refusing/failing to follow it — which is what lets an
-  /// output indicator draw a pending/mismatch state.
   PlcOutputCommand get commandedCommand => _commandedCommand;
 
-  /// Most recent status received from the PLC, kept separate from
-  /// [activeCommand], which is also updated optimistically before an outgoing
-  /// BLE write completes. Feedback-only UI such as the AppBar buzzer must use
-  /// this value so sending a command cannot be mistaken for PLC confirmation.
   PlcOutputCommand get reportedStatusCommand => _reportedStatusCommand;
 
   bool get hasActivePlcStatus => !_reportedStatusCommand.isIdle;
@@ -211,54 +163,22 @@ class CraneController extends ChangeNotifier
   int get a1 => _analogValues['A1'] ?? 0;
   int get a2 => _analogValues['A2'] ?? 0;
 
-  /// Raw counts for any analog channel key the firmware reports. The
-  /// generic form of [a1]/[a2], used by feedback readers that are configured
-  /// against a channel key rather than a fixed field.
   @override
   int analogValue(String channelKey) => _analogValues[channelKey] ?? 0;
 
-  /// [FeedbackSource]'s view of the link. Alias of [isConnected], named for
-  /// the role it serves in heartbeat/communication feedback.
   @override
   bool get isPlcConnected => isConnected;
 
-  /// When the last PLC status notification arrived — the only input the
-  /// derived heartbeat has. Null until the first notification of a
-  /// connection, and cleared on disconnect so a stale timestamp from a
-  /// previous session can never read as a live link.
   @override
   DateTime? get lastPlcStatusAt => _lastPlcStatusAt;
 
-  /// OUTER-RING value for [variant]: is this output currently REQUESTED by
-  /// the app? Reads [commandedCommand] only, so it flips the instant the
-  /// operator actuates a control and stays put until the app asks for
-  /// something else.
-  ///
-  /// No E-STOP suppression is needed (or wanted) here: a latched E-STOP makes
-  /// the commanded command `{DF1}` outright, so every other field is already
-  /// false by construction rather than by a display-time override.
   @override
   bool isCommandedFieldActive(PlcOutputVariant variant) =>
       _commandedCommand.fieldValue(variant);
 
-  /// INNER-CORE value for [variant]: has the PLC CONFIRMED this output? Reads
-  /// [reportedStatusCommand] only. Sending a command must never move this —
-  /// it changes only when a readback notification says so. Alias of
-  /// [isReportedFieldActive], named for the indicator role it serves.
   bool isConfirmedFieldActive(PlcOutputVariant variant) =>
       _reportedStatusCommand.fieldValue(variant);
 
-  /// The one source of truth for PLC-status-driven feedback widgets (horn /
-  /// buzzer, alarm indicator) that watch a user-configured set of
-  /// PlcOutputVariant variants rather than one fixed field.
-  ///
-  /// Deliberately reads received status ONLY. There is intentionally no
-  /// "latest known" variant of this lookup: a feedback widget that could be
-  /// triggered by the app's own optimistic command echo would annunciate a
-  /// field condition the PLC never reported.
-  ///
-  /// Does NOT suppress on estop — a widget watching, say, DF8 should still
-  /// reflect the PLC's actual reported field state during an E-STOP condition.
   @override
   bool isReportedFieldActive(PlcOutputVariant mapping) =>
       _reportedStatusCommand.fieldValue(mapping);
@@ -293,11 +213,6 @@ class CraneController extends ChangeNotifier
     _ => AppScreen.connection,
   };
 
-  // currentScreen (and this helper) is a getter re-evaluated on every read —
-  // including every notifyListeners() tick from the PLC status stream, not
-  // just on an actual navigation change. _lastLoggedPlcType makes the log a
-  // one-shot per resolved PLC type instead of misleadingly repeating
-  // "navigating" on every unrelated rebuild.
   PlcType? _lastLoggedPlcType;
 
   AppScreen _getControlScreenForPlcType() {
@@ -331,56 +246,6 @@ class CraneController extends ChangeNotifier
     }
     return AppScreen.control;
   }
-
-  // Future<void> sendCommand({
-  //   required bool estop,
-  //   required bool up,
-  //   required bool down,
-  //   required bool fast,
-  //   bool conflict = false,
-  // }) async {
-  //   if (estop) {
-  //     _estopLatched = true;
-  //     _upActive = false;
-  //     _downActive = false;
-  //     _fastActive = false;
-  //     _conflictActive = false;
-  //     notifyListeners();
-  //     debugPrint("E-STOP ACTIVATED! Sending E-STOP command to PLC...");
-  //     return;
-  //   }
-
-  //   if (_conflictActive && !conflict) {
-  //     return;
-  //   }
-
-  //   if (conflict || (up && down)) {
-  //     _conflictActive = true;
-  //     _upActive = false;
-  //     _downActive = false;
-  //     _fastActive = false;
-  //     notifyListeners();
-  //     debugPrint("CONFLICT DETECTED! Sending conflict state to PLC...");
-  //     return;
-  //   }
-  //   _estopLatched= false;
-  //   _conflictActive = false;
-  //   _upActive = up;
-  //   _downActive = down;
-  //   _fastActive = fast && (_upActive || _downActive);
-  //   notifyListeners();
-  // }
-  //  void clearConflict() {
-  //   _conflictActive = false;
-  //   _upActive = false;
-  //   _downActive = false;
-  //   _fastActive = false;
-  //   notifyListeners();
-  // }
-
-  // bool verifyLocalPassword(String password) {
-  //   return password == 'Admin123';
-  // }
 
   // Initialization and Cleanup //////////////////////////////////////////////////////////////////////////////
   Future<void> initialize() {
@@ -473,9 +338,6 @@ class CraneController extends ChangeNotifier
     });
   }
 
-  /// Applies PLC feedback to status indicators without changing the local
-  /// E-stop latch. This PLC does not acknowledge reset, so the operator's
-  /// E-stop and reset swipes are the authoritative lock state.
   @visibleForTesting
   void handlePlcStatusForTesting(PlcOutputCommand command) {
     _handlePlcStatus(command);
@@ -487,10 +349,7 @@ class CraneController extends ChangeNotifier
           ? 'PLC_STATUS_IDLE (hardware echo, status/LED only)'
           : 'PLC_STATUS_ACTIVE (hardware echo, status/LED only)',
     );
-    // Readback updates the confirmed view (and the legacy "latest known"
-    // echo) — never _commandedCommand. Letting a notification overwrite what
-    // the app asked for would erase the very disagreement the pending state
-    // is there to surface.
+
     _reportedStatusCommand = command;
     _activeCommand = command;
     _lastPlcStatusAt = DateTime.now();
@@ -658,12 +517,6 @@ class CraneController extends ChangeNotifier
   // ── Command helpers ───────────────────────────────────────────────────────
 
   Future<void> _sendCommand(PlcOutputCommand command) async {
-    // Defense-in-depth: mutual exclusion is enforced upstream (UI-level
-    // isDisabled gating, plus button-centric config validation), so an
-    // invalid command should be unreachable here. Refusing to transmit one
-    // is strictly safer than the alternative and matches existing intent —
-    // this is additive, not a behavior change to any valid, reachable
-    // command.
     assert(command.isValid, 'Refusing to compose an invalid PlcOutputCommand');
     if (!command.isValid) return;
 
@@ -672,7 +525,6 @@ class CraneController extends ChangeNotifier
     notifyListeners();
     final bytes = command.wireBytesFor(connectedPlcType).toList();
     if (_commandInFlight) {
-      // Replace whatever was pending — latest command wins.
       _pendingCommandBytes = bytes;
       return;
     }
@@ -701,9 +553,7 @@ class CraneController extends ChangeNotifier
 
   Future<void> triggerEStop() async {
     _estopLatched = true;
-    // Clear button-centric state and field ownership so buttons are not stuck
-    // in a blocked state after estop is cleared (since setButtonState is
-    // guarded by _estopLatched, the normal idle-on-release path never runs).
+
     _buttonFields.clear();
     _fieldOwners.clear();
     final cmd = PlcOutputCommand.emergencyStop();
@@ -711,16 +561,13 @@ class CraneController extends ChangeNotifier
     _commandedCommand = cmd;
     notifyListeners();
     final bytes = cmd.wireBytesFor(connectedPlcType).toList();
-    // E-stop bypasses the serializer: preempts any pending command and sends
-    // immediately after the current in-flight write (or right now if idle).
+
     _pendingCommandBytes = bytes;
     if (!_commandInFlight) {
       final pending = _pendingCommandBytes!;
       _pendingCommandBytes = null;
       await _writeBytes(pending);
     }
-    // If a write is in flight it will drain _pendingCommandBytes next,
-    // ensuring the E-stop is the very next thing written.
   }
 
   Future<void> triggerSafeDisconnect() async {
@@ -738,9 +585,6 @@ class CraneController extends ChangeNotifier
     await _bleService.disconnect();
   }
 
-  /// Stops all outputs by sending an idle command and clearing button-centric
-  /// state. No-op when estop is latched (PLC outputs are already off) or when
-  /// not connected.
   Future<void> stopAllMotion() async {
     if (_estopLatched || !isConnected) return;
     _buttonFields.clear();
@@ -749,33 +593,10 @@ class CraneController extends ChangeNotifier
   }
 
   Future<void> resetEStop() async {
-    // The completed reset swipe is authoritative because this PLC sends no
-    // reset acknowledgement. _sendCommand notifies the UI synchronously, so
-    // controls become available immediately.
     _estopLatched = false;
     await _sendCommand(PlcOutputCommand.idle());
   }
 
-  /// The generic composition entry point every button-centric control uses.
-  /// [buttonId] is a ButtonConfig.id, OR a virtual sub-button id (see
-  /// control_role.dart's joystickVirtualButtonId).
-  ///
-  /// [stateId] is the LOGICAL state id (e.g. 'idle', 'active', 'step2',
-  /// 'zone1') already resolved by the caller from the button's own type —
-  /// see the `logicalStateIdFor`/`multiZoneId`-style helpers in the
-  /// button-type strategies (button_type_strategy.dart doc comments).
-  /// [activeVariants] is the EXACT set of PLC output variants [buttonId]
-  /// asserts while in [stateId] — the caller must resolve this directly from
-  /// ButtonConfig.stateMappings[stateId] (or the equivalent virtual-id
-  /// table), never re-derived here. This is the master invariant of the
-  /// generic PLC-output-variant model: CraneController never adds a field
-  /// beyond what [activeVariants] explicitly says, for any reason. An empty
-  /// [activeVariants] IS the idle signal — there is no separate physical-
-  /// gesture parameter to consult.
-  ///
-  /// Used identically for every PLC type — the wire format itself (4 vs 10
-  /// fields) is decided only at serialization time by
-  /// PlcOutputCommand.wireBytesFor, never here.
   Future<void> setButtonState({
     required String buttonId,
     required String stateId,
@@ -808,22 +629,10 @@ class CraneController extends ChangeNotifier
         }
         _buttonFields[buttonId] = activeVariants;
       }
-      // Blocked commands are silently discarded; the slider's physical clamp
-      // (isFieldBlockedForButton) prevents the gesture from reaching here in
-      // normal operation.
     }
     await _sendCommand(_composeFromButtonFields());
   }
 
-  /// Button-centric analog output entry point — the analog counterpart of
-  /// [setButtonState]. Shared by every analog control (potentiometer,
-  /// analog joystick, analog slider, ...): [config] is normalized by the
-  /// caller (see the control screens' onAnalogCommand) and owns
-  /// clamping/formatting via [AnalogWireConfig.wirePayload]; this method
-  /// never re-derives those rules itself. No-ops if the widget's own "send
-  /// to PLC" toggle (outputEnabled) is off — the operator opts a control
-  /// into transmitting analog output the same way they configure everything
-  /// else about it.
   Future<void> setAnalogButtonValue({
     required String buttonId,
     required double value,
@@ -844,10 +653,6 @@ class CraneController extends ChangeNotifier
     _queueAnalogWrite(utf8.encode(payload));
   }
 
-  /// Leading+trailing throttle over [SafetyConstants.analogOutputThrottle]:
-  /// sends immediately if the window has elapsed, otherwise remembers [bytes]
-  /// as pending and arms a trailing timer (if one isn't already armed) so the
-  /// latest value is still flushed once the window closes.
   void _queueAnalogWrite(List<int> bytes) {
     final now = DateTime.now();
     final lastSent = _analogLastSentAt;
@@ -875,9 +680,6 @@ class CraneController extends ChangeNotifier
     );
   }
 
-  /// Re-checks the estop/connection gate at actual send time (not just at
-  /// queue time) so a trailing-timer flush can never deliver a stale analog
-  /// value across an estop or disconnect that happened while it was pending.
   Future<void> _sendAnalogBytes(List<int> bytes) async {
     if (_estopLatched || !isConnected) {
       _logger.w(
@@ -894,14 +696,6 @@ class CraneController extends ChangeNotifier
     }
   }
 
-  // ── Shared-field ownership helpers ────────────────────────────────────────
-
-  /// Returns true if any field in [candidateFields] is currently owned by a
-  /// DIFFERENT button than [buttonId]. The UI layer calls this to apply a
-  /// per-zone drag clamp on the slider (physical "stuck" sensation) before
-  /// the drag enters the blocked zone. [candidateFields] must be resolved by
-  /// the caller from the button's own stateMappings — see setButtonState's
-  /// doc comment; CraneController never derives this itself.
   bool isFieldBlockedForButton(
     String buttonId,
     Set<PlcOutputVariant> candidateFields,
@@ -911,11 +705,6 @@ class CraneController extends ChangeNotifier
     );
   }
 
-  /// Derives the composed PlcOutputCommand from whichever buttons' currently
-  /// active field-sets (as explicitly claimed via setButtonState's
-  /// [activeVariants] parameter) are non-empty. A field is asserted iff some
-  /// button explicitly claims it in its current state, full stop — no
-  /// role/axis derivation is consulted here.
   PlcOutputCommand _composeFromButtonFields() {
     final fields = <PlcOutputVariant>{};
     for (final buttonFields in _buttonFields.values) {
