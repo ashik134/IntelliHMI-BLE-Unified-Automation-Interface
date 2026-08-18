@@ -260,14 +260,14 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
       // and the caller's ownership bookkeeping stays permanently claimed,
       // which keeps isDisabled=true even after the operator releases.
       if (_isDragging && _stateId != MultiZoneSliderStateId.center) {
-        widget.onStateChanged(MultiZoneSliderStateId.center);
+        _deferStateChanged(MultiZoneSliderStateId.center);
       }
-      setState(() {
-        _value = 0.0;
-        _isDragging = false;
-        _pointerStartedOnThumb = false;
-        _stateId = MultiZoneSliderStateId.center;
-      });
+      // didUpdateWidget is followed by build, so mutating local fields here is
+      // sufficient (and avoids marking the element dirty during its update).
+      _value = 0.0;
+      _isDragging = false;
+      _pointerStartedOnThumb = false;
+      _stateId = MultiZoneSliderStateId.center;
       return;
     }
 
@@ -282,9 +282,10 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         clamped = -_deadZone + _zoneClampMargin;
       }
       if (clamped != _value) {
-        setState(() => _value = clamped);
+        _value = clamped;
         _emitZone(
           _zoneIdFor(clamped),
+          deferCallback: true,
         ); // emits centre since clamped < _deadZone
       }
       return;
@@ -326,10 +327,10 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         '[${widget.startLabel}/${widget.endLabel}] (external) -> $stateId',
       );
     }
-    setState(() {
-      _stateId = stateId;
-      _value = _valueForStateId(stateId);
-    });
+    // Called only from initState/didUpdateWidget; both lifecycle hooks are
+    // followed by build, so setState would be redundant.
+    _stateId = stateId;
+    _value = _valueForStateId(stateId);
   }
 
   double _valueForStateId(String stateId) {
@@ -374,7 +375,7 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         : MultiZoneSliderStateId.zone4;
   }
 
-  void _emitZone(String zoneId) {
+  void _emitZone(String zoneId, {bool deferCallback = false}) {
     if (zoneId == _stateId) return;
     _stateId = zoneId;
     ButtonStateLog.log(
@@ -392,7 +393,24 @@ class _IndustrialMultiZoneSliderState extends State<IndustrialMultiZoneSlider>
         amplitude: isFarZone ? 255 : 100,
       );
     }
-    widget.onStateChanged(zoneId);
+    if (deferCallback) {
+      _deferStateChanged(zoneId);
+    } else {
+      widget.onStateChanged(zoneId);
+    }
+  }
+
+  /// Lifecycle updates run inside an ancestor's build. Dispatching from that
+  /// phase can synchronously call setState/notifyListeners in the owner and
+  /// trigger "setState() or markNeedsBuild() called during build". Gesture
+  /// emissions remain synchronous; only lifecycle-driven safety releases use
+  /// this post-frame path.
+  void _deferStateChanged(String zoneId) {
+    final onStateChanged = widget.onStateChanged;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      onStateChanged(zoneId);
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
