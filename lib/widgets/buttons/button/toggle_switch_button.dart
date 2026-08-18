@@ -86,13 +86,14 @@ const double _kHintVisibilityWidth = 160.0;
 const _kBodyGradStart = Color(0xFF1A2634);
 const _kBodyGradEnd = Color(0xFF0D1520);
 const _kBodyBorder = Color(0xFF24394C);
-const _kGrooveTop = Color(0xFF080E15);
-const _kGrooveBottom = Color(0xFF162030);
+const _kGrooveTop = Color(0xFF04080C);
+const _kGrooveBottom = Color(0xFF0B141D);
+const _kGrooveBorder = Color(0xFF3B5062);
 
-// Knob colours (idle vs. active)
-// const _kKnobIdle = Color(0xFF4A5E72);
-// const _kKnobIdleDark = Color(0xFF2A3A4A);
-// const _kKnobIdleBorder = Color(0xFF1C2C3C);
+// Neutral steel keeps OFF visually quiet; active colors remain role-specific.
+const _kKnobOffBase = Color(0xFF8294A3);
+const _kKnobOffDark = Color(0xFF425565);
+const _kKnobOffBorder = Color(0xFFBBC8D2);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ToggleSwitchButton
@@ -1067,6 +1068,14 @@ class _LeverBody extends StatelessWidget {
         final knobSz = w * 0.58;
         final grooveW = w * 0.36;
         final grooveH = h * 0.70;
+        final clampedKnobY = knobY
+            .clamp(-_kKnobVisualLimit, _kKnobVisualLimit)
+            .toDouble();
+        final knobTravel = math.max(0.0, (h - knobSz) * 0.5);
+        final knobCenterY = h * 0.5 + clampedKnobY * knobTravel;
+        final activeTrackTop = math.min(h * 0.5, knobCenterY);
+        final activeTrackHeight = (knobCenterY - h * 0.5).abs();
+        final activeTrackW = grooveW * 0.62;
 
         return DecoratedBox(
           // Outer drop shadow lives here so it paints OUTSIDE the clipped
@@ -1143,6 +1152,7 @@ class _LeverBody extends StatelessWidget {
 
               // ── Center groove / gate ─────────────────────────────────────
               Container(
+                key: const ValueKey('toggle_lever_track'),
                 width: grooveW,
                 height: grooveH,
                 decoration: BoxDecoration(
@@ -1151,6 +1161,10 @@ class _LeverBody extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [_kGrooveTop, _kGrooveBottom],
+                  ),
+                  border: Border.all(
+                    color: _kGrooveBorder,
+                    width: (grooveW * 0.045).clamp(1.0, 2.0),
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -1162,17 +1176,47 @@ class _LeverBody extends StatelessWidget {
                 ),
               ),
 
+              // Illuminated portion of the track. It follows the existing
+              // lever travel from neutral to the selected detent without
+              // changing the control geometry or interaction area.
+              Positioned(
+                top: activeTrackTop,
+                left: (w - activeTrackW) * 0.5,
+                width: activeTrackW,
+                height: activeTrackHeight,
+                child: AnimatedContainer(
+                  key: const ValueKey('toggle_lever_active_track'),
+                  duration: _kColorDur,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(activeTrackW * 0.5),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        activeColorLight.withAlpha(isOn ? 235 : 0),
+                        activeColor.withAlpha(isOn ? 255 : 0),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: activeColor.withAlpha(isOn ? 125 : 0),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               // ── Knob (driven by AnimationController via Align) ───────────
               Align(
-                alignment: Alignment(
-                  0.0,
-                  knobY.clamp(-_kKnobVisualLimit, _kKnobVisualLimit),
-                ),
+                alignment: Alignment(0.0, clampedKnobY),
                 child: _Knob(
                   key: const ValueKey('toggle_lever_knob'),
                   size: knobSz,
                   isOn: isOn,
                   activeColor: activeColor,
+                  activeLight: activeColorLight,
                   activeDark: Color.alphaBlend(
                     Colors.black.withAlpha(65),
                     activeColor,
@@ -1513,10 +1557,6 @@ class _HintLabel extends StatelessWidget {
 // const _kBodyBorder    = Color(0xFF24394C);
 // const _kGrooveTop     = Color(0xFF0A0F16);
 // const _kGrooveBottom  = Color(0xFF1A2634);
-const _kOffLedColor = Color(0xFFE74C3C); // --off
-const _kOffLedBorder = Color(0xFFA93226);
-const _kKnobOffBase = Color(0xFFE74C3C);
-const _kKnobOffDark = Color(0xFFC0392B);
 // const _kLabelInactive = Color(0xFF4A5568);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2251,22 +2291,26 @@ class _Knob extends StatelessWidget {
     required this.size,
     required this.isOn,
     required this.activeColor,
+    required this.activeLight,
     required this.activeDark,
   });
 
   final double size;
   final bool isOn;
   final Color activeColor;
+  final Color activeLight;
   final Color activeDark;
 
   @override
   Widget build(BuildContext context) {
-    final Color base = isOn ? activeColor : _kKnobOffBase;
+    final Color base = isOn
+        ? Color.alphaBlend(activeLight.withAlpha(78), activeColor)
+        : _kKnobOffBase;
     final Color dark = isOn ? activeDark : _kKnobOffDark;
-    final Color border = isOn ? activeDark : _kOffLedBorder;
+    final Color border = isOn ? activeLight : _kKnobOffBorder;
     final Color glow = isOn
-        ? activeColor.withAlpha(140)
-        : _kOffLedColor.withAlpha(90);
+        ? activeColor.withAlpha(165)
+        : Colors.black.withAlpha(90);
     final double bw = (size * 0.055).clamp(2.0, 5.0);
 
     return AnimatedContainer(
@@ -2325,10 +2369,17 @@ class _Knob extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     center: const Alignment(-0.2, -0.3),
-                    colors: [Colors.white.withAlpha(89), Colors.transparent],
+                    colors: [
+                      isOn
+                          ? activeLight.withAlpha(210)
+                          : Colors.white.withAlpha(82),
+                      Colors.transparent,
+                    ],
                   ),
                   border: Border.all(
-                    color: Colors.white.withAlpha(26),
+                    color: isOn
+                        ? activeLight.withAlpha(150)
+                        : Colors.white.withAlpha(38),
                     width: 1,
                   ),
                 ),
