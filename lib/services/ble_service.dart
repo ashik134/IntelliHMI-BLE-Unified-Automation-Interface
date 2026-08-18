@@ -15,6 +15,15 @@ import 'package:rev_crane_control_ops/models/hoist_notification.dart';
 import 'package:rev_crane_control_ops/models/plc_output_command.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 
+class _StaleBleSessionException implements Exception {
+  const _StaleBleSessionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class BleService {
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
 
@@ -37,10 +46,8 @@ class BleService {
   BluetoothDevice? _device;
   BleScanDevice? _connectedDevice;
 
-  BluetoothCharacteristic? _analogChar;
   BluetoothCharacteristic? _digitalChar;
   BluetoothCharacteristic? _authChar;
-  BluetoothCharacteristic? _statusChar;
   BluetoothCharacteristic? _heartbeatChar;
   BluetoothCharacteristic? _analogOutChar;
   // true when the digital characteristic supports WriteWithoutResponse
@@ -81,14 +88,18 @@ class BleService {
   Timer? _heartbeatTimer;
   bool _heartbeatActive = false;
   bool _heartbeatWritePending = false;
+  bool _cryptoSafeStateActive = false;
 
   bool _connectCancelled = false;
+  Future<void>? _activeConnectFuture;
+  Future<BleAuthOutcome>? _activeAuthFuture;
+  bool _rssiReadPending = false;
+  int _rssiPollGeneration = 0;
 
   static const Duration _scanBurstDuration = Duration(seconds: 6);
   static const Duration _scanPauseDuration = Duration(milliseconds: 1500);
 
   Completer<BleAuthOutcome>? _pendingAuthCompleter;
-  Completer<void>? _pendingSafeStateCompleter;
   bool _sessionAuthenticated = false;
 
   int _cryptoSessionGeneration = 0;
@@ -124,9 +135,15 @@ class BleService {
     _connectionController.add(_snapshot);
   }
 
+  void _emitScanSnapshot() {
+    if (_isDisposing || _scanController.isClosed) return;
+    _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+  }
+
   // ── Scanning ───────────────────────────────────────────────────────────────
 
   Future<void> startScan() async {
+    if (_isDisposing) return;
     final generation = ++_scanGeneration;
     _scanContinue = false;
 
@@ -191,7 +208,7 @@ class BleService {
     _scanContinue = true;
 
     if (_deviceCache.isNotEmpty) {
-      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+      _emitScanSnapshot();
     }
 
     _pruneTimer?.cancel();
@@ -199,6 +216,9 @@ class BleService {
 
     _scanResultsSub = FlutterBluePlus.scanResults.listen(
       (results) {
+        if (_isDisposing || !_scanContinue || generation != _scanGeneration) {
+          return;
+        }
         bool changed = false;
 
         for (final result in results) {
@@ -224,10 +244,12 @@ class BleService {
           debugPrint(
             'Scan update: ${_deviceCache.length} ${BLEConstants.manufacturerDataPrefix}* device(s) in cache',
           );
-          _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+          _emitScanSnapshot();
         }
       },
       onError: (e) {
+        if (_isDisposing || generation != _scanGeneration) return;
+        _scanContinue = false;
         _emit(
           BleConnectionStatus.error,
           message: 'Scan error: ${e.toString()}',
@@ -242,7 +264,15 @@ class BleService {
           androidScanMode: AndroidScanMode.balanced,
         );
         await FlutterBluePlus.isScanning.where((s) => !s).first;
-      } catch (_) {
+      } catch (e, stackTrace) {
+        if (_scanContinue && !_isDisposing && generation == _scanGeneration) {
+          _scanContinue = false;
+          _logger.e('BLE scan burst failed', error: e, stackTrace: stackTrace);
+          _emit(
+            BleConnectionStatus.error,
+            message: 'Scan failed: ${e.toString()}',
+          );
+        }
         break;
       }
       if (!_scanContinue || _isDisposing || generation != _scanGeneration) {
@@ -304,7 +334,7 @@ class BleService {
       }
     }
     if (changed || forceEmit) {
-      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+      _emitScanSnapshot();
     }
   }
 
@@ -346,287 +376,352 @@ class BleService {
     }
 
     if (_deviceCache.isNotEmpty || expiredIds.isNotEmpty) {
-      _scanController.add(List.unmodifiable(_deviceCache.values.toList()));
+      _emitScanSnapshot();
     }
   }
 
   // ── Connection ─────────────────────────────────────────────────────────────
 
   Future<void> connect(BleScanDevice scanDevice) async {
+    if (_isDisposing) return;
+    final activeConnect = _activeConnectFuture;
+    if (activeConnect != null) {
+      _logger.w(
+        'Ignoring duplicate BLE connect request while setup is active.',
+      );
+      await activeConnect;
+      return;
+    }
+
+    final connectFuture = _connect(scanDevice);
+    _activeConnectFuture = connectFuture;
+    try {
+      await connectFuture;
+    } finally {
+      if (identical(_activeConnectFuture, connectFuture)) {
+        _activeConnectFuture = null;
+      }
+    }
+  }
+
+  Future<void> _connect(BleScanDevice scanDevice) async {
     _connectCancelled = false;
 
     await stopScan();
     if (_connectCancelled) return;
-    await disconnect(emitState: false);
+    await disconnect(emitState: false, cancelPendingConnection: false);
     if (_connectCancelled) return;
 
+    _cryptoSafeStateActive = false;
     _connectedDevice = scanDevice;
-    _device = scanDevice.device;
+    final device = scanDevice.device;
+    _device = device;
     _emit(BleConnectionStatus.connecting);
 
     try {
-      await _device!.connect(
+      await device.connect(
         autoConnect: false,
         timeout: const Duration(seconds: 12),
+        // MTU is requested once in _discoverServices, immediately before
+        // refreshing and reading the GATT table.
+        mtu: null,
         license: License.commercial,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (_connectCancelled) return;
-      _clearConnectionState();
+      await _clearConnectionState();
+      await _safeDisconnectDevice(device);
       _emit(
         BleConnectionStatus.error,
         message: _friendlyConnectionError(e.toString()),
       );
-      _logger.e('BLE connect failed: $e');
+      _logger.e('BLE connect failed', error: e, stackTrace: stackTrace);
       _scheduleErrorRecovery();
 
       return;
     }
 
-    if (_connectCancelled) {
-      final device = _device;
-      _clearConnectionState();
+    if (_connectCancelled) return;
+    if (!identical(_device, device)) {
       await _safeDisconnectDevice(device);
       return;
     }
-    _connStateSub?.cancel();
-    _connStateSub = _device!.connectionState.listen((state) {
-      if (state == BluetoothConnectionState.disconnected) {
+    await _connStateSub?.cancel();
+    final connectionSubscription = device.connectionState.listen((state) {
+      if (state == BluetoothConnectionState.disconnected &&
+          identical(_device, device) &&
+          !_connectCancelled) {
         _logger.w('Device disconnected unexpectedly');
         _handleDisconnect();
       }
     });
-    _device!.cancelWhenDisconnected(_connStateSub!, delayed: true, next: true);
+    _connStateSub = connectionSubscription;
+    if (!identical(_device, device) || device.isDisconnected) {
+      await connectionSubscription.cancel();
+      if (identical(_connStateSub, connectionSubscription)) {
+        _connStateSub = null;
+      }
+      if (identical(_device, device)) {
+        await _clearConnectionState();
+        await _safeDisconnectDevice(device);
+        _emit(
+          BleConnectionStatus.error,
+          message: 'Device disconnected during connection setup.',
+        );
+      }
+      return;
+    }
+    device.cancelWhenDisconnected(
+      connectionSubscription,
+      delayed: true,
+      next: true,
+    );
 
     try {
-      await _discoverServices();
-    } catch (e) {
+      await _discoverServices(device);
+    } catch (e, stackTrace) {
       if (_connectCancelled) return;
-      final dev = _device;
-      _clearConnectionState();
-      await _safeDisconnectDevice(dev);
+      if (!identical(_device, device)) return;
+
+      await _clearConnectionState();
+      await _safeDisconnectDevice(device);
       _emit(
         BleConnectionStatus.error,
         message: 'Service setup failed: ${e.toString()}',
       );
-      _logger.e('Service discovery failed: $e');
+      _logger.e('BLE service setup failed', error: e, stackTrace: stackTrace);
       return;
     }
-
-    if (_connectCancelled) return;
-
-    _connStateSub?.cancel();
-    _connStateSub = _device!.connectionState.listen((state) {
-      if (state == BluetoothConnectionState.disconnected) {
-        _handleDisconnect();
-      }
-    });
-
-    _device!.cancelWhenDisconnected(_connStateSub!, delayed: true, next: true);
-    _emit(BleConnectionStatus.awaitingAuthentication);
   }
 
   //  ── Discover services and map characteristics. ─────────────────────────────────────────────────────────────
 
-  Future<void> _discoverServices() async {
-    try {
-      _emit(BleConnectionStatus.discoveringServices);
+  Future<void> _discoverServices(BluetoothDevice device) async {
+    _emit(BleConnectionStatus.discoveringServices);
 
-      if (!kIsWeb && Platform.isAndroid) {
-        try {
-          final mtu = await _device!.requestMtu(512);
-          debugPrint('[BLE] MTU negotiated: $mtu bytes');
-        } catch (e) {
-          _logger.w(
-            'MTU negotiation skipped — proceeding with default MTU: $e',
-          );
-          debugPrint('[BLE] MTU negotiation failed: $e');
-        }
-
-        // Android caches a device's GATT table across connections keyed by
-        // its MAC address. If this phone ever connected to this PLC before
-        // its firmware's characteristic set last changed, discoverServices()
-        // below would otherwise silently replay that stale cached table
-        // (missing/extra characteristics) instead of querying the device —
-        // firmware under active development changes this table often, so
-        // this must run on every connect, not just once.
-        try {
-          await _device!.clearGattCache();
-          debugPrint('[BLE] GATT cache cleared.');
-        } catch (e) {
-          _logger.w('GATT cache clear skipped: $e');
-          debugPrint('[BLE] GATT cache clear failed: $e');
-        }
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final mtu = await device.requestMtu(512);
+        debugPrint('[BLE] MTU negotiated: $mtu bytes');
+      } catch (e) {
+        _logger.w('MTU negotiation skipped — proceeding with default MTU: $e');
+        debugPrint('[BLE] MTU negotiation failed: $e');
       }
 
-      final services = await _device!.discoverServices();
+      // Android caches a device's GATT table across connections keyed by
+      // its MAC address. If this phone ever connected to this PLC before
+      // its firmware's characteristic set last changed, discoverServices()
+      // below would otherwise silently replay that stale cached table
+      // (missing/extra characteristics) instead of querying the device —
+      // firmware under active development changes this table often, so
+      // this must run on every connect, not just once.
+      try {
+        await device.clearGattCache();
+        debugPrint('[BLE] GATT cache cleared.');
+      } catch (e) {
+        _logger.w('GATT cache clear skipped: $e');
+        debugPrint('[BLE] GATT cache clear failed: $e');
+      }
+    }
 
-      BluetoothCharacteristic? analog;
-      BluetoothCharacteristic? digital;
-      BluetoothCharacteristic? auth;
-      BluetoothCharacteristic? status;
+    _ensureConnectionSetupActive(device);
+    final services = await device.discoverServices(
+      // The PLC has a known, application-owned GATT profile and the cache is
+      // explicitly refreshed above. Avoid FlutterBluePlus starting its own
+      // asynchronous 0x2A05 notification setup inside service discovery.
+      subscribeToServicesChanged: false,
+    );
+    _ensureConnectionSetupActive(device);
 
-      _digitalChar = null;
-      _authChar = null;
-      _analogChar = null;
-      _statusChar = null;
-      _heartbeatChar = null;
-      _analogOutChar = null;
-      _digitalCharWriteNoResponse = false;
-      var analogOutSeen = false;
-      var analogOutFoundButNotWritable = false;
-      final plcServiceUuid = BLEConstants.serviceUuid.toLowerCase();
-      final analogOutUuid = BLEConstants.analogOutCharUuid.toLowerCase();
+    BluetoothCharacteristic? analog;
+    BluetoothCharacteristic? digital;
+    BluetoothCharacteristic? auth;
+    BluetoothCharacteristic? status;
 
-      for (final service in services) {
-        final serviceUuid = service.uuid.toString().toLowerCase();
-        final isPlcService = serviceUuid == plcServiceUuid;
+    _digitalChar = null;
+    _authChar = null;
+    _heartbeatChar = null;
+    _analogOutChar = null;
+    _digitalCharWriteNoResponse = false;
+    var analogOutSeen = false;
+    var analogOutFoundButNotWritable = false;
+    final plcServiceUuid = BLEConstants.serviceUuid.toLowerCase();
+    final analogOutUuid = BLEConstants.analogOutCharUuid.toLowerCase();
+
+    for (final service in services) {
+      final serviceUuid = service.uuid.toString().toLowerCase();
+      final isPlcService = serviceUuid == plcServiceUuid;
+      debugPrint(
+        '[BLE] Service discovered: $serviceUuid '
+        '| primary=${service.isPrimary} '
+        '| chars=${service.characteristics.length}',
+      );
+
+      for (final char in service.characteristics) {
+        final uuid = char.uuid.toString().toLowerCase();
         debugPrint(
-          '[BLE] Service discovered: $serviceUuid '
-          '| primary=${service.isPrimary} '
-          '| chars=${service.characteristics.length}',
+          '[BLE] Char discovered: service=$serviceUuid chr=$uuid '
+          '| write=${char.properties.write} '
+          '| writeNoResp=${char.properties.writeWithoutResponse} '
+          '| notify=${char.properties.notify}',
         );
 
-        for (final char in service.characteristics) {
-          final uuid = char.uuid.toString().toLowerCase();
-          debugPrint(
-            '[BLE] Char discovered: service=$serviceUuid chr=$uuid '
-            '| write=${char.properties.write} '
-            '| writeNoResp=${char.properties.writeWithoutResponse} '
-            '| notify=${char.properties.notify}',
-          );
-
-          if (uuid == analogOutUuid) {
-            analogOutSeen = true;
-            final writable =
-                char.properties.write || char.properties.writeWithoutResponse;
-            if (writable) {
-              _analogOutChar = char;
-              debugPrint(
-                '[BLE] Analog-out characteristic found on service '
-                '$serviceUuid (write=${char.properties.write}, '
-                'writeNoResp=${char.properties.writeWithoutResponse})',
-              );
-              if (!isPlcService) {
-                _logger.w(
-                  'Analog-out characteristic was found outside the PLC '
-                  'service ($serviceUuid instead of '
-                  '${BLEConstants.serviceUuid}). The app will use it, but '
-                  'the firmware should expose it under the PLC service.',
-                );
-              }
-            } else {
-              analogOutFoundButNotWritable = true;
+        if (uuid == analogOutUuid) {
+          analogOutSeen = true;
+          final writable =
+              char.properties.write || char.properties.writeWithoutResponse;
+          if (writable) {
+            _analogOutChar = char;
+            debugPrint(
+              '[BLE] Analog-out characteristic found on service '
+              '$serviceUuid (write=${char.properties.write}, '
+              'writeNoResp=${char.properties.writeWithoutResponse})',
+            );
+            if (!isPlcService) {
               _logger.w(
-                'Analog-out characteristic found but it is not writable '
-                '(service=$serviceUuid, uuid=$uuid). Firmware must enable '
-                'PROPERTY_WRITE or PROPERTY_WRITE_NR.',
+                'Analog-out characteristic was found outside the PLC '
+                'service ($serviceUuid instead of '
+                '${BLEConstants.serviceUuid}). The app will use it, but '
+                'the firmware should expose it under the PLC service.',
               );
             }
-          }
-
-          if (!isPlcService) {
-            continue;
-          }
-
-          if (uuid == BLEConstants.digitalCharUuid.toLowerCase()) {
-            digital = char;
-            _digitalCharWriteNoResponse = char.properties.writeWithoutResponse;
-          } else if (uuid == BLEConstants.analogCharUuid.toLowerCase()) {
-            analog = char;
-          } else if (uuid == BLEConstants.authCharUuid.toLowerCase()) {
-            auth = char;
-          } else if (uuid == BLEConstants.statusCharUuid.toLowerCase()) {
-            status = char;
-          } else if (uuid == BLEConstants.heartbeatCharUuid.toLowerCase()) {
-            _heartbeatChar = char;
-            debugPrint(
-              '[BLE] Heartbeat characteristic found '
-              '(write=${char.properties.write}, '
-              'writeNoResp=${char.properties.writeWithoutResponse})',
+          } else {
+            analogOutFoundButNotWritable = true;
+            _logger.w(
+              'Analog-out characteristic found but it is not writable '
+              '(service=$serviceUuid, uuid=$uuid). Firmware must enable '
+              'PROPERTY_WRITE or PROPERTY_WRITE_NR.',
             );
           }
         }
+
+        if (!isPlcService) {
+          continue;
+        }
+
+        if (uuid == BLEConstants.digitalCharUuid.toLowerCase()) {
+          digital = char;
+          _digitalCharWriteNoResponse = char.properties.writeWithoutResponse;
+        } else if (uuid == BLEConstants.analogCharUuid.toLowerCase()) {
+          analog = char;
+        } else if (uuid == BLEConstants.authCharUuid.toLowerCase()) {
+          auth = char;
+        } else if (uuid == BLEConstants.statusCharUuid.toLowerCase()) {
+          status = char;
+        } else if (uuid == BLEConstants.heartbeatCharUuid.toLowerCase()) {
+          _heartbeatChar = char;
+          debugPrint(
+            '[BLE] Heartbeat characteristic found '
+            '(write=${char.properties.write}, '
+            'writeNoResp=${char.properties.writeWithoutResponse})',
+          );
+        }
       }
+    }
 
-      if (digital == null || auth == null || status == null || analog == null) {
-        final missing = [
-          if (digital == null) 'digital',
-          if (auth == null) 'auth',
-          if (status == null) 'status',
-          if (analog == null) 'analog',
-        ].join(', ');
+    if (digital == null || auth == null || status == null || analog == null) {
+      final missing = [
+        if (digital == null) 'digital',
+        if (auth == null) 'auth',
+        if (status == null) 'status',
+        if (analog == null) 'analog',
+      ].join(', ');
 
-        await _device!.disconnect();
-        _connectedDevice = null;
-        _emit(
-          BleConnectionStatus.error,
-          message: 'PLC service incomplete — missing: $missing.',
-        );
-        return;
-      }
+      throw StateError('PLC service incomplete — missing: $missing.');
+    }
 
-      if (!_digitalCharWriteNoResponse) {
-        _logger.w(
-          'Digital characteristic does not support WriteWithoutResponse — '
-          'control writes will incur an ATT round-trip (~15\u201340 ms per command).',
-        );
-      }
-      if (_heartbeatChar == null) {
-        debugPrint(
-          '[BLE] WARNING: Heartbeat characteristic NOT found '
-          '(UUID: ${BLEConstants.heartbeatCharUuid}). '
-          'Heartbeat will be disabled.',
-        );
-      }
-      if (_analogOutChar == null) {
-        final reason = analogOutFoundButNotWritable
-            ? 'it was found, but firmware did not mark it writable'
-            : analogOutSeen
-            ? 'it was found, but no usable writable instance was selected'
-            : 'Android did not report that UUID in the discovered GATT table';
-        debugPrint(
-          '[BLE] WARNING: Analog-out characteristic NOT found '
-          '(UUID: ${BLEConstants.analogOutCharUuid}). '
-          'Analog output will be disabled because $reason.',
-        );
-      }
+    final analogChar = analog;
+    final digitalChar = digital;
+    final authChar = auth;
+    final statusChar = status;
 
-      _analogChar = analog;
-      _digitalChar = digital;
-      _authChar = auth;
-      _statusChar = status;
-
-      _emit(BleConnectionStatus.configuringNotifications);
-
-      await _analogChar!.setNotifyValue(true);
-      await _authChar!.setNotifyValue(true);
-      await _statusChar!.setNotifyValue(true);
-
-      _analogSubscription = _analogChar!.onValueReceived.listen(
-        _handleAnalogNotification,
+    final invalidCapabilities = [
+      if (!digitalChar.properties.write &&
+          !digitalChar.properties.writeWithoutResponse)
+        'digital is not writable',
+      if (!analogChar.properties.notify && !analogChar.properties.indicate)
+        'analog cannot notify/indicate',
+      if (!authChar.properties.write) 'auth does not support write requests',
+      if (!authChar.properties.notify && !authChar.properties.indicate)
+        'auth cannot notify/indicate',
+      if (!statusChar.properties.notify && !statusChar.properties.indicate)
+        'status cannot notify/indicate',
+    ];
+    if (invalidCapabilities.isNotEmpty) {
+      throw StateError(
+        'PLC characteristic capabilities are invalid: '
+        '${invalidCapabilities.join(', ')}.',
       );
-      _authSubscription = _authChar!.onValueReceived.listen(
-        _handleAuthNotification,
-      );
-      _statusSubscription = _statusChar!.onValueReceived.listen(
-        _handleStatusNotification,
-      );
+    }
 
-      _device!.cancelWhenDisconnected(_analogSubscription!, next: true);
-      _device!.cancelWhenDisconnected(_authSubscription!, next: true);
-      _device!.cancelWhenDisconnected(_statusSubscription!, next: true);
-
-      _emit(BleConnectionStatus.initializingSafeState);
-      await _sendSafeStatePreAuthBestEffort();
-      _emit(BleConnectionStatus.awaitingAuthentication);
-    } catch (e) {
-      await _device!.disconnect();
-      _connectedDevice = null;
-      _emit(
-        BleConnectionStatus.error,
-        message: 'Service discovery failed: ${e.toString()}',
+    if (!_digitalCharWriteNoResponse) {
+      _logger.w(
+        'Digital characteristic does not support WriteWithoutResponse — '
+        'control writes will incur an ATT round-trip (~15\u201340 ms per command).',
       );
+    }
+    if (_heartbeatChar == null) {
+      debugPrint(
+        '[BLE] WARNING: Heartbeat characteristic NOT found '
+        '(UUID: ${BLEConstants.heartbeatCharUuid}). '
+        'Heartbeat will be disabled.',
+      );
+    }
+    if (_analogOutChar == null) {
+      final reason = analogOutFoundButNotWritable
+          ? 'it was found, but firmware did not mark it writable'
+          : analogOutSeen
+          ? 'it was found, but no usable writable instance was selected'
+          : 'Android did not report that UUID in the discovered GATT table';
+      debugPrint(
+        '[BLE] WARNING: Analog-out characteristic NOT found '
+        '(UUID: ${BLEConstants.analogOutCharUuid}). '
+        'Analog output will be disabled because $reason.',
+      );
+    }
+
+    _ensureConnectionSetupActive(device);
+    _digitalChar = digitalChar;
+    _authChar = authChar;
+
+    _emit(BleConnectionStatus.configuringNotifications);
+
+    // Attach listeners first so an immediate notification cannot be missed.
+    final analogSubscription = analogChar.onValueReceived.listen(
+      _handleAnalogNotification,
+    );
+    final authSubscription = authChar.onValueReceived.listen(
+      _handleAuthNotification,
+    );
+    final statusSubscription = statusChar.onValueReceived.listen(
+      _handleStatusNotification,
+    );
+    _analogSubscription = analogSubscription;
+    _authSubscription = authSubscription;
+    _statusSubscription = statusSubscription;
+
+    device.cancelWhenDisconnected(analogSubscription, next: true);
+    device.cancelWhenDisconnected(authSubscription, next: true);
+    device.cancelWhenDisconnected(statusSubscription, next: true);
+
+    await analogChar.setNotifyValue(true);
+    _ensureConnectionSetupActive(device);
+    await authChar.setNotifyValue(true);
+    _ensureConnectionSetupActive(device);
+    await statusChar.setNotifyValue(true);
+    _ensureConnectionSetupActive(device);
+
+    _emit(BleConnectionStatus.initializingSafeState);
+    await _sendSafeStatePreAuthBestEffort();
+    _ensureConnectionSetupActive(device);
+    _emit(BleConnectionStatus.awaitingAuthentication);
+  }
+
+  void _ensureConnectionSetupActive(BluetoothDevice device) {
+    if (_connectCancelled ||
+        !identical(_device, device) ||
+        device.isDisconnected) {
+      throw StateError('BLE connection ended during service setup.');
     }
   }
 
@@ -637,46 +732,80 @@ class BleService {
       BleConnectionStatus.connecting,
       BleConnectionStatus.discoveringServices,
       BleConnectionStatus.configuringNotifications,
+      BleConnectionStatus.initializingSafeState,
     };
     if (!cancellableStatuses.contains(_snapshot.status)) return;
 
-    _connectCancelled = true;
-
-    await _analogSubscription?.cancel();
-    await _authSubscription?.cancel();
-    await _statusSubscription?.cancel();
-    _analogSubscription = null;
-    _authSubscription = null;
-    _statusSubscription = null;
-
-    final device = _device;
-    _clearConnectionState();
-    await _safeDisconnectDevice(device);
-
-    _connectCancelled = false;
-    _emit(BleConnectionStatus.disconnected);
+    await disconnect();
   }
 
   // ── Connection helpers ─────────────────────────────────────────────────────
 
-  void _clearConnectionState() {
-    _connStateSub?.cancel();
+  Future<void> _clearConnectionState() async {
+    final analogSubscription = _analogSubscription;
+    final authSubscription = _authSubscription;
+    final statusSubscription = _statusSubscription;
+    final connectionSubscription = _connStateSub;
+
+    _analogSubscription = null;
+    _authSubscription = null;
+    _statusSubscription = null;
     _connStateSub = null;
     _device = null;
     _connectedDevice = null;
-    _analogChar = null;
     _digitalChar = null;
     _authChar = null;
-    _statusChar = null;
     _heartbeatChar = null;
     _analogOutChar = null;
     _digitalCharWriteNoResponse = false;
+
+    try {
+      await Future.wait<void>([
+        if (analogSubscription != null) analogSubscription.cancel(),
+        if (authSubscription != null) authSubscription.cancel(),
+        if (statusSubscription != null) statusSubscription.cancel(),
+        if (connectionSubscription != null) connectionSubscription.cancel(),
+      ]);
+    } catch (e) {
+      _logger.w('BLE subscription cleanup failed: $e');
+    }
   }
 
   Future<void> _safeDisconnectDevice(BluetoothDevice? device) async {
+    if (device == null) return;
     try {
-      if (device != null && device.isConnected) await device.disconnect();
-    } catch (_) {}
+      // queue:false also cancels a native connection that has not reached the
+      // connected state yet; checking isConnected would miss that case.
+      await device.disconnect(queue: false);
+    } catch (e) {
+      _logger.w('BLE disconnect cleanup failed: $e');
+    }
+  }
+
+  void _endCryptoSession({required BleAuthOutcome authOutcome}) {
+    _cryptoSessionGeneration++;
+    _sessionAuthenticated = false;
+    _heartbeatWritePending = false;
+    _encryptedWriteLane = Future<void>.value();
+    BleCrypto.endSession();
+
+    final pendingAuth = _pendingAuthCompleter;
+    if (pendingAuth != null && !pendingAuth.isCompleted) {
+      pendingAuth.complete(authOutcome);
+    }
+    _pendingAuthCompleter = null;
+  }
+
+  void _publishDisconnectedState({required bool emitConnectionState}) {
+    _connectedDevice = null;
+    _resetHoistValues(emit: !_isDisposing);
+    if (!_isDisposing && !_statusController.isClosed) {
+      _statusController.add(PlcOutputCommand.idle());
+    }
+    if (emitConnectionState) {
+      _emit(BleConnectionStatus.disconnected);
+      _freezeCache(forceEmit: true);
+    }
   }
 
   String _friendlyConnectionError(String error) {
@@ -706,53 +835,21 @@ class BleService {
 
   // ── Disconnect Device ─────────────────────────────────────────────────────
 
-  Future<void> disconnect({bool emitState = true}) async {
+  Future<void> disconnect({
+    bool emitState = true,
+    bool cancelPendingConnection = true,
+  }) async {
+    if (cancelPendingConnection) {
+      _connectCancelled = true;
+    }
     _stopRssiPolling();
     _stopHeartbeat();
-    _cryptoSessionGeneration++;
-    _sessionAuthenticated = false;
-    _heartbeatWritePending = false;
-    _encryptedWriteLane = Future<void>.value();
-    BleCrypto.endSession();
-
-    _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
-    _pendingAuthCompleter = null;
-    final pendingSafeState = _pendingSafeStateCompleter;
-    if (pendingSafeState != null && !pendingSafeState.isCompleted) {
-      pendingSafeState.complete();
-    }
-    _pendingSafeStateCompleter = null;
-
-    await _analogSubscription?.cancel();
-    await _authSubscription?.cancel();
-    await _statusSubscription?.cancel();
-    await _connStateSub?.cancel();
-    _analogSubscription = null;
-    _authSubscription = null;
-    _statusSubscription = null;
-    _connStateSub = null;
+    _endCryptoSession(authOutcome: BleAuthOutcome.failed);
 
     final device = _device;
-    _device = null;
-
-    _analogChar = null;
-    _digitalChar = null;
-    _authChar = null;
-    _statusChar = null;
-    _heartbeatChar = null;
-    _analogOutChar = null;
-    _digitalCharWriteNoResponse = false;
-
-    if (device != null && device.isConnected) {
-      await device.disconnect();
-    }
-
-    if (emitState) {
-      _handleDisconnect();
-    } else {
-      _connectedDevice = null;
-      _resetHoistValues(emit: !_isDisposing);
-    }
+    await _clearConnectionState();
+    await _safeDisconnectDevice(device);
+    _publishDisconnectedState(emitConnectionState: emitState);
   }
 
   // ── Run Disconnect ─────────────────────────────────────────────────────
@@ -763,41 +860,9 @@ class BleService {
     }
     _stopRssiPolling();
     _stopHeartbeat();
-    _cryptoSessionGeneration++;
-    _sessionAuthenticated = false;
-    _heartbeatWritePending = false;
-    _encryptedWriteLane = Future<void>.value();
-    BleCrypto.endSession();
-    _pendingAuthCompleter?.complete(BleAuthOutcome.timedOut);
-    _pendingAuthCompleter = null;
-
-    _device = null;
-    _connectedDevice = null;
-    _connStateSub?.cancel();
-    _connStateSub = null;
-
-    _analogChar = null;
-    _authChar = null;
-    _digitalChar = null;
-    _statusChar = null;
-    _heartbeatChar = null;
-    _analogOutChar = null;
-    _digitalCharWriteNoResponse = false;
-
-    _analogSubscription?.cancel();
-    _authSubscription?.cancel();
-    _statusSubscription?.cancel();
-
-    _analogSubscription = null;
-    _authSubscription = null;
-    _statusSubscription = null;
-    _resetHoistValues(emit: true);
-
-    if (!_statusController.isClosed) {
-      _statusController.add(PlcOutputCommand.idle());
-    }
-    _emit(BleConnectionStatus.disconnected);
-    _freezeCache(forceEmit: true);
+    _endCryptoSession(authOutcome: BleAuthOutcome.timedOut);
+    unawaited(_clearConnectionState());
+    _publishDisconnectedState(emitConnectionState: true);
   }
 
   // ── Characteristic callbacks ───────────────────────────────────────────────
@@ -823,6 +888,8 @@ class BleService {
         return;
       }
       _logger.w('Invalid decrypted hoist payload ignored: "$payload"');
+    } on _StaleBleSessionException catch (e) {
+      _logger.w('Stale analog notification ignored: $e');
     } on BleCryptoException catch (e) {
       _logger.e('Encrypted analog notification rejected: $e');
       await _cryptoSafeState('Analog notification decrypt failed: $e');
@@ -888,6 +955,8 @@ class BleService {
       }
       _logger.i('Decrypted PLC status payload: $payload');
       _publishStatus(command);
+    } on _StaleBleSessionException catch (e) {
+      _logger.w('Stale status notification ignored: $e');
     } on BleCryptoException catch (e) {
       _logger.e('Encrypted status notification rejected: $e');
       await _cryptoSafeState('Status notification decrypt failed: $e');
@@ -901,17 +970,12 @@ class BleService {
   }
 
   void _publishStatus(PlcOutputCommand command) {
-    if (command.estop || command.isIdle) {
-      final pending = _pendingSafeStateCompleter;
-      if (pending != null && !pending.isCompleted) {
-        pending.complete();
-      }
-      _pendingSafeStateCompleter = null;
-    }
     _logger.i(
       'PLC status: estop=${command.estop} activeFields=${command.activeFields}',
     );
-    _statusController.add(command);
+    if (!_isDisposing && !_statusController.isClosed) {
+      _statusController.add(command);
+    }
   }
 
   // ── Processes the crane controller's login response ────────────────────────
@@ -922,23 +986,23 @@ class BleService {
 
   // RUN Auth Notification
   Future<void> _handleAuthNotificationAsync(List<int> bytes) async {
-    final plainPayload = _tryDecodeUtf8(bytes)?.trim();
-    if (await _handleAuthPayload(plainPayload, source: 'plain')) {
-      return;
-    }
-
-    if (_pendingAuthCompleter == null || !BleCrypto.sessionActive) {
-      if (plainPayload == null) {
-        _logger.w(
-          'Auth notification: non-UTF8 data (${bytes.length} bytes) ignored.',
-        );
-      } else {
-        _logger.w('Unknown auth notification payload: "$plainPayload"');
-      }
-      return;
-    }
-
     try {
+      final plainPayload = _tryDecodeUtf8(bytes)?.trim();
+      if (await _handleAuthPayload(plainPayload, source: 'plain')) {
+        return;
+      }
+
+      if (_pendingAuthCompleter == null || !BleCrypto.sessionActive) {
+        if (plainPayload == null) {
+          _logger.w(
+            'Auth notification: non-UTF8 data (${bytes.length} bytes) ignored.',
+          );
+        } else {
+          _logger.w('Unknown auth notification payload: "$plainPayload"');
+        }
+        return;
+      }
+
       final decrypted = await _decryptNotification(bytes, label: 'auth');
       final encryptedPayload = _tryDecodeUtf8(decrypted)?.trim();
       if (await _handleAuthPayload(encryptedPayload, source: 'encrypted')) {
@@ -947,6 +1011,8 @@ class BleService {
       _logger.w(
         'Unknown encrypted auth notification payload: "$encryptedPayload"',
       );
+    } on _StaleBleSessionException catch (e) {
+      _logger.w('Stale auth notification ignored: $e');
     } on BleCryptoException catch (e) {
       _logger.e('Encrypted auth notification rejected: $e');
       await _cryptoSafeState('Auth response decrypt failed: $e');
@@ -960,9 +1026,7 @@ class BleService {
   }
 
   Future<void> _sendSafeStatePreAuthBestEffort() async {
-    if (_digitalChar == null) {
-      return;
-    }
+    if (_digitalChar == null) return;
     try {
       await _sendSafeStateCommand().timeout(const Duration(milliseconds: 900));
       _logger.i('Pre-auth safe-state packet sent (best effort).');
@@ -972,20 +1036,12 @@ class BleService {
   }
 
   Future<void> _sendSafeStateCommand() async {
-    if (_digitalChar == null) {
+    final digitalChar = _digitalChar;
+    if (digitalChar == null) {
       throw StateError('Digital characteristic is not ready.');
     }
     final plainBytes = PlcOutputCommand.emergencyStop().wireBytes.toList();
-    if (_sessionAuthenticated) {
-      await _writeEncryptedCharacteristic(
-        characteristic: _digitalChar!,
-        plaintext: plainBytes,
-        withoutResponse: _digitalCharWriteNoResponse,
-        label: 'safe-state',
-      );
-      return;
-    }
-    await _digitalChar!.write(
+    await digitalChar.write(
       plainBytes,
       withoutResponse: _digitalCharWriteNoResponse,
     );
@@ -1010,6 +1066,11 @@ class BleService {
     }
 
     if (payload == BLEConstants.authSuccess) {
+      final pendingAuth = _pendingAuthCompleter;
+      if (pendingAuth == null || pendingAuth.isCompleted) {
+        _logger.w('Unsolicited auth success ignored ($source).');
+        return true;
+      }
       _logger.i('Auth notification ($source): $payload');
       await _finalizeAuthenticatedSession();
       return true;
@@ -1017,14 +1078,13 @@ class BleService {
 
     final failureOutcome = _authFailureOutcome(payload);
     if (failureOutcome != null) {
+      final pendingAuth = _pendingAuthCompleter;
+      if (pendingAuth == null || pendingAuth.isCompleted) {
+        _logger.w('Unsolicited auth failure ignored ($source): $payload');
+        return true;
+      }
       _logger.w('Auth notification ($source): $payload');
-      _cryptoSessionGeneration++;
-      _sessionAuthenticated = false;
-      _heartbeatWritePending = false;
-      _encryptedWriteLane = Future<void>.value();
-      BleCrypto.endSession();
-      _pendingAuthCompleter?.complete(failureOutcome);
-      _pendingAuthCompleter = null;
+      _endCryptoSession(authOutcome: failureOutcome);
       _emit(BleConnectionStatus.error, message: payload);
       return true;
     }
@@ -1071,21 +1131,11 @@ class BleService {
   // ── If encryption fails, immediately go to safe state ──────────────────────
 
   Future<void> _cryptoSafeState(String reason) async {
-    if (_isDisposing) return;
+    if (_isDisposing || _cryptoSafeStateActive) return;
+    _cryptoSafeStateActive = true;
 
     _logger.e('CRYPTO SAFE STATE ENTERED: $reason');
     debugPrint('[SECURITY] Entering crypto safe state — reason: $reason');
-
-    _stopHeartbeat();
-
-    _cryptoSessionGeneration++;
-    _sessionAuthenticated = false;
-    _heartbeatWritePending = false;
-    _encryptedWriteLane = Future<void>.value();
-    BleCrypto.endSession();
-
-    _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
-    _pendingAuthCompleter = null;
 
     _emit(
       BleConnectionStatus.error,
@@ -1098,13 +1148,22 @@ class BleService {
   // ── Completes the login ────────────────────────────────────────────────────
 
   Future<void> _finalizeAuthenticatedSession() async {
-    if (!BleCrypto.sessionActive) {
-      await BleCrypto.beginSession();
+    final pendingAuth = _pendingAuthCompleter;
+    final device = _device;
+    if (pendingAuth == null || pendingAuth.isCompleted) {
+      throw const _StaleBleSessionException(
+        'Authentication completed without a pending request.',
+      );
+    }
+    if (device == null || !device.isConnected || !BleCrypto.sessionActive) {
+      throw const _StaleBleSessionException(
+        'Authentication completed after the BLE session ended.',
+      );
     }
 
     if (!kIsWeb && Platform.isAndroid) {
       try {
-        await _device!.requestConnectionPriority(
+        await device.requestConnectionPriority(
           connectionPriorityRequest: ConnectionPriority.high,
         );
         debugPrint('[BLE] Connection priority set to HIGH.');
@@ -1113,9 +1172,18 @@ class BleService {
       }
     }
 
+    if (!identical(_device, device) ||
+        !device.isConnected ||
+        !identical(_pendingAuthCompleter, pendingAuth) ||
+        !BleCrypto.sessionActive) {
+      throw const _StaleBleSessionException(
+        'Authentication session changed while finalizing.',
+      );
+    }
+
     _sessionAuthenticated = true;
     _emit(BleConnectionStatus.authenticated);
-    _pendingAuthCompleter?.complete(BleAuthOutcome.success);
+    pendingAuth.complete(BleAuthOutcome.success);
     _pendingAuthCompleter = null;
     _startRssiPolling();
     _startHeartbeat();
@@ -1128,35 +1196,79 @@ class BleService {
     required String password,
     required String deviceId,
   }) async {
-    if (_authChar == null) {
+    if (_isDisposing) {
+      throw StateError('BLE service has been disposed.');
+    }
+    final activeAuth = _activeAuthFuture;
+    if (activeAuth != null) {
+      _logger.w('Ignoring duplicate authentication request.');
+      return activeAuth;
+    }
+
+    final authFuture = _authenticate(
+      email: email,
+      password: password,
+      deviceId: deviceId,
+    );
+    _activeAuthFuture = authFuture;
+    try {
+      return await authFuture;
+    } finally {
+      if (identical(_activeAuthFuture, authFuture)) {
+        _activeAuthFuture = null;
+      }
+    }
+  }
+
+  Future<BleAuthOutcome> _authenticate({
+    required String email,
+    required String password,
+    required String deviceId,
+  }) async {
+    final authChar = _authChar;
+    final device = _device;
+    if (authChar == null || device == null || !device.isConnected) {
       throw StateError('Authentication characteristic is not ready.');
     }
 
-    _pendingAuthCompleter?.complete(BleAuthOutcome.failed);
-    _pendingAuthCompleter = Completer<BleAuthOutcome>();
-    final authFuture = _pendingAuthCompleter!.future;
+    _endCryptoSession(authOutcome: BleAuthOutcome.failed);
     _emit(BleConnectionStatus.authenticating);
-    // await _authChar!.write(
-    //       utf8.encode('$email|$password'),
-    //       withoutResponse: false,
-    //     );
-    _cryptoSessionGeneration++;
-    _sessionAuthenticated = false;
-    _heartbeatWritePending = false;
-    _encryptedWriteLane = Future<void>.value();
-    BleCrypto.endSession();
-    await BleCrypto.beginSession();
 
-    final plaintext = utf8.encode('$email|$password|$deviceId');
-    final encryptedAuth = await BleCrypto.encrypt(plaintext);
-
-    await _authChar!.write(encryptedAuth, withoutResponse: false);
-
+    Completer<BleAuthOutcome>? pendingAuth;
     try {
-      return await authFuture.timeout(
+      // Do not reset BleCrypto while a notification from the previous session
+      // is still finishing AES-GCM work against its shared counters.
+      await _encryptedReadLane;
+      if (!identical(_device, device) || !device.isConnected) {
+        throw StateError('BLE connection ended before authentication started.');
+      }
+
+      await BleCrypto.beginSession();
+      if (!identical(_device, device) || !device.isConnected) {
+        throw StateError('BLE connection ended during authentication setup.');
+      }
+
+      pendingAuth = Completer<BleAuthOutcome>();
+      _pendingAuthCompleter = pendingAuth;
+
+      final plaintext = utf8.encode('$email|$password|$deviceId');
+      final encryptedAuth = await BleCrypto.encrypt(plaintext);
+
+      if (!identical(_device, device) ||
+          !identical(_authChar, authChar) ||
+          !device.isConnected ||
+          !identical(_pendingAuthCompleter, pendingAuth)) {
+        throw StateError('BLE connection ended before authentication write.');
+      }
+
+      await authChar.write(encryptedAuth, withoutResponse: false);
+
+      return await pendingAuth.future.timeout(
         SafetyConstants.authReplyTimeout,
         onTimeout: () {
-          _pendingAuthCompleter = null;
+          if (identical(_pendingAuthCompleter, pendingAuth)) {
+            _endCryptoSession(authOutcome: BleAuthOutcome.timedOut);
+          }
           _emit(
             BleConnectionStatus.awaitingAuthentication,
             message: 'PLC authentication timed out.',
@@ -1164,10 +1276,17 @@ class BleService {
           return BleAuthOutcome.timedOut;
         },
       );
+    } catch (_) {
+      if (pendingAuth == null ||
+          identical(_pendingAuthCompleter, pendingAuth)) {
+        _endCryptoSession(authOutcome: BleAuthOutcome.failed);
+      }
+      rethrow;
     } finally {
       if (_snapshot.status != BleConnectionStatus.authenticated &&
-          _device != null &&
-          _device!.isConnected &&
+          identical(_device, device) &&
+          device.isConnected &&
+          _snapshot.status != BleConnectionStatus.awaitingAuthentication &&
           _snapshot.status != BleConnectionStatus.error) {
         _emit(BleConnectionStatus.awaitingAuthentication);
       }
@@ -1178,13 +1297,13 @@ class BleService {
 
   void _startHeartbeat() {
     _stopHeartbeat();
-    if (_heartbeatChar == null) {
+    final heartbeatChar = _heartbeatChar;
+    if (heartbeatChar == null) {
       _logger.w('Heartbeat characteristic not found — heartbeat disabled.');
       return;
     }
 
-    final bool useWithoutResponse =
-        _heartbeatChar!.properties.writeWithoutResponse;
+    final useWithoutResponse = heartbeatChar.properties.writeWithoutResponse;
     if (!useWithoutResponse) {
       _logger.w(
         'HB: ESP32 heartbeat characteristic does not support '
@@ -1211,6 +1330,7 @@ class BleService {
     if (_heartbeatWritePending) return;
     final char = _heartbeatChar;
     if (char == null) return;
+    final generation = _cryptoSessionGeneration;
     _heartbeatWritePending = true;
     // AES-128-GCM encrypted heartbeat — fire-and-forget.
     unawaited(
@@ -1219,7 +1339,9 @@ class BleService {
             _logger.w('Heartbeat write failed: $e');
           })
           .whenComplete(() {
-            _heartbeatWritePending = false;
+            if (generation == _cryptoSessionGeneration) {
+              _heartbeatWritePending = false;
+            }
           }),
     );
   }
@@ -1241,25 +1363,46 @@ class BleService {
 
   void _startRssiPolling() {
     _rssiTimer?.cancel();
-    _rssiTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
-      final device = _device;
-      final connectedDevice = _connectedDevice;
-      if (device == null ||
-          !device.isConnected ||
-          connectedDevice == null ||
-          _isDisposing) {
+    _rssiReadPending = false;
+    final generation = ++_rssiPollGeneration;
+    _rssiTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_pollRssi(generation)),
+    );
+  }
+
+  Future<void> _pollRssi(int generation) async {
+    if (_rssiReadPending || generation != _rssiPollGeneration || _isDisposing) {
+      return;
+    }
+
+    final device = _device;
+    final connectedDevice = _connectedDevice;
+    if (device == null || !device.isConnected || connectedDevice == null) {
+      return;
+    }
+
+    _rssiReadPending = true;
+    try {
+      final rssi = await device.readRssi();
+      if (_isDisposing ||
+          generation != _rssiPollGeneration ||
+          !identical(_device, device) ||
+          _connectedDevice?.id != connectedDevice.id) {
         return;
       }
-      try {
-        final rssi = await device.readRssi();
 
-        _connectedDevice = connectedDevice.copyWith(rssi: rssi);
-
-        _emit(_snapshot.status);
-      } catch (e) {
+      _connectedDevice = connectedDevice.copyWith(rssi: rssi);
+      _emit(_snapshot.status);
+    } catch (e) {
+      if (generation == _rssiPollGeneration && !_isDisposing) {
         _logger.w('RSSI poll failed: $e');
       }
-    });
+    } finally {
+      if (generation == _rssiPollGeneration) {
+        _rssiReadPending = false;
+      }
+    }
   }
 
   // ── Stop RSSI polling ─────────────────────────────────────────────────────
@@ -1267,6 +1410,8 @@ class BleService {
   void _stopRssiPolling() {
     _rssiTimer?.cancel();
     _rssiTimer = null;
+    _rssiPollGeneration++;
+    _rssiReadPending = false;
   }
 
   // ── Write helpers ──────────────────────────────────────────────────────────
@@ -1280,12 +1425,28 @@ class BleService {
       if (_isDisposing ||
           generation != _cryptoSessionGeneration ||
           !BleCrypto.sessionActive) {
-        throw StateError(
+        throw _StaleBleSessionException(
           'Encrypted $label notification belongs to an inactive session.',
         );
       }
 
-      return BleCrypto.decrypt(wireBytes);
+      final List<int> plaintext;
+      try {
+        plaintext = await BleCrypto.decrypt(wireBytes);
+      } catch (_) {
+        if (_isDisposing || generation != _cryptoSessionGeneration) {
+          throw _StaleBleSessionException(
+            'Encrypted $label notification failed after its session ended.',
+          );
+        }
+        rethrow;
+      }
+      if (_isDisposing || generation != _cryptoSessionGeneration) {
+        throw _StaleBleSessionException(
+          'Encrypted $label notification completed after its session ended.',
+        );
+      }
+      return plaintext;
     });
 
     _encryptedReadLane = readFuture.then<void>(
@@ -1336,11 +1497,13 @@ class BleService {
   }
 
   Future<void> writeDigital(List<int> bytes) async {
-    if (_digitalChar == null) return;
+    if (_isDisposing) return;
+    final digitalChar = _digitalChar;
+    if (digitalChar == null) return;
     if (_sessionAuthenticated) {
       try {
         await _writeEncryptedCharacteristic(
-          characteristic: _digitalChar!,
+          characteristic: digitalChar,
           plaintext: bytes,
           withoutResponse: _digitalCharWriteNoResponse,
           label: 'digital',
@@ -1356,7 +1519,7 @@ class BleService {
         return;
       }
     }
-    await _digitalChar!.write(
+    await digitalChar.write(
       bytes,
       withoutResponse: _digitalCharWriteNoResponse,
     );
@@ -1368,6 +1531,7 @@ class BleService {
   /// attempts decrypt+validate, so a write while unauthenticated is silently
   /// dropped by [_writeEncryptedCharacteristic] rather than sent in the clear.
   Future<void> writeAnalogOutput(List<int> bytes) async {
+    if (_isDisposing) return;
     final char = _analogOutChar;
     if (char == null) {
       _logger.w(
@@ -1402,45 +1566,63 @@ class BleService {
     }
   }
 
-  Future<void> writeAuth(List<int> bytes) async {
-    if (_authChar == null) return;
-    await _authChar!.write(bytes);
-  }
-
   void dispose() {
+    if (_isDisposing) return;
     _isDisposing = true;
+    _connectCancelled = true;
+    _scanContinue = false;
     _scanPaused = false;
     _scanSessionActive = false;
     _scanGeneration++;
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
     _stopRssiPolling();
     _stopHeartbeat();
-    _scanResultsSub?.cancel();
-    _authSubscription?.cancel();
-    _statusSubscription?.cancel();
-    _connStateSub?.cancel();
-    if (FlutterBluePlus.isScanningNow) {
-      FlutterBluePlus.stopScan();
-    }
-    stopScan();
+    _endCryptoSession(authOutcome: BleAuthOutcome.failed);
+
     final device = _device;
-    _device = null;
-    _connectedDevice = null;
+    final scanSubscription = _scanResultsSub;
+    _scanResultsSub = null;
+    final connectionCleanup = _clearConnectionState();
 
-    _digitalChar = null;
-    _analogChar = null;
-    _authChar = null;
-    _statusChar = null;
-    _heartbeatChar = null;
-    _analogOutChar = null;
+    unawaited(
+      _disposeResources(
+        device: device,
+        scanSubscription: scanSubscription,
+        connectionCleanup: connectionCleanup,
+      ),
+    );
+  }
 
-    if (device != null && device.isConnected) {
-      device.disconnect();
+  Future<void> _disposeResources({
+    required BluetoothDevice? device,
+    required StreamSubscription<List<ScanResult>>? scanSubscription,
+    required Future<void> connectionCleanup,
+  }) async {
+    try {
+      await FlutterBluePlus.stopScan();
+    } catch (e) {
+      _logger.w('BLE scan shutdown failed during dispose: $e');
     }
-    disconnect();
 
-    _connectionController.close();
-    _scanController.close();
-    _analogController.close();
-    _statusController.close();
+    try {
+      await scanSubscription?.cancel();
+    } catch (e) {
+      _logger.w('BLE scan subscription cleanup failed: $e');
+    }
+
+    await connectionCleanup;
+    await _safeDisconnectDevice(device);
+
+    try {
+      await Future.wait<void>([
+        if (!_connectionController.isClosed) _connectionController.close(),
+        if (!_scanController.isClosed) _scanController.close(),
+        if (!_analogController.isClosed) _analogController.close(),
+        if (!_statusController.isClosed) _statusController.close(),
+      ]);
+    } catch (e) {
+      _logger.w('BLE stream cleanup failed during dispose: $e');
+    }
   }
 }
