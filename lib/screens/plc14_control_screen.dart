@@ -78,7 +78,10 @@ class _ControlScreenState extends State<ControlScreen>
   Rect _canvasRect() {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return Rect.zero;
-    return box.localToGlobal(Offset.zero) & box.size;
+    final gridHeight = (box.size.height - ControlCanvas.paginationExtent)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    return box.localToGlobal(Offset.zero) & Size(box.size.width, gridHeight);
   }
 
   int _currentCanvasPageIndex() {

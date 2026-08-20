@@ -508,13 +508,6 @@ class BleService {
         debugPrint('[BLE] MTU negotiation failed: $e');
       }
 
-      // Android caches a device's GATT table across connections keyed by
-      // its MAC address. If this phone ever connected to this PLC before
-      // its firmware's characteristic set last changed, discoverServices()
-      // below would otherwise silently replay that stale cached table
-      // (missing/extra characteristics) instead of querying the device —
-      // firmware under active development changes this table often, so
-      // this must run on every connect, not just once.
       try {
         await device.clearGattCache();
         debugPrint('[BLE] GATT cache cleared.');
@@ -526,9 +519,6 @@ class BleService {
 
     _ensureConnectionSetupActive(device);
     final services = await device.discoverServices(
-      // The PLC has a known, application-owned GATT profile and the cache is
-      // explicitly refreshed above. Avoid FlutterBluePlus starting its own
-      // asynchronous 0x2A05 notification setup inside service discovery.
       subscribeToServicesChanged: false,
     );
     _ensureConnectionSetupActive(device);

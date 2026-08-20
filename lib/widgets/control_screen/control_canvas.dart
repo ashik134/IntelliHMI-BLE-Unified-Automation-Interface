@@ -126,6 +126,11 @@ class ControlCanvas extends StatefulWidget {
     this.pageController,
   });
 
+  /// Space reserved below the paged grid for arrows and page dots. Placement
+  /// surfaces subtract this from their outer canvas rectangle so catalogue
+  /// drops and resize math continue to use the exact visible grid bounds.
+  static const double paginationExtent = 32.0;
+
   final ControlLayoutConfig layoutCfg;
   final bool isEditing;
   final ControlState Function(ButtonConfig config) activeStateFor;
@@ -182,9 +187,34 @@ class ControlCanvas extends StatefulWidget {
 
 class _ControlCanvasState extends State<ControlCanvas> {
   PageController? _ownedPageController;
+  int _currentPage = 0;
 
   PageController get _pageController =>
       widget.pageController ?? (_ownedPageController ??= PageController());
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPage = widget.pageController?.initialPage ?? 0;
+  }
+
+  @override
+  void didUpdateWidget(ControlCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageController == widget.pageController) return;
+
+    if (oldWidget.pageController == null) {
+      _ownedPageController?.dispose();
+      _ownedPageController = null;
+    }
+
+    final controller = widget.pageController;
+    _currentPage = controller == null
+        ? 0
+        : controller.hasClients
+        ? (controller.page?.round() ?? controller.initialPage)
+        : controller.initialPage;
+  }
 
   // True from the moment a resize handle's pointer goes down until it goes
   // up/cancels (see _ResizeHandle's Listener) — NOT the same window as
@@ -205,6 +235,22 @@ class _ControlCanvasState extends State<ControlCanvas> {
     setState(() => _resizeScrollLocked = locked);
   }
 
+  void _handlePageChanged(int pageIndex) {
+    if (_currentPage == pageIndex) return;
+    setState(() => _currentPage = pageIndex);
+  }
+
+  void _navigateToPage(int pageIndex, int pageCount) {
+    if (pageIndex < 0 || pageIndex >= pageCount) return;
+    final controller = _pageController;
+    if (!controller.hasClients) return;
+    controller.animateToPage(
+      pageIndex,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   void dispose() {
     _ownedPageController?.dispose();
@@ -221,13 +267,17 @@ class _ControlCanvasState extends State<ControlCanvas> {
       columns: grid.columns,
       rows: grid.rows,
     );
+    final pageCount = pages.isEmpty ? 1 : pages.length;
+    final currentPage = _currentPage.clamp(0, pageCount - 1).toInt();
 
-    return PageView.builder(
+    final pageView = PageView.builder(
+      key: const ValueKey('control_canvas_page_view'),
       controller: _pageController,
       physics: widget.isEditing && !_resizeScrollLocked
           ? const PageScrollPhysics()
           : const NeverScrollableScrollPhysics(),
-      itemCount: pages.isEmpty ? 1 : pages.length,
+      itemCount: pageCount,
+      onPageChanged: _handlePageChanged,
       itemBuilder: (context, pageIndex) {
         final page = pageIndex < pages.length ? pages[pageIndex] : null;
         final content = LayoutBuilder(
@@ -338,6 +388,25 @@ class _ControlCanvasState extends State<ControlCanvas> {
         );
       },
     );
+
+    return Column(
+      children: [
+        Expanded(child: pageView),
+        SizedBox(
+          height: ControlCanvas.paginationExtent,
+          child: _CanvasPagination(
+            currentPage: currentPage,
+            pageCount: pageCount,
+            onPrevious: currentPage > 0
+                ? () => _navigateToPage(currentPage - 1, pageCount)
+                : null,
+            onNext: currentPage < pageCount - 1
+                ? () => _navigateToPage(currentPage + 1, pageCount)
+                : null,
+          ),
+        ),
+      ],
+    );
   }
 
   /// Builds [item]'s occupied cell, wrapping it in [_MoveDraggableCell] when
@@ -388,6 +457,129 @@ class _ControlCanvasState extends State<ControlCanvas> {
       onMoveUpdate: onMoveUpdate,
       onMoveDrop: onMoveDrop,
       child: cell,
+    );
+  }
+}
+
+class _CanvasPagination extends StatelessWidget {
+  const _CanvasPagination({
+    required this.currentPage,
+    required this.pageCount,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int currentPage;
+  final int pageCount;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+      child: Row(
+        children: [
+          if (onPrevious != null)
+            _CanvasPageArrow(
+              key: const ValueKey('control_canvas_previous_page'),
+              icon: Icons.chevron_left_rounded,
+              tooltip: 'Previous control page',
+              onPressed: onPrevious!,
+            )
+          else
+            const SizedBox.square(dimension: 28),
+          Expanded(
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Semantics(
+                  key: const ValueKey('control_canvas_page_status'),
+                  label: 'Control page ${currentPage + 1} of $pageCount',
+                  liveRegion: true,
+                  child: ExcludeSemantics(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var index = 0; index < pageCount; index++)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: AnimatedContainer(
+                              key: ValueKey('control_canvas_page_dot_$index'),
+                              duration: const Duration(milliseconds: 160),
+                              curve: Curves.easeOutCubic,
+                              width: index == currentPage ? 12 : 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: index == currentPage
+                                    ? AppColors.selectionViolet
+                                    : AppColors.darkTextSub.withAlpha(60),
+                                borderRadius: BorderRadius.circular(99),
+                                boxShadow: index == currentPage
+                                    ? const [
+                                        BoxShadow(
+                                          color: AppColors.selectionGlow,
+                                          blurRadius: 5,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (onNext != null)
+            _CanvasPageArrow(
+              key: const ValueKey('control_canvas_next_page'),
+              icon: Icons.chevron_right_rounded,
+              tooltip: 'Next control page',
+              onPressed: onNext!,
+            )
+          else
+            const SizedBox.square(dimension: 28),
+        ],
+      ),
+    );
+  }
+}
+
+class _CanvasPageArrow extends StatelessWidget {
+  const _CanvasPageArrow({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 28,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        style: IconButton.styleFrom(
+          foregroundColor: AppColors.darkTextSub,
+          backgroundColor: AppColors.panelAlt.withAlpha(210),
+          side: const BorderSide(color: AppColors.panelStroke),
+          shape: const CircleBorder(),
+          minimumSize: const Size.square(28),
+          maximumSize: const Size.square(28),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
     );
   }
 }
