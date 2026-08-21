@@ -169,11 +169,36 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
 
   void _resetLocalState() {
     _springCtrl.stop();
+    // If disabled mid-interaction (e.g. E-STOP), tell the caller before
+    // clearing local state so its "current active step" bookkeeping doesn't
+    // stay stuck on the interrupted step. Without this, the caller never
+    // hears that the interaction was cancelled, so once E-STOP clears it
+    // re-syncs this slider straight back onto the stale step — see
+    // IndustrialMultiZoneSlider's identical disable-path handling.
+    if (_stateId != MultiStepSliderStateId.idle) {
+      _deferStateChanged(MultiStepSliderStateId.idle);
+    }
     setState(() {
       _isTouching = false;
       _pointerStartedOnThumb = false;
       _stateId = MultiStepSliderStateId.idle;
       _sliderValue = 0.0;
+    });
+    // Arm the guard so a stale external "stepN" update cannot reactivate the
+    // slider until the next fresh pointer interaction.
+    _suppressExternalReactivation = true;
+  }
+
+  /// Lifecycle updates run inside an ancestor's build. Dispatching from that
+  /// phase can synchronously call setState/notifyListeners in the owner and
+  /// trigger "setState() or markNeedsBuild() called during build". Gesture
+  /// emissions remain synchronous; only lifecycle-driven safety releases use
+  /// this post-frame path.
+  void _deferStateChanged(String stateId) {
+    final onStateChanged = widget.onStateChanged;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      onStateChanged(stateId);
     });
   }
 
