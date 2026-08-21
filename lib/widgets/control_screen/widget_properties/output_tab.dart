@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/models/analog_joystick_config.dart';
 import 'package:rev_crane_control_ops/models/analog_slider_config.dart';
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart'
+    show AnalogOutputChannel;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
@@ -20,11 +22,12 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
 // per joystick virtual sub-button), backed by ButtonConfig.stateMappings /
 // .joystickSubButtonMappings exactly as CraneController already composes
 // from them — this tab can't express anything the wire protocol doesn't
-// already support. Analog types: only the real, wired outputEnabled switch
-// — no PLC-output-variant/channel picker, since PotentiometerConfig
-// .outputVariantId/.outputChannel are stored but never read by anything
-// that talks to the PLC (confirmed against CraneController/BleService), and
-// AnalogSliderConfig/AnalogJoystickConfig don't even have those fields.
+// already support. Analog types: the wired outputEnabled switch plus an
+// A1..A6 channel picker — CraneController.setAnalogButtonValue addresses
+// every analog write to config.outputChannel over the firmware's
+// RANGE:/DATA: protocol, so output stays inert until both are set.
+// PotentiometerConfig.outputVariantId is unrelated to this and still isn't
+// read by anything that talks to the PLC.
 // ─────────────────────────────────────────────────────────────────────────────
 
 final List<PlcOutputVariant> _kConfigurableVariants = PlcOutputVariant.values
@@ -276,6 +279,19 @@ class OutputTab extends StatelessWidget {
           ),
         ),
       ),
+      _channelPickerRow(
+        selected: potConfig.outputChannel,
+        onSelect: (channel) => onUpdate(
+          (b) => b.copyWith(
+            customProperties: potConfig
+                .copyWith(
+                  outputChannel: channel,
+                  clearOutputChannel: channel == null,
+                )
+                .applyToCustomProperties(b.customProperties),
+          ),
+        ),
+      ),
     ];
   }
 
@@ -293,6 +309,19 @@ class OutputTab extends StatelessWidget {
           (b) => b.copyWith(
             customProperties: sliderConfig
                 .copyWith(outputEnabled: v)
+                .applyToCustomProperties(b.customProperties),
+          ),
+        ),
+      ),
+      _channelPickerRow(
+        selected: sliderConfig.outputChannel,
+        onSelect: (channel) => onUpdate(
+          (b) => b.copyWith(
+            customProperties: sliderConfig
+                .copyWith(
+                  outputChannel: channel,
+                  clearOutputChannel: channel == null,
+                )
                 .applyToCustomProperties(b.customProperties),
           ),
         ),
@@ -318,6 +347,53 @@ class OutputTab extends StatelessWidget {
           ),
         ),
       ),
+      _channelPickerRow(
+        selected: joyConfig.outputChannel,
+        onSelect: (channel) => onUpdate(
+          (b) => b.copyWith(
+            customProperties: joyConfig
+                .copyWith(
+                  outputChannel: channel,
+                  clearOutputChannel: channel == null,
+                )
+                .applyToCustomProperties(b.customProperties),
+          ),
+        ),
+      ),
     ];
+  }
+
+  // ── Shared A1..A6 channel picker ─────────────────────────────────────────
+
+  Widget _channelPickerRow({
+    required AnalogOutputChannel? selected,
+    required ValueChanged<AnalogOutputChannel?> onSelect,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'PLC Analog Channel',
+            style: TextStyle(
+              color: Color(0xFFF3F6F9),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          PropertySegmented<AnalogOutputChannel?>(
+            options: [
+              (null, 'None'),
+              for (final channel in AnalogOutputChannel.values)
+                (channel, channel.label),
+            ],
+            selected: selected,
+            onChanged: onSelect,
+          ),
+        ],
+      ),
+    );
   }
 }

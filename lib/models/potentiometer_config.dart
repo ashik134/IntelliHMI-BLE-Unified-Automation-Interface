@@ -12,20 +12,27 @@ class PotentiometerConfig implements AnalogWireConfig {
     this.showValue = true,
     this.unit = '%',
     this.outputVariantId,
-    this.outputChannel = '',
+    this.outputChannel,
     this.outputEnabled = false,
   });
 
   static const String customPropertiesKey = 'potentiometer';
 
+  @override
   final double minValue;
+  @override
   final double maxValue;
   final double stepSize;
   final double defaultValue;
   final bool showValue;
   final String unit;
   final String? outputVariantId;
-  final String outputChannel;
+
+  /// Which firmware analog channel (A1..A6) this control writes to — see
+  /// AnalogWireConfig.outputChannel. Null until the operator picks one in
+  /// the OUTPUT MAPPING editor.
+  @override
+  final AnalogOutputChannel? outputChannel;
 
   /// Opt-in "send to PLC" flag for this control's analog output. Defaults
   /// to false so a freshly-added control stays inert until the operator
@@ -62,7 +69,7 @@ class PotentiometerConfig implements AnalogWireConfig {
       showValue: showValue,
       unit: unit.trim(),
       outputVariantId: _cleanVariantId(outputVariantId),
-      outputChannel: outputChannel.trim(),
+      outputChannel: outputChannel,
       outputEnabled: outputEnabled,
     );
   }
@@ -91,6 +98,7 @@ class PotentiometerConfig implements AnalogWireConfig {
     return config.clampAndSnap(config.minValue + config.range * t);
   }
 
+  @override
   int get decimalPlaces {
     final text = stepSize.abs().toStringAsFixed(6);
     final trimmed = text.replaceFirst(RegExp(r'0+$'), '');
@@ -108,17 +116,10 @@ class PotentiometerConfig implements AnalogWireConfig {
     return suffix.isEmpty ? number : '$number$suffix';
   }
 
-  /// Builds the "min,max,value" wire payload for the BLE analog-output
-  /// protocol: bare numbers, no unit suffix, clamped to this config's range.
-  /// [value] is clamped/snapped the same way [formatValue] displays it, so
-  /// what the operator sees on screen is exactly what the PLC receives.
+  /// Satisfies [AnalogWireConfig.clampAndSnapForWire] — identical to
+  /// [clampAndSnap], just named for the wire-layer call site.
   @override
-  String wirePayload(double value) {
-    final config = normalized();
-    String fmt(double v) => v.toStringAsFixed(config.decimalPlaces);
-    return '${fmt(config.minValue)},${fmt(config.maxValue)},'
-        '${fmt(config.clampAndSnap(value))}';
-  }
+  double clampAndSnapForWire(double value) => clampAndSnap(value);
 
   PotentiometerConfig copyWith({
     double? minValue,
@@ -128,9 +129,10 @@ class PotentiometerConfig implements AnalogWireConfig {
     bool? showValue,
     String? unit,
     String? outputVariantId,
-    String? outputChannel,
+    AnalogOutputChannel? outputChannel,
     bool? outputEnabled,
     bool clearOutputVariantId = false,
+    bool clearOutputChannel = false,
   }) {
     return PotentiometerConfig(
       minValue: minValue ?? this.minValue,
@@ -142,7 +144,9 @@ class PotentiometerConfig implements AnalogWireConfig {
       outputVariantId: clearOutputVariantId
           ? null
           : (outputVariantId ?? this.outputVariantId),
-      outputChannel: outputChannel ?? this.outputChannel,
+      outputChannel: clearOutputChannel
+          ? null
+          : (outputChannel ?? this.outputChannel),
       outputEnabled: outputEnabled ?? this.outputEnabled,
     ).normalized();
   }
@@ -155,7 +159,7 @@ class PotentiometerConfig implements AnalogWireConfig {
     'showValue': showValue,
     'unit': unit,
     'outputVariantId': outputVariantId,
-    'outputChannel': outputChannel,
+    'outputChannel': outputChannel?.token,
     'outputEnabled': outputEnabled,
   };
 
@@ -187,7 +191,7 @@ class PotentiometerConfig implements AnalogWireConfig {
       showValue: json['showValue'] as bool? ?? true,
       unit: json['unit'] as String? ?? '%',
       outputVariantId: _cleanVariantId(json['outputVariantId']),
-      outputChannel: json['outputChannel'] as String? ?? '',
+      outputChannel: AnalogOutputChannel.fromToken(json['outputChannel']),
       outputEnabled: json['outputEnabled'] as bool? ?? false,
     ).normalized();
   }

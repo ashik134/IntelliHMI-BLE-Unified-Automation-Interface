@@ -47,6 +47,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     this.orientation = AnalogSliderOrientation.vertical,
     this.invert = false,
     this.outputEnabled = false,
+    this.outputChannel,
     this.unit = '',
     this.showValue = false,
   });
@@ -70,6 +71,12 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
   /// operator explicitly enables it.
   @override
   final bool outputEnabled;
+
+  /// Which firmware analog channel (A1..A6) this control writes to — see
+  /// AnalogWireConfig.outputChannel. Null until the operator picks one in
+  /// the OUTPUT MAPPING editor.
+  @override
+  final AnalogOutputChannel? outputChannel;
   final String unit;
 
   /// Shows the current formatted value alongside the label, mirroring
@@ -107,13 +114,11 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       orientation: orientation,
       invert: invert,
       outputEnabled: outputEnabled,
+      outputChannel: outputChannel,
       unit: unit.trim(),
       showValue: showValue,
     );
   }
-
-  @override
-  String wirePayload(double value) => normalized().analogWirePayload(value);
 
   AnalogSliderConfig copyWith({
     double? minValue,
@@ -124,8 +129,10 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     AnalogSliderOrientation? orientation,
     bool? invert,
     bool? outputEnabled,
+    AnalogOutputChannel? outputChannel,
     String? unit,
     bool? showValue,
+    bool clearOutputChannel = false,
   }) {
     return AnalogSliderConfig(
       minValue: minValue ?? this.minValue,
@@ -136,6 +143,9 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       orientation: orientation ?? this.orientation,
       invert: invert ?? this.invert,
       outputEnabled: outputEnabled ?? this.outputEnabled,
+      outputChannel: clearOutputChannel
+          ? null
+          : (outputChannel ?? this.outputChannel),
       unit: unit ?? this.unit,
       showValue: showValue ?? this.showValue,
     ).normalized();
@@ -150,6 +160,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     'orientation': orientation.name,
     'invert': invert,
     'outputEnabled': outputEnabled,
+    'outputChannel': outputChannel?.token,
     'unit': unit,
     'showValue': showValue,
   };
@@ -192,6 +203,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
       ),
       invert: json['invert'] as bool? ?? false,
       outputEnabled: json['outputEnabled'] as bool? ?? false,
+      outputChannel: AnalogOutputChannel.fromToken(json['outputChannel']),
       unit: json['unit'] as String? ?? '',
       showValue: json['showValue'] as bool? ?? false,
     ).normalized();
@@ -209,6 +221,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
           other.orientation == orientation &&
           other.invert == invert &&
           other.outputEnabled == outputEnabled &&
+          other.outputChannel == outputChannel &&
           other.unit == unit &&
           other.showValue == showValue;
 
@@ -222,6 +235,7 @@ class AnalogSliderConfig with AnalogRangeMixin implements AnalogWireConfig {
     orientation,
     invert,
     outputEnabled,
+    outputChannel,
     unit,
     showValue,
   );

@@ -56,6 +56,7 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
     this.outputAxis = AnalogJoystickOutputAxis.x,
     this.invert = false,
     this.outputEnabled = false,
+    this.outputChannel,
     this.unit = '',
   });
 
@@ -93,6 +94,12 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
   /// operator explicitly enables it.
   @override
   final bool outputEnabled;
+
+  /// Which firmware analog channel (A1..A6) this control writes to — see
+  /// AnalogWireConfig.outputChannel. Null until the operator picks one in
+  /// the OUTPUT MAPPING editor.
+  @override
+  final AnalogOutputChannel? outputChannel;
   final String unit;
 
   AnalogJoystickConfig normalized() {
@@ -126,12 +133,10 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
       outputAxis: outputAxis,
       invert: invert,
       outputEnabled: outputEnabled,
+      outputChannel: outputChannel,
       unit: unit.trim(),
     );
   }
-
-  @override
-  String wirePayload(double value) => normalized().analogWirePayload(value);
 
   AnalogJoystickConfig copyWith({
     double? minValue,
@@ -144,7 +149,9 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
     AnalogJoystickOutputAxis? outputAxis,
     bool? invert,
     bool? outputEnabled,
+    AnalogOutputChannel? outputChannel,
     String? unit,
+    bool clearOutputChannel = false,
   }) {
     return AnalogJoystickConfig(
       minValue: minValue ?? this.minValue,
@@ -157,6 +164,9 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
       outputAxis: outputAxis ?? this.outputAxis,
       invert: invert ?? this.invert,
       outputEnabled: outputEnabled ?? this.outputEnabled,
+      outputChannel: clearOutputChannel
+          ? null
+          : (outputChannel ?? this.outputChannel),
       unit: unit ?? this.unit,
     ).normalized();
   }
@@ -172,6 +182,7 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
     'outputAxis': outputAxis.name,
     'invert': invert,
     'outputEnabled': outputEnabled,
+    'outputChannel': outputChannel?.token,
     'unit': unit,
   };
 
@@ -219,6 +230,7 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
       ),
       invert: json['invert'] as bool? ?? false,
       outputEnabled: json['outputEnabled'] as bool? ?? false,
+      outputChannel: AnalogOutputChannel.fromToken(json['outputChannel']),
       unit: json['unit'] as String? ?? '',
     ).normalized();
   }
@@ -237,6 +249,7 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
           other.outputAxis == outputAxis &&
           other.invert == invert &&
           other.outputEnabled == outputEnabled &&
+          other.outputChannel == outputChannel &&
           other.unit == unit;
 
   @override
@@ -251,6 +264,7 @@ class AnalogJoystickConfig with AnalogRangeMixin implements AnalogWireConfig {
     outputAxis,
     invert,
     outputEnabled,
+    outputChannel,
     unit,
   );
 }

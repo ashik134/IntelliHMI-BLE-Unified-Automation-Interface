@@ -6,21 +6,70 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AnalogWireConfig / AnalogRangeMixin
+// AnalogWireConfig / AnalogRangeMixin / AnalogOutputChannel
 //
-// Shared contract for every control that writes a "min,max,value" analog
-// payload through CraneController.setAnalogButtonValue ->
+// Shared contract for every control that writes to the ESP32 firmware's
+// channel-addressed analog-output protocol (AnalogOutputCallbacks::onWrite in
+// web_handler.h/main.cpp) through CraneController.setAnalogButtonValue ->
 // BleService.writeAnalogOutput -> the encrypted analog-out characteristic.
-// PotentiometerConfig implements this interface directly (it already has
-// matching outputEnabled/wirePayload members) with no change to its own
-// logic. New analog config types (joystick, slider) mix in
-// [AnalogRangeMixin] for the shared min/max/neutral/step math instead of
-// duplicating PotentiometerConfig's implementation.
+// The firmware keeps six independent AnalogChannelState slots (A1..A6), each
+// with its own persisted rangeMin/rangeMax; a RANGE:A{n}-{min},{max} command
+// sets that scaling, and a DATA:A{n}-{value}[,A{m}-{value2},...] command
+// pushes one or more raw engineering-unit values that the firmware maps to
+// its 0..4095 PWM output using the channel's last-set range. PotentiometerConfig
+// implements this interface directly; AnalogJoystickConfig/AnalogSliderConfig
+// mix in [AnalogRangeMixin] for the shared min/max/neutral/step math.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// One of the firmware's six independently addressable analog output
+/// channels (`AnalogChannelState analogChannels[NUM_ANALOG_CHANNELS]` in
+/// web_handler.h). [token] is the exact "A1".."A6" identifier the firmware's
+/// `parseAnalogChannelToken` expects inside RANGE:/DATA: command bodies.
+enum AnalogOutputChannel {
+  a1,
+  a2,
+  a3,
+  a4,
+  a5,
+  a6;
+
+  String get token => 'A${index + 1}';
+
+  /// Display label for pickers — identical to [token] since operators refer
+  /// to these channels by their wire identifier directly.
+  String get label => token;
+
+  static AnalogOutputChannel? fromToken(Object? raw) {
+    if (raw == null) return null;
+    final normalized = raw.toString().trim().toUpperCase();
+    for (final channel in values) {
+      if (channel.token == normalized) return channel;
+    }
+    return null;
+  }
+}
 
 abstract interface class AnalogWireConfig {
   bool get outputEnabled;
-  String wirePayload(double value);
+
+  /// Which firmware channel this control writes to. Output stays inert
+  /// (see CraneController.setAnalogButtonValue) until both this and
+  /// [outputEnabled] are set — a freshly added control has no channel
+  /// assigned yet.
+  AnalogOutputChannel? get outputChannel;
+
+  /// Engineering-unit output range. Sent to the firmware via a
+  /// RANGE:A{n}-{min},{max} command and used there to scale DATA values
+  /// onto the physical 0..4095 PWM output.
+  double get minValue;
+  double get maxValue;
+
+  int get decimalPlaces;
+
+  /// Clamps/snaps [value] into [minValue]..[maxValue] the same way this
+  /// config's on-screen value display does, so what the operator sees is
+  /// exactly what a DATA command sends.
+  double clampAndSnapForWire(double value);
 }
 
 /// Shared min/max/neutral/step math for analog configs other than
@@ -54,13 +103,10 @@ mixin AnalogRangeMixin {
     return math.min(maxValue, math.max(minValue, snapped));
   }
 
-  /// Builds the "min,max,value" wire payload — identical shape to
-  /// [PotentiometerConfig.wirePayload]/the firmware's expected plaintext.
-  String analogWirePayload(double value) {
-    String fmt(double v) => v.toStringAsFixed(decimalPlaces);
-    return '${fmt(minValue)},${fmt(maxValue)},'
-        '${fmt(clampAndSnapAnalog(value))}';
-  }
+  /// Satisfies [AnalogWireConfig.clampAndSnapForWire] for every mixing-in
+  /// config — identical clamp/snap behaviour, just named for the wire-layer
+  /// call site.
+  double clampAndSnapForWire(double value) => clampAndSnapAnalog(value);
 
   /// Maps a signed gesture value in [-1, 1] (e.g. joystick/slider drag
   /// position) to a real output value, anchored at [neutralValue] rather
@@ -104,6 +150,31 @@ double finiteOrAnalog(double value, double fallback) {
 double readAnalogDouble(dynamic value, double fallback) {
   if (value is num) return finiteOrAnalog(value.toDouble(), fallback);
   return finiteOrAnalog(double.tryParse('$value') ?? fallback, fallback);
+}
+
+String _fmtAnalogWireNumber(double value, int decimalPlaces) =>
+    value.toStringAsFixed(decimalPlaces);
+
+/// Builds the firmware's `A{n}-{min},{max}` RANGE command body for
+/// [config]'s currently configured range. Returns null when no channel is
+/// assigned — there is nothing to address the command to.
+String? analogRangeToken(AnalogWireConfig config) {
+  final channel = config.outputChannel;
+  if (channel == null) return null;
+  return '${channel.token}-'
+      '${_fmtAnalogWireNumber(config.minValue, config.decimalPlaces)},'
+      '${_fmtAnalogWireNumber(config.maxValue, config.decimalPlaces)}';
+}
+
+/// Builds the firmware's `A{n}-{value}` DATA command fragment for [config]
+/// at [value] (clamped/snapped exactly like the on-screen display). Returns
+/// null when no channel is assigned.
+String? analogDataToken(AnalogWireConfig config, double value) {
+  final channel = config.outputChannel;
+  if (channel == null) return null;
+  final clamped = config.clampAndSnapForWire(value);
+  return '${channel.token}-'
+      '${_fmtAnalogWireNumber(clamped, config.decimalPlaces)}';
 }
 
 /// Resolves the [AnalogWireConfig] a [ButtonConfig] carries in its

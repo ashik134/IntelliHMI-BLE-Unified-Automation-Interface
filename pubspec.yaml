@@ -53,8 +53,6 @@ dependencies:
   wifi_iot: ^0.3.19+2
   app_settings: ^8.0.3
   webview_flutter: ^4.14.1
-  
-  
 
 dev_dependencies:
   flutter_test:

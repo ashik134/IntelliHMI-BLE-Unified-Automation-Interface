@@ -54,7 +54,18 @@ class CraneController extends ChangeNotifier
 
   DateTime? _analogLastSentAt;
   Timer? _analogTrailingTimer;
-  List<int>? _pendingAnalogBytes;
+
+  // Channels queued for the next throttled DATA: flush, keyed by channel so
+  // two controls changing within the same throttle window are coalesced
+  // into one "DATA:A1-x,A2-y" command instead of the second overwriting the
+  // first (each channel is independently addressed on the wire, unlike the
+  // old single shared analog-out value).
+  final Map<AnalogOutputChannel, String> _pendingAnalogDataTokens = {};
+
+  // Last RANGE:A{n}-{min},{max} token sent per channel this session, so a
+  // RANGE command only goes out once (or again after the operator edits the
+  // range) rather than on every value change.
+  final Map<AnalogOutputChannel, String> _sentAnalogRangeTokens = {};
 
   bool _initializing = true;
   Future<void>? _initializeFuture;
@@ -312,6 +323,14 @@ class CraneController extends ChangeNotifier
         _buttonFields.clear();
         _fieldOwners.clear();
         _lastLoggedPlcType = null;
+        _analogTrailingTimer?.cancel();
+        _analogTrailingTimer = null;
+        _analogLastSentAt = null;
+        _pendingAnalogDataTokens.clear();
+        // A reconnect may hit the same channel with a stale rangeMin/
+        // rangeMax the firmware no longer remembers (fresh boot, or a
+        // different PLC entirely) — force RANGE to be resent on next use.
+        _sentAnalogRangeTokens.clear();
       } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
         unawaited(ensureControlEntryEmergencyLock());
@@ -649,12 +668,33 @@ class CraneController extends ChangeNotifier
       );
       return;
     }
-    final payload = config.wirePayload(value);
-    _logger.d('Analog output queued for $buttonId: $payload');
-    _queueAnalogWrite(utf8.encode(payload));
+    final channel = config.outputChannel;
+    if (channel == null) {
+      _logger.w(
+        'Analog output BLOCKED for $buttonId — no analog channel (A1..A6) '
+        'assigned in the OUTPUT MAPPING editor.',
+      );
+      return;
+    }
+
+    // The firmware persists each channel's scaling range and applies it to
+    // every subsequent DATA value, so RANGE only needs to go out once per
+    // channel per session — and again if the operator edits the range.
+    final rangeToken = analogRangeToken(config);
+    if (rangeToken != null && _sentAnalogRangeTokens[channel] != rangeToken) {
+      _sentAnalogRangeTokens[channel] = rangeToken;
+      unawaited(_sendAnalogCommand('RANGE:$rangeToken'));
+    }
+
+    final dataToken = analogDataToken(config, value);
+    if (dataToken == null) return;
+    _logger.d('Analog output queued for $buttonId: $dataToken');
+    _queueAnalogDataToken(channel, dataToken);
   }
 
-  void _queueAnalogWrite(List<int> bytes) {
+  void _queueAnalogDataToken(AnalogOutputChannel channel, String token) {
+    _pendingAnalogDataTokens[channel] = token;
+
     final now = DateTime.now();
     final lastSent = _analogLastSentAt;
     final elapsed = lastSent == null
@@ -664,24 +704,27 @@ class CraneController extends ChangeNotifier
     if (elapsed >= SafetyConstants.analogOutputThrottle) {
       _analogTrailingTimer?.cancel();
       _analogTrailingTimer = null;
-      _pendingAnalogBytes = null;
-      unawaited(_sendAnalogBytes(bytes));
+      unawaited(_flushAnalogDataTokens());
       return;
     }
 
-    _pendingAnalogBytes = bytes;
     _analogTrailingTimer ??= Timer(
       SafetyConstants.analogOutputThrottle - elapsed,
       () {
         _analogTrailingTimer = null;
-        final pending = _pendingAnalogBytes;
-        _pendingAnalogBytes = null;
-        if (pending != null) unawaited(_sendAnalogBytes(pending));
+        unawaited(_flushAnalogDataTokens());
       },
     );
   }
 
-  Future<void> _sendAnalogBytes(List<int> bytes) async {
+  Future<void> _flushAnalogDataTokens() async {
+    if (_pendingAnalogDataTokens.isEmpty) return;
+    final tokens = _pendingAnalogDataTokens.values.toList();
+    _pendingAnalogDataTokens.clear();
+    await _sendAnalogCommand('DATA:${tokens.join(',')}');
+  }
+
+  Future<void> _sendAnalogCommand(String command) async {
     if (_estopLatched || !isConnected) {
       _logger.w(
         'Analog output DROPPED at send time '
@@ -691,7 +734,7 @@ class CraneController extends ChangeNotifier
     }
     _analogLastSentAt = DateTime.now();
     try {
-      await _bleService.writeAnalogOutput(bytes);
+      await _bleService.writeAnalogOutput(utf8.encode(command));
     } catch (e) {
       _logger.w('Analog output write failed: $e');
     }

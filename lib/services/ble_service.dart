@@ -1515,11 +1515,13 @@ class BleService {
     );
   }
 
-  /// Writes an encrypted "min,max,value" analog payload to the analog-out
-  /// characteristic. Unlike [writeDigital], there is no pre-auth plaintext
-  /// fallback — the firmware's AnalogOutputCallbacks::onWrite only ever
-  /// attempts decrypt+validate, so a write while unauthenticated is silently
-  /// dropped by [_writeEncryptedCharacteristic] rather than sent in the clear.
+  /// Writes an encrypted RANGE:A{n}-{min},{max} or DATA:A{n}-{value}[,...]
+  /// command to the analog-out characteristic — see
+  /// CraneController.setAnalogButtonValue for how those command strings are
+  /// built. Unlike [writeDigital], there is no pre-auth plaintext fallback —
+  /// the firmware's AnalogOutputCallbacks::onWrite only ever attempts
+  /// decrypt+validate, so a write while unauthenticated is silently dropped
+  /// by [_writeEncryptedCharacteristic] rather than sent in the clear.
   Future<void> writeAnalogOutput(List<int> bytes) async {
     if (_isDisposing) return;
     final char = _analogOutChar;
