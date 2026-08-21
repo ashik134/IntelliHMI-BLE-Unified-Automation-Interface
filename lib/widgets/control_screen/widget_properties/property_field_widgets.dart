@@ -221,11 +221,18 @@ class PropertySegmented<T> extends StatelessWidget {
     required this.options,
     required this.selected,
     required this.onChanged,
+    this.disabledValues = const {},
   });
 
   final List<(T value, String label)> options;
   final T selected;
   final ValueChanged<T> onChanged;
+
+  /// Options that render muted and non-interactive — e.g. a value already
+  /// claimed by another widget. The currently [selected] value stays
+  /// interactive even if present here, so the operator can always back out
+  /// of an existing (possibly now-conflicting) choice.
+  final Set<T> disabledValues;
 
   @override
   Widget build(BuildContext context) {
@@ -237,7 +244,9 @@ class PropertySegmented<T> extends StatelessWidget {
           _Pill(
             label: option.$2,
             selected: option.$1 == selected,
-            onTap: () => onChanged(option.$1),
+            onTap: disabledValues.contains(option.$1) && option.$1 != selected
+                ? null
+                : () => onChanged(option.$1),
           ),
       ],
     );

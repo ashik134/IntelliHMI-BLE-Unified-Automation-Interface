@@ -203,7 +203,11 @@ class WidgetPropertiesSheet extends StatelessWidget {
                           ),
                           AppearanceTab(config: config, onUpdate: onUpdate),
                           FunctionTab(config: config, onUpdate: onUpdate),
-                          OutputTab(config: config, onUpdate: onUpdate),
+                          OutputTab(
+                            config: config,
+                            allButtons: editCtrl.draft.resolvedButtons,
+                            onUpdate: onUpdate,
+                          ),
                           SafetyTab(
                             config: config,
                             allButtons: editCtrl.draft.resolvedButtons,

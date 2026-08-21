@@ -1,3 +1,5 @@
+import 'package:rev_crane_control_ops/models/analog_wire_config.dart'
+    show analogOutputChannelOf;
 import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
@@ -198,6 +200,20 @@ class LayoutValidationService {
     }
 
     final name = config.label.isEmpty ? config.id : config.label;
+
+    final ownChannel = analogOutputChannelOf(config);
+    if (ownChannel != null) {
+      for (final other in allButtons.values) {
+        if (other.id == config.id) continue;
+        if (analogOutputChannelOf(other) != ownChannel) continue;
+        final otherName = other.label.isEmpty ? other.id : other.label;
+        errors.add(
+          '$name and $otherName both write to analog channel '
+          '${ownChannel.token} — assign each to a different channel.',
+        );
+      }
+    }
+
     _checkIntRange(
       '$name debounce',
       config.behavior.debounceMs,

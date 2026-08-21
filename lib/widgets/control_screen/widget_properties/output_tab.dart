@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:rev_crane_control_ops/models/analog_joystick_config.dart';
 import 'package:rev_crane_control_ops/models/analog_slider_config.dart';
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart'
-    show AnalogOutputChannel;
+    show AnalogOutputChannel, analogOutputChannelOf;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
@@ -25,7 +25,11 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
 // already support. Analog types: the wired outputEnabled switch plus an
 // A1..A6 channel picker — CraneController.setAnalogButtonValue addresses
 // every analog write to config.outputChannel over the firmware's
-// RANGE:/DATA: protocol, so output stays inert until both are set.
+// RANGE:/DATA: protocol, so output stays inert until both are set. A channel
+// already claimed by another analog widget in [allButtons] is disabled here
+// (see _channelsClaimedByOthers) — two widgets racing to write the same
+// firmware channel would otherwise silently stomp on each other's DATA
+// values with no error either widget could see.
 // PotentiometerConfig.outputVariantId is unrelated to this and still isn't
 // read by anything that talks to the PLC.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,10 +43,27 @@ List<(String, String)> get _variantOptions => [
 ];
 
 class OutputTab extends StatelessWidget {
-  const OutputTab({super.key, required this.config, required this.onUpdate});
+  const OutputTab({
+    super.key,
+    required this.config,
+    required this.allButtons,
+    required this.onUpdate,
+  });
 
   final ButtonConfig config;
+
+  /// Every widget on the active layout, keyed by id — used to find analog
+  /// channels already claimed by widgets other than [config].
+  final Map<String, ButtonConfig> allButtons;
   final ButtonUpdater onUpdate;
+
+  /// Channels assigned to some other analog widget on this layout — never
+  /// includes [config]'s own current channel, so the picker never blocks the
+  /// operator from keeping (or clearing) what's already selected.
+  Set<AnalogOutputChannel> get _channelsClaimedByOthers => {
+    for (final b in allButtons.values)
+      if (b.id != config.id) ?analogOutputChannelOf(b),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -369,11 +390,22 @@ class OutputTab extends StatelessWidget {
     required AnalogOutputChannel? selected,
     required ValueChanged<AnalogOutputChannel?> onSelect,
   }) {
+    final claimedByOthers = _channelsClaimedByOthers;
+
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (selected != null && claimedByOthers.contains(selected))
+            PropertyInfoBanner(
+              isWarning: true,
+              text:
+                  '${selected.label} is already assigned to another '
+                  'analog widget on this layout — both would write '
+                  'conflicting values to the same PLC channel. Pick a '
+                  'different channel.',
+            ),
           const Text(
             'PLC Analog Channel',
             style: TextStyle(
@@ -390,6 +422,7 @@ class OutputTab extends StatelessWidget {
                 (channel, channel.label),
             ],
             selected: selected,
+            disabledValues: claimedByOthers,
             onChanged: onSelect,
           ),
         ],

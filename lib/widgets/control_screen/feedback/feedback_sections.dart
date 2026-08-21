@@ -10,34 +10,15 @@ import 'package:rev_crane_control_ops/widgets/control_screen/live_led_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/sensor_row.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/status_bar_chip.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Feedback sections
-//
-// The control-screen surfaces at the bottom of the feedback architecture:
-//
-//   PLC / Sensor / System Status -> FeedbackManager -> [these widgets]
-//
-// Every one of them reads the manager's already-resolved state and applies the
-// theme via FeedbackPalette. None of them evaluates a trigger, scales a value
-// or reaches a controller command method — the presentation layer is
-// deliberately dumb so "what does this annunciate?" has exactly one answer,
-// in the manager.
-//
-// Shared by both control screens (PLC14/21 and PLC38); the only thing that
-// differs between them is which LED channels the hardware exposes, which the
-// caller passes in.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Analog value readers — sensor readings scaled, banded and coloured per
-/// Feedback Settings' analog area.
 class FeedbackSensorSection extends StatelessWidget {
   const FeedbackSensorSection({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final readings = context.select<FeedbackManager, List<AnalogFeedbackReading>>(
-      (manager) => manager.snapshot.analog,
-    );
+    final readings = context
+        .select<FeedbackManager, List<AnalogFeedbackReading>>(
+          (manager) => manager.snapshot.analog,
+        );
 
     return RepaintBoundary(
       child: SensorRow(
@@ -49,7 +30,10 @@ class FeedbackSensorSection extends StatelessWidget {
     );
   }
 
-  SensorGaugeSpec _specFor(AnalogFeedbackReading reading, {required int index}) {
+  SensorGaugeSpec _specFor(
+    AnalogFeedbackReading reading, {
+    required int index,
+  }) {
     final config = reading.config;
     final (color, colorLight) = FeedbackPalette.analogChannel(
       index,

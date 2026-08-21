@@ -177,6 +177,32 @@ String? analogDataToken(AnalogWireConfig config, double value) {
       '${_fmtAnalogWireNumber(clamped, config.decimalPlaces)}';
 }
 
+/// Reads whichever analog output channel [button] carries, if any, without
+/// throwing for non-analog types — unlike [resolveAnalogWireConfig], which
+/// is only ever called for types already known to be analog. Used wherever
+/// a check needs to scan every button on a layout regardless of type (e.g.
+/// finding channel conflicts between widgets).
+AnalogOutputChannel? analogOutputChannelOf(ButtonConfig button) {
+  switch (button.type) {
+    case ButtonType.potentiometer:
+      return PotentiometerConfig.fromCustomProperties(
+        button.customProperties,
+      ).outputChannel;
+    case ButtonType.analogJoystick1D:
+    case ButtonType.analogJoystick2D:
+      return AnalogJoystickConfig.fromCustomProperties(
+        button.customProperties,
+      ).outputChannel;
+    case ButtonType.analogSliderOT:
+    case ButtonType.analogSliderTOT:
+      return AnalogSliderConfig.fromCustomProperties(
+        button.customProperties,
+      ).outputChannel;
+    default:
+      return null;
+  }
+}
+
 /// Resolves the [AnalogWireConfig] a [ButtonConfig] carries in its
 /// [ButtonConfig.customProperties], keyed by [ButtonConfig.type]. The single
 /// call site for every control screen's `onAnalogCommand` handler — keeps
