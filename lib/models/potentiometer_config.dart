@@ -9,6 +9,8 @@ class PotentiometerConfig implements AnalogWireConfig {
     this.maxValue = 100.0,
     this.stepSize = 1.0,
     this.defaultValue = 0.0,
+    this.neutralValue = 0.0,
+    this.springReturnEnabled = false,
     this.showValue = true,
     this.unit = '%',
     this.outputVariantId,
@@ -24,6 +26,18 @@ class PotentiometerConfig implements AnalogWireConfig {
   final double maxValue;
   final double stepSize;
   final double defaultValue;
+
+  /// Knob position the pointer springs back to on release when
+  /// [springReturnEnabled] is true. Independent of [defaultValue] (which is
+  /// only the initial value on first build) — mirrors AnalogSliderConfig's
+  /// neutralValue.
+  final double neutralValue;
+
+  /// When true, releasing the knob smoothly animates it back to
+  /// [neutralValue] instead of staying put. Defaults to false: today's
+  /// existing behavior (stays wherever released), matching a real
+  /// set-and-forget potentiometer.
+  final bool springReturnEnabled;
   final bool showValue;
   final String unit;
   final String? outputVariantId;
@@ -60,12 +74,18 @@ class PotentiometerConfig implements AnalogWireConfig {
       max: safeMax,
       step: safeStep,
     );
+    final safeNeutral = _finiteOr(
+      neutralValue,
+      safeMin,
+    ).clamp(safeMin, safeMax).toDouble();
 
     return PotentiometerConfig(
       minValue: safeMin,
       maxValue: safeMax,
       stepSize: safeStep,
       defaultValue: safeDefault,
+      neutralValue: safeNeutral,
+      springReturnEnabled: springReturnEnabled,
       showValue: showValue,
       unit: unit.trim(),
       outputVariantId: _cleanVariantId(outputVariantId),
@@ -126,6 +146,8 @@ class PotentiometerConfig implements AnalogWireConfig {
     double? maxValue,
     double? stepSize,
     double? defaultValue,
+    double? neutralValue,
+    bool? springReturnEnabled,
     bool? showValue,
     String? unit,
     String? outputVariantId,
@@ -139,6 +161,8 @@ class PotentiometerConfig implements AnalogWireConfig {
       maxValue: maxValue ?? this.maxValue,
       stepSize: stepSize ?? this.stepSize,
       defaultValue: defaultValue ?? this.defaultValue,
+      neutralValue: neutralValue ?? this.neutralValue,
+      springReturnEnabled: springReturnEnabled ?? this.springReturnEnabled,
       showValue: showValue ?? this.showValue,
       unit: unit ?? this.unit,
       outputVariantId: clearOutputVariantId
@@ -156,6 +180,8 @@ class PotentiometerConfig implements AnalogWireConfig {
     'maxValue': maxValue,
     'stepSize': stepSize,
     'defaultValue': defaultValue,
+    'neutralValue': neutralValue,
+    'springReturnEnabled': springReturnEnabled,
     'showValue': showValue,
     'unit': unit,
     'outputVariantId': outputVariantId,
@@ -188,6 +214,8 @@ class PotentiometerConfig implements AnalogWireConfig {
       maxValue: _readDouble(json['maxValue'], 100.0),
       stepSize: _readDouble(json['stepSize'], 1.0),
       defaultValue: _readDouble(json['defaultValue'], 0.0),
+      neutralValue: _readDouble(json['neutralValue'], 0.0),
+      springReturnEnabled: json['springReturnEnabled'] as bool? ?? false,
       showValue: json['showValue'] as bool? ?? true,
       unit: json['unit'] as String? ?? '%',
       outputVariantId: _cleanVariantId(json['outputVariantId']),
@@ -204,6 +232,8 @@ class PotentiometerConfig implements AnalogWireConfig {
           other.maxValue == maxValue &&
           other.stepSize == stepSize &&
           other.defaultValue == defaultValue &&
+          other.neutralValue == neutralValue &&
+          other.springReturnEnabled == springReturnEnabled &&
           other.showValue == showValue &&
           other.unit == unit &&
           other.outputVariantId == outputVariantId &&
@@ -216,6 +246,8 @@ class PotentiometerConfig implements AnalogWireConfig {
     maxValue,
     stepSize,
     defaultValue,
+    neutralValue,
+    springReturnEnabled,
     showValue,
     unit,
     outputVariantId,

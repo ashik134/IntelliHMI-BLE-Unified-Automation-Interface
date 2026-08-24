@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
@@ -9,6 +10,14 @@ import 'package:rev_crane_control_ops/widgets/buttons/control_button_visuals.dar
 
 const double _kStartAngle = math.pi * 0.75;
 const double _kSweepAngle = math.pi * 1.5;
+
+// Mechanical "give" on release/settle — slightly underdamped so the knob
+// eases in with a hint of physical momentum instead of snapping flat.
+const SpringDescription _kKnobSpring = SpringDescription(
+  mass: 0.5,
+  stiffness: 280.0,
+  damping: 20.0,
+);
 
 class IndustrialPotentiometerControl extends StatefulWidget {
   const IndustrialPotentiometerControl({
@@ -36,13 +45,32 @@ class IndustrialPotentiometerControl extends StatefulWidget {
 }
 
 class _IndustrialPotentiometerControlState
-    extends State<IndustrialPotentiometerControl> {
+    extends State<IndustrialPotentiometerControl>
+    with TickerProviderStateMixin {
   late double _value;
+
+  /// Rendered pointer/arc position in [0, 1]. Tracks [_value] 1:1 while the
+  /// user is actively dragging (so the knob stays exactly under the finger —
+  /// "stable value tracking"), but is eased toward its target by
+  /// [_settleCtrl] whenever the value changes any other way (spring-return,
+  /// nudge, external config change), giving the knob a damped, weighted
+  /// feel without touching the drag-to-value math itself.
+  late double _displayNormalized;
+
   double? _dragStartAngle;
   double? _dragLastAngle;
   double _dragAccumulatedAngle = 0.0;
   double? _dragStartValue;
   bool _isDragging = false;
+
+  late final AnimationController _settleCtrl;
+  bool _settleDrivesValue = false;
+  double? _settleHapticTarget;
+  bool _settleHapticFired = false;
+
+  /// Smoothly animates the "pressed" look (knob depth, glow, shadow) in and
+  /// out instead of switching it abruptly on drag start/end.
+  late final AnimationController _pressCtrl;
 
   PotentiometerConfig get _config => widget.config.normalized();
 
@@ -50,20 +78,44 @@ class _IndustrialPotentiometerControlState
   void initState() {
     super.initState();
     _value = _config.defaultValue;
+    _displayNormalized = _config.normalizedValueFor(_value);
+    _settleCtrl = AnimationController.unbounded(vsync: this)
+      ..addListener(_onSettleTick);
+    _pressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+    )..addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _settleCtrl.dispose();
+    _pressCtrl.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant IndustrialPotentiometerControl oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.config != widget.config) {
+      _settleCtrl.stop();
       _value = _config.clampAndSnap(_value);
+      _displayNormalized = _config.normalizedValueFor(_value);
+    }
+    if (!widget.enabled && oldWidget.enabled) {
+      _settleCtrl.stop();
+      _pressCtrl.reverse();
+      _resetDrag();
     }
   }
 
   void _setValue(double next, {bool haptic = false}) {
     final snapped = _config.clampAndSnap(next);
     if (snapped == _value) return;
-    setState(() => _value = snapped);
+    setState(() {
+      _value = snapped;
+      _displayNormalized = _config.normalizedValueFor(snapped);
+    });
     if (haptic) HapticFeedback.selectionClick();
     widget.onChanged(snapped);
   }
@@ -75,6 +127,7 @@ class _IndustrialPotentiometerControlState
       return;
     }
 
+    _settleCtrl.stop();
     final angle = _angleForPosition(details.localPosition, size);
     setState(() {
       _isDragging = true;
@@ -83,6 +136,7 @@ class _IndustrialPotentiometerControlState
       _dragAccumulatedAngle = 0.0;
       _dragStartValue = _value;
     });
+    _pressCtrl.forward();
     HapticFeedback.selectionClick();
   }
 
@@ -111,7 +165,11 @@ class _IndustrialPotentiometerControlState
     if (!widget.enabled) return;
     final wasDragging = _isDragging;
     _resetDrag();
-    if (wasDragging) HapticFeedback.lightImpact();
+    _pressCtrl.reverse();
+    if (wasDragging) {
+      HapticFeedback.lightImpact();
+      if (_config.springReturnEnabled) _springReturnToNeutral();
+    }
   }
 
   void _resetDrag() {
@@ -130,6 +188,61 @@ class _IndustrialPotentiometerControlState
       _dragAccumulatedAngle = 0.0;
       _dragStartValue = null;
     });
+  }
+
+  /// Springs the knob back to [PotentiometerConfig.neutralValue] on release
+  /// — only armed when the operator has opted into spring-return mode.
+  /// Continuously reports the intermediate value via [widget.onChanged] as
+  /// it travels, exactly like a physical spring-loaded pot would.
+  void _springReturnToNeutral() {
+    final target = _config.normalizedValueFor(_config.neutralValue);
+    _settleDrivesValue = true;
+    _settleHapticTarget = target;
+    _settleHapticFired = false;
+    if ((_displayNormalized - target).abs() < 0.0015) return;
+    _settleCtrl.animateWith(
+      SpringSimulation(_kKnobSpring, _displayNormalized, target, 0.0),
+    );
+  }
+
+  /// Purely cosmetic damped ease of the pointer toward [target] — used for
+  /// keyboard nudges, where the value has already landed instantly and only
+  /// the needle should settle into place.
+  void _animateDisplayTo(double target) {
+    _settleDrivesValue = false;
+    _settleHapticTarget = null;
+    if ((_displayNormalized - target).abs() < 0.0015) {
+      setState(() => _displayNormalized = target);
+      return;
+    }
+    _settleCtrl.animateWith(
+      SpringSimulation(_kKnobSpring, _displayNormalized, target, 0.0),
+    );
+  }
+
+  void _onSettleTick() {
+    if (_isDragging) return;
+    final clamped = _settleCtrl.value.clamp(0.0, 1.0).toDouble();
+
+    if (_settleDrivesValue) {
+      final value = _config.valueForNormalized(clamped);
+      final changed = value != _value;
+      setState(() {
+        _displayNormalized = clamped;
+        _value = value;
+      });
+      if (changed) widget.onChanged(value);
+
+      final target = _settleHapticTarget;
+      if (target != null &&
+          !_settleHapticFired &&
+          (clamped - target).abs() < 0.01) {
+        _settleHapticFired = true;
+        HapticFeedback.lightImpact();
+      }
+    } else {
+      setState(() => _displayNormalized = clamped);
+    }
   }
 
   double? _angleForPosition(Offset localPosition, Size size) {
@@ -172,14 +285,20 @@ class _IndustrialPotentiometerControlState
 
   void _nudge(int direction) {
     if (!widget.enabled) return;
-    _setValue(_value + _config.stepSize * direction, haptic: true);
+    final target = _config.clampAndSnap(_value + _config.stepSize * direction);
+    if (target == _value) return;
+    setState(() => _value = target);
+    HapticFeedback.selectionClick();
+    widget.onChanged(target);
+    _animateDisplayTo(_config.normalizedValueFor(target));
   }
 
   @override
   Widget build(BuildContext context) {
     final config = _config;
-    final normalized = config.normalizedValueFor(_value);
+    final normalized = _displayNormalized.clamp(0.0, 1.0).toDouble();
     final valueText = config.formatValue(_value);
+    final trimmedLabel = widget.label.trim();
 
     return Semantics(
       slider: true,
@@ -200,21 +319,34 @@ class _IndustrialPotentiometerControlState
             final maxH = constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : 180.0;
-            final side = math.max(72.0, math.min(maxW, maxH));
 
-            return GestureDetector(
+            // A label/icon footer is only worth reserving space for when
+            // there's genuinely room for BOTH it and the dial's 72px
+            // usability floor (see `side` below) — otherwise it would either
+            // overflow the cell or force the dial smaller than that floor,
+            // so it simply doesn't render instead, exactly like
+            // ControlButtonLabelIcon already does at the label-text level.
+            const footerHeight = 6.0 + ControlButtonVisualMetrics.rowHeight;
+            final wantsFooter = trimmedLabel.isNotEmpty || widget.icon != null;
+            final showFooter = wantsFooter && maxH >= 72.0 + footerHeight;
+            final dialHeight = showFooter ? maxH - footerHeight : maxH;
+            final side = math.max(72.0, math.min(maxW, dialHeight));
+
+            final dial = GestureDetector(
               behavior: HitTestBehavior.opaque,
               onPanStart: widget.enabled
-                  ? (details) => _handlePanStart(details, Size(maxW, maxH))
+                  ? (details) =>
+                        _handlePanStart(details, Size(maxW, dialHeight))
                   : null,
               onPanUpdate: widget.enabled
-                  ? (details) => _handlePanUpdate(details, Size(maxW, maxH))
+                  ? (details) =>
+                        _handlePanUpdate(details, Size(maxW, dialHeight))
                   : null,
               onPanEnd: widget.enabled ? (_) => _handlePanEnd() : null,
               onPanCancel: widget.enabled ? _handlePanEnd : null,
               child: SizedBox(
                 width: maxW,
-                height: maxH,
+                height: dialHeight,
                 child: Center(
                   child: SizedBox(
                     width: side,
@@ -222,18 +354,49 @@ class _IndustrialPotentiometerControlState
                     child: CustomPaint(
                       painter: _PotentiometerPainter(
                         normalizedValue: normalized,
+                        neutralNormalized: config.springReturnEnabled
+                            ? config.normalizedValueFor(config.neutralValue)
+                            : null,
                         valueText: valueText,
+                        minLabel: config.formatValue(config.minValue),
+                        maxLabel: config.formatValue(config.maxValue),
                         showValue: config.showValue,
-                        label: widget.label,
-                        icon: widget.icon,
                         enabled: widget.enabled,
                         activeColor: widget.activeColor,
                         activeColorLight: widget.activeColorLight,
                         isDragging: _isDragging,
+                        pressAmount: _pressCtrl.value,
                       ),
                     ),
                   ),
                 ),
+              ),
+            );
+
+            if (!showFooter) return dial;
+
+            return SizedBox(
+              width: maxW,
+              height: maxH,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  dial,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    child: SizedBox(
+                      height: ControlButtonVisualMetrics.rowHeight,
+                      child: ControlButtonLabelIcon(
+                        label: widget.label,
+                        icon: widget.icon,
+                        color: widget.enabled
+                            ? AppColors.darkText
+                            : AppColors.darkBorder,
+                        iconColor: widget.activeColorLight,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
           },
@@ -246,25 +409,32 @@ class _IndustrialPotentiometerControlState
 class _PotentiometerPainter extends CustomPainter {
   const _PotentiometerPainter({
     required this.normalizedValue,
+    required this.neutralNormalized,
     required this.valueText,
+    required this.minLabel,
+    required this.maxLabel,
     required this.showValue,
-    required this.label,
-    required this.icon,
     required this.enabled,
     required this.activeColor,
     required this.activeColorLight,
     required this.isDragging,
+    required this.pressAmount,
   });
 
   final double normalizedValue;
+  final double? neutralNormalized;
   final String valueText;
+  final String minLabel;
+  final String maxLabel;
   final bool showValue;
-  final String label;
-  final IconData? icon;
   final bool enabled;
   final Color activeColor;
   final Color activeColorLight;
   final bool isDragging;
+
+  /// 0..1 eased "pressed" amount driving the depth/glow/shadow changes while
+  /// the knob is being turned.
+  final double pressAmount;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -272,16 +442,50 @@ class _PotentiometerPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final outerR = side * 0.48;
     final bezelR = side * 0.43;
-    final knobR = side * 0.33;
+    final baseKnobR = side * 0.33;
+    // Subtle "pressed into the panel" effect while actively turning.
+    final knobR = baseKnobR * (1.0 - 0.035 * pressAmount);
 
+    _drawHousingShadow(canvas, center, side, outerR);
+    _drawHousing(canvas, center, outerR);
+    _drawKnurl(canvas, center, outerR);
+    _drawTicks(canvas, center, side, outerR);
+    _drawArc(canvas, center, bezelR);
+    _drawKnobShadow(canvas, center, side, knobR);
+    _drawKnobBody(canvas, center, knobR);
+    _drawPointer(canvas, center, knobR);
+    _drawCenterCap(canvas, center, knobR);
+
+    if (pressAmount > 0.01 && enabled) {
+      canvas.drawCircle(
+        center,
+        outerR - 2,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.5, side * 0.016)
+          ..color = activeColorLight.withAlpha((120 * pressAmount).round()),
+      );
+    }
+
+    if (showValue) _paintValueAndRange(canvas, center, side);
+  }
+
+  void _drawHousingShadow(
+    Canvas canvas,
+    Offset center,
+    double side,
+    double outerR,
+  ) {
     canvas.drawCircle(
-      center + Offset(0, side * 0.035),
+      center + Offset(0, side * (0.035 - 0.012 * pressAmount)),
       outerR,
       Paint()
         ..color = Colors.black.withAlpha(150)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 14 - 3 * pressAmount),
     );
+  }
 
+  void _drawHousing(Canvas canvas, Offset center, double outerR) {
     final outerRect = Rect.fromCircle(center: center, radius: outerR);
     canvas.drawCircle(
       center,
@@ -299,102 +503,66 @@ class _PotentiometerPainter extends CustomPainter {
       outerR - 1,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.0, side * 0.012)
+        ..strokeWidth = math.max(1.0, outerR * 0.025)
         ..color = Colors.white.withAlpha(enabled ? 34 : 16),
     );
+  }
 
-    _drawTicks(canvas, center, side, outerR);
-    _drawArc(canvas, center, bezelR);
-
-    final knobRect = Rect.fromCircle(center: center, radius: knobR);
-    canvas.drawCircle(
-      center,
-      knobR,
-      Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(-0.38, -0.48),
-          radius: 1.1,
-          colors: [Color(0xFFE5EBF0), Color(0xFF7E8B96), Color(0xFF2A333B)],
-          stops: [0.0, 0.48, 1.0],
-        ).createShader(knobRect),
-    );
-    canvas.drawCircle(
-      center,
-      knobR,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.0, side * 0.018)
-        ..color = Colors.black.withAlpha(125),
-    );
-
-    final indicatorAngle = _kStartAngle + _kSweepAngle * normalizedValue;
-    final indicatorStart =
-        center +
-        Offset(
-          math.cos(indicatorAngle) * knobR * 0.15,
-          math.sin(indicatorAngle) * knobR * 0.15,
-        );
-    final indicatorEnd =
-        center +
-        Offset(
-          math.cos(indicatorAngle) * knobR * 0.78,
-          math.sin(indicatorAngle) * knobR * 0.78,
-        );
-    canvas.drawLine(
-      indicatorStart,
-      indicatorEnd,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(3.0, side * 0.045)
-        ..strokeCap = StrokeCap.round
-        ..color = enabled ? activeColorLight : AppColors.disabled,
-    );
-
-    canvas.drawCircle(
-      center,
-      knobR * 0.38,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.35, -0.45),
-          colors: [
-            Colors.white.withAlpha(enabled ? 104 : 46),
-            Colors.black.withAlpha(42),
-          ],
-        ).createShader(Rect.fromCircle(center: center, radius: knobR * 0.38)),
-    );
-
-    if (isDragging && enabled) {
-      canvas.drawCircle(
-        center,
-        outerR - 2,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(1.5, side * 0.016)
-          ..color = activeColorLight.withAlpha(120),
+  /// Fine machined-edge knurling on the housing rim, just outside the value
+  /// scale — purely decorative texture that sells the "metal" read.
+  void _drawKnurl(Canvas canvas, Offset center, double outerR) {
+    const count = 72;
+    final startR = outerR * 0.965;
+    final endR = outerR * 0.99;
+    final paint = Paint()
+      ..strokeWidth = 1.0
+      ..color = Colors.white.withAlpha(enabled ? 20 : 8);
+    for (var i = 0; i < count; i++) {
+      final angle = (math.pi * 2 / count) * i;
+      canvas.drawLine(
+        center + Offset(math.cos(angle) * startR, math.sin(angle) * startR),
+        center + Offset(math.cos(angle) * endR, math.sin(angle) * endR),
+        paint,
       );
     }
-
-    if (showValue) _paintValue(canvas, center, side);
-    _paintLabel(canvas, center, side);
   }
 
   void _drawTicks(Canvas canvas, Offset center, double side, double radius) {
-    final tickPaint = Paint()
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = math.max(1.0, side * 0.012);
+    final tickPaint = Paint()..strokeCap = StrokeCap.round;
     for (var i = 0; i <= 10; i++) {
       final t = i / 10.0;
       final angle = _kStartAngle + _kSweepAngle * t;
-      final isMajor = i == 0 || i == 5 || i == 10;
-      final startR = radius * (isMajor ? 0.82 : 0.86);
-      final endR = radius * 0.93;
-      tickPaint.color = Colors.white.withAlpha(
-        enabled ? (isMajor ? 132 : 72) : 38,
+      final isEndpoint = i == 0 || i == 10;
+      final isMajor = isEndpoint || i == 5;
+      final startR = radius * (isMajor ? 0.80 : 0.86);
+      final endR = radius * (isEndpoint ? 0.945 : 0.93);
+
+      tickPaint.strokeWidth = math.max(
+        1.0,
+        side * (isEndpoint ? 0.016 : (isMajor ? 0.013 : 0.010)),
       );
+      tickPaint.color = isEndpoint
+          ? (enabled ? activeColorLight : AppColors.disabled).withAlpha(210)
+          : Colors.white.withAlpha(enabled ? (isMajor ? 132 : 68) : 34);
       canvas.drawLine(
         center + Offset(math.cos(angle) * startR, math.sin(angle) * startR),
         center + Offset(math.cos(angle) * endR, math.sin(angle) * endR),
         tickPaint,
+      );
+    }
+
+    final neutral = neutralNormalized;
+    if (neutral != null) {
+      final angle = _kStartAngle + _kSweepAngle * neutral.clamp(0.0, 1.0);
+      final startR = radius * 0.78;
+      final endR = radius * 0.95;
+      canvas.drawLine(
+        center + Offset(math.cos(angle) * startR, math.sin(angle) * startR),
+        center + Offset(math.cos(angle) * endR, math.sin(angle) * endR),
+        Paint()
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = math.max(1.2, side * 0.014)
+          ..color = activeColorLight.withAlpha(enabled ? 200 : 90),
       );
     }
   }
@@ -420,59 +588,194 @@ class _PotentiometerPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = radius * 0.075
-        ..color = enabled ? activeColor : AppColors.disabled.withAlpha(110),
+        ..strokeWidth = radius * (0.075 + 0.012 * pressAmount)
+        ..color = enabled
+            ? Color.lerp(activeColor, activeColorLight, pressAmount * 0.5)!
+            : AppColors.disabled.withAlpha(110),
     );
   }
 
-  void _paintValue(Canvas canvas, Offset center, double side) {
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: valueText,
-        style: TextStyle(
-          color: enabled ? AppColors.darkBg : AppColors.darkBorder,
-          fontSize: (side * 0.095).clamp(10.0, 18.0).toDouble(),
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0,
-        ),
-      ),
+  void _drawKnobShadow(
+    Canvas canvas,
+    Offset center,
+    double side,
+    double knobR,
+  ) {
+    canvas.drawCircle(
+      center + Offset(0, side * (0.028 - 0.014 * pressAmount)),
+      knobR,
+      Paint()
+        ..color = Colors.black.withAlpha(150)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8 - 2.5 * pressAmount),
+    );
+  }
+
+  void _drawKnobBody(Canvas canvas, Offset center, double knobR) {
+    final knobRect = Rect.fromCircle(center: center, radius: knobR);
+    canvas.drawCircle(
+      center,
+      knobR,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment(-0.38, -0.48),
+          radius: 1.1,
+          colors: [Color(0xFFE5EBF0), Color(0xFF7E8B96), Color(0xFF2A333B)],
+          stops: [0.0, 0.48, 1.0],
+        ).createShader(knobRect),
+    );
+    canvas.drawCircle(
+      center,
+      knobR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.0, knobR * 0.055)
+        ..color = Colors.black.withAlpha(125),
+    );
+    // Thin bright rim catch-light — reads as a machined bevel edge.
+    canvas.drawCircle(
+      center,
+      knobR - 1,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = Colors.white.withAlpha(enabled ? 46 : 18),
+    );
+  }
+
+  void _drawPointer(Canvas canvas, Offset center, double knobR) {
+    final angle = _kStartAngle + _kSweepAngle * normalizedValue;
+    final dir = Offset(math.cos(angle), math.sin(angle));
+    final perp = Offset(-dir.dy, dir.dx);
+
+    final tip = center + dir * knobR * 0.82;
+    final baseCenter = center + dir * knobR * 0.16;
+    final baseHalfWidth = knobR * 0.075;
+    final baseLeft = baseCenter + perp * baseHalfWidth;
+    final baseRight = baseCenter - perp * baseHalfWidth;
+
+    final needleColor = enabled ? activeColorLight : AppColors.disabled;
+    final path = Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(baseLeft.dx, baseLeft.dy)
+      ..lineTo(baseRight.dx, baseRight.dy)
+      ..close();
+
+    if (isDragging && enabled) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = needleColor.withAlpha(140)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+    }
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = needleColor
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = Colors.black.withAlpha(90),
+    );
+
+    canvas.drawCircle(
+      tip,
+      math.max(1.2, knobR * 0.045),
+      Paint()..color = needleColor.withAlpha(enabled ? 255 : 160),
+    );
+  }
+
+  void _drawCenterCap(Canvas canvas, Offset center, double knobR) {
+    final capR = knobR * 0.4;
+    canvas.drawCircle(
+      center,
+      capR,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.45),
+          colors: [
+            Colors.white.withAlpha(
+              enabled ? (104 + (60 * pressAmount).round()) : 46,
+            ),
+            Colors.black.withAlpha(42),
+          ],
+        ).createShader(Rect.fromCircle(center: center, radius: capR)),
+    );
+    canvas.drawCircle(
+      center,
+      capR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = Colors.black.withAlpha(80),
+    );
+  }
+
+  void _paintValueAndRange(Canvas canvas, Offset center, double side) {
+    final valueStyle = TextStyle(
+      color: enabled ? AppColors.darkBg : AppColors.darkBorder,
+      fontSize: (side * 0.095).clamp(10.0, 18.0).toDouble(),
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0,
+    );
+    final valueTP = TextPainter(
+      text: TextSpan(text: valueText, style: valueStyle),
       textAlign: TextAlign.center,
       textDirection: TextDirection.ltr,
       maxLines: 1,
       ellipsis: '...',
     )..layout(maxWidth: side * 0.46);
-    textPainter.paint(
-      canvas,
-      Offset(center.dx - textPainter.width / 2, center.dy - side * 0.12),
-    );
-  }
+    final valueTop = center.dy - side * 0.12;
+    valueTP.paint(canvas, Offset(center.dx - valueTP.width / 2, valueTop));
 
-  void _paintLabel(Canvas canvas, Offset center, double side) {
-    final bounds = Rect.fromCenter(
-      center: Offset(center.dx, center.dy + side * 0.23),
-      width: side * 0.58,
-      height: ControlButtonVisualMetrics.rowHeight,
-    );
-    ControlButtonVisualMetrics.paintLabelIcon(
-      canvas,
-      bounds: bounds,
-      label: label,
-      icon: icon,
-      color: AppColors.darkText.withAlpha(enabled ? 230 : 118),
-      iconColor: activeColorLight.withAlpha(enabled ? 230 : 100),
-    );
+    // Compact min–max range caption, only drawn when it provably fits in
+    // the gap between the value readout and the label/icon footer row —
+    // keeps this correct at any widget size instead of guessing offsets.
+    // final rangeText = '$minLabel  ↔  $maxLabel';
+    // final rangeTP = TextPainter(
+    //   text: TextSpan(
+    //     text: rangeText,
+    //     style: TextStyle(
+    //       color: (enabled ? AppColors.darkBg : AppColors.darkBorder).withAlpha(
+    //         150,
+    //       ),
+    //       fontSize: (side * 0.05).clamp(7.0, 10.0).toDouble(),
+    //       fontWeight: FontWeight.w700,
+    //       letterSpacing: 0.2,
+    //     ),
+    //   ),
+    //   textAlign: TextAlign.center,
+    //   textDirection: TextDirection.ltr,
+    //   maxLines: 1,
+    //   ellipsis: '…',
+    // )..layout(maxWidth: side * 0.5);
+
+    // final rangeTop = valueTop + valueTP.height + side * 0.02;
+    //   final footerTop =
+    //       center.dy + side * 0.23 - ControlButtonVisualMetrics.rowHeight / 2;
+    //   if (rangeTop + rangeTP.height + side * 0.02 <= footerTop) {
+    //     rangeTP.paint(canvas, Offset(center.dx - rangeTP.width / 2, rangeTop));
+    //   }
+    //
   }
 
   @override
   bool shouldRepaint(covariant _PotentiometerPainter oldDelegate) {
     return oldDelegate.normalizedValue != normalizedValue ||
+        oldDelegate.neutralNormalized != neutralNormalized ||
         oldDelegate.valueText != valueText ||
+        oldDelegate.minLabel != minLabel ||
+        oldDelegate.maxLabel != maxLabel ||
         oldDelegate.showValue != showValue ||
-        oldDelegate.label != label ||
-        oldDelegate.icon != icon ||
         oldDelegate.enabled != enabled ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.activeColorLight != activeColorLight ||
-        oldDelegate.isDragging != isDragging;
+        oldDelegate.isDragging != isDragging ||
+        oldDelegate.pressAmount != pressAmount;
   }
 }

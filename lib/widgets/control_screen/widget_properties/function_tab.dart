@@ -422,6 +422,17 @@ class FunctionTab extends StatelessWidget {
         value: potConfig.unit,
         onChanged: (v) => update((c) => c.copyWith(unit: v)),
       ),
+      const PropertySectionHeader('Behavior'),
+      PropertySwitchTile(
+        title: 'Spring return to neutral',
+        value: potConfig.springReturnEnabled,
+        onChanged: (v) => update((c) => c.copyWith(springReturnEnabled: v)),
+      ),
+      _numberField(
+        label: 'Neutral value',
+        value: potConfig.neutralValue,
+        onChanged: (v) => update((c) => c.copyWith(neutralValue: v)),
+      ),
       PropertySwitchTile(
         title: 'Show value text',
         value: potConfig.showValue,

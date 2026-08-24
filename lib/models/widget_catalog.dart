@@ -268,11 +268,11 @@ final List<CatalogEntry> kWidgetCatalog = [
   CatalogEntry(
     category: _analog,
     group: 'Potentiometers',
-    name: 'Retained-Position Potentiometer',
+    name: 'Analog Rotary Control',
     description:
-        'Continuous analog rotary control that returns to its configured '
-        'default value after release.',
-    tags: const ['Analog', 'Retained'],
+        'Continuous analog rotary control configurable for retained or '
+        'spring-return operation.',
+    tags: const ['Analog', 'Retained', 'spring return'],
     buttonType: ButtonType.potentiometer,
     customProperties: const PotentiometerConfig(
       defaultValue: 0,
@@ -280,11 +280,6 @@ final List<CatalogEntry> kWidgetCatalog = [
     previewSize: const Size(150, 150),
   ),
 
-  // ── Analog Controls › Analog Sliders ────────────────────────────────────
-  // Registered as three independent entries over the same two underlying
-  // ButtonTypes — proof the catalogue can grow new analog-slider variants
-  // (e.g. a future one-sided spring-return) by adding another entry here,
-  // never by touching the screen or the rendering pipeline.
   CatalogEntry(
     category: _analog,
     group: 'Analog Sliders',
