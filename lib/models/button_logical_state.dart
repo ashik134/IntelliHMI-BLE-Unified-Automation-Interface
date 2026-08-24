@@ -86,6 +86,7 @@ extension ButtonTypeLogicalStates on ButtonType {
     // same reasoning as potentiometer, they emit a continuous value via
     // onAnalogCommand and never touch stateMappings either.
     ButtonType.potentiometer ||
+    ButtonType.potentiometerCenterOff ||
     ButtonType.horn ||
     ButtonType.alarmIndicator ||
     ButtonType.analogJoystick1D ||

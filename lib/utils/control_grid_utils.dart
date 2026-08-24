@@ -83,6 +83,7 @@ ResolvedButtonCommand resolveButtonCommand({
     return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
   if (config.type == ButtonType.potentiometer ||
+      config.type == ButtonType.potentiometerCenterOff ||
       config.type == ButtonType.analogJoystick1D ||
       config.type == ButtonType.analogJoystick2D ||
       config.type == ButtonType.analogSliderOT ||

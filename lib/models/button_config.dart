@@ -32,6 +32,12 @@ enum ButtonType {
   analogJoystick2D,
   analogSliderOT,
   analogSliderTOT,
+  // Center-off rotary knob — reuses PotentiometerConfig/potentiometer's
+  // customProperties key and analog-output pipeline wholesale (see
+  // analog_wire_config.dart); only its widget/strategy differ (rest
+  // position at neutralValue with a magnetic center detent, instead of
+  // treating neutralValue as an incidental spring-return target).
+  potentiometerCenterOff,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

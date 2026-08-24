@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/widgets/buttons/strategy/alarm_indicator_s
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/analog_joystick_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/analog_slider_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/button_type_strategy.dart';
+import 'package:rev_crane_control_ops/widgets/buttons/strategy/center_off_potentiometer_button_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/multi_zone_slider_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/horn_button_strategy.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/strategy/joystick_button_strategy.dart';
@@ -35,6 +36,7 @@ const Map<ButtonType, ButtonTypeStrategy> kButtonTypeStrategies = {
   ButtonType.bidirectionalSlider3Step: Bidirectional3StepStrategy(),
   ButtonType.joystick: JoystickButtonStrategy(),
   ButtonType.potentiometer: PotentiometerButtonStrategy(),
+  ButtonType.potentiometerCenterOff: CenterOffPotentiometerButtonStrategy(),
   ButtonType.horn: HornButtonStrategy(),
   ButtonType.alarmIndicator: AlarmIndicatorStrategy(),
   ButtonType.analogJoystick1D: AnalogJoystickStrategy(

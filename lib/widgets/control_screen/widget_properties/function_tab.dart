@@ -53,7 +53,8 @@ class FunctionTab extends StatelessWidget {
         ButtonType.pushButton => _pushButtonFields(),
         ButtonType.toggle => _toggleFields(context),
         ButtonType.joystick => _joystickFields(),
-        ButtonType.potentiometer => _potentiometerFields(),
+        ButtonType.potentiometer ||
+        ButtonType.potentiometerCenterOff => _potentiometerFields(),
         ButtonType.analogSliderOT ||
         ButtonType.analogSliderTOT => _analogSliderFields(),
         ButtonType.analogJoystick1D ||

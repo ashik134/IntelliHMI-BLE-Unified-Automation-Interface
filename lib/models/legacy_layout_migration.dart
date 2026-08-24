@@ -203,6 +203,7 @@ Map<String, ButtonStateOutputMapping> legacyMotionStateMappings({
         ...entry('step2', level2Variants),
       };
     case ButtonType.potentiometer:
+    case ButtonType.potentiometerCenterOff:
     case ButtonType.horn:
     case ButtonType.alarmIndicator:
     case ButtonType.analogJoystick1D:

@@ -316,6 +316,7 @@ String _typeDisplayName(ButtonType type) => switch (type) {
   ButtonType.bidirectionalSlider3Step => '3-Zone Slider',
   ButtonType.joystick => 'Joystick',
   ButtonType.potentiometer => 'Potentiometer',
+  ButtonType.potentiometerCenterOff => 'Center-Off Rotary Knob',
   ButtonType.horn => 'Horn',
   ButtonType.alarmIndicator => 'Alarm Indicator',
   ButtonType.analogJoystick1D => 'Analog Joystick (1-Axis)',

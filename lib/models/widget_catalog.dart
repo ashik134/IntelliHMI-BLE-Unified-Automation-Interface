@@ -279,6 +279,26 @@ final List<CatalogEntry> kWidgetCatalog = [
     ).applyToCustomProperties(const {}),
     previewSize: const Size(150, 150),
   ),
+  CatalogEntry(
+    category: _analog,
+    group: 'Potentiometers',
+    name: 'Center-Off Rotary Knob',
+    notation: '(O–T)/(O–R)',
+    description:
+        'Bidirectional rotary knob that starts from a centre/off position '
+        'and retains the selected value or springs back to centre after '
+        'release, depending on the variant.',
+    tags: const ['Analog', 'Bidirectional', 'Retained', 'Spring Return'],
+    buttonType: ButtonType.potentiometerCenterOff,
+    customProperties: const PotentiometerConfig(
+      minValue: -100,
+      maxValue: 100,
+      neutralValue: 0,
+      defaultValue: 0,
+      springReturnEnabled: false,
+    ).applyToCustomProperties(const {}),
+    previewSize: const Size(150, 150),
+  ),
 
   CatalogEntry(
     category: _analog,

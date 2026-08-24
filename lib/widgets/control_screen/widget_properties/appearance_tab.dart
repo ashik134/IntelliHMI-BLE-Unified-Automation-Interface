@@ -26,7 +26,8 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
   ButtonType.joystick ||
   ButtonType.analogJoystick1D ||
   ButtonType.analogJoystick2D => ('Knob color', 'Active highlight color'),
-  ButtonType.potentiometer => ('Knob / track color', 'Active highlight color'),
+  ButtonType.potentiometer ||
+  ButtonType.potentiometerCenterOff => ('Knob / track color', 'Active highlight color'),
   ButtonType.analogSliderOT ||
   ButtonType.analogSliderTOT => ('Track fill color', 'Active highlight color'),
   ButtonType.horn || ButtonType.alarmIndicator => ('Primary color', 'Active color'),

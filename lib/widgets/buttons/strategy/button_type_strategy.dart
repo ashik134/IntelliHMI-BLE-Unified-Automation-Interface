@@ -92,6 +92,7 @@ String logicalStateIdFor({
         ControlState.level2 => 'step2',
       };
     case ButtonType.potentiometer:
+    case ButtonType.potentiometerCenterOff:
     case ButtonType.analogJoystick1D:
     case ButtonType.analogJoystick2D:
     case ButtonType.analogSliderOT:

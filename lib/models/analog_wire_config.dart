@@ -185,6 +185,7 @@ String? analogDataToken(AnalogWireConfig config, double value) {
 AnalogOutputChannel? analogOutputChannelOf(ButtonConfig button) {
   switch (button.type) {
     case ButtonType.potentiometer:
+    case ButtonType.potentiometerCenterOff:
       return PotentiometerConfig.fromCustomProperties(
         button.customProperties,
       ).outputChannel;
@@ -214,6 +215,7 @@ AnalogOutputChannel? analogOutputChannelOf(ButtonConfig button) {
 AnalogWireConfig resolveAnalogWireConfig(ButtonConfig config) {
   switch (config.type) {
     case ButtonType.potentiometer:
+    case ButtonType.potentiometerCenterOff:
       return PotentiometerConfig.fromCustomProperties(
         config.customProperties,
       ).normalized();

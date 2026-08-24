@@ -70,7 +70,8 @@ class OutputTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       children: switch (config.type) {
-        ButtonType.potentiometer => _potentiometerOutput(),
+        ButtonType.potentiometer ||
+        ButtonType.potentiometerCenterOff => _potentiometerOutput(),
         ButtonType.analogSliderOT ||
         ButtonType.analogSliderTOT => _analogSliderOutput(),
         ButtonType.analogJoystick1D ||
