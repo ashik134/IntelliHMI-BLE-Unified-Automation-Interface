@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:vibration/vibration.dart';
@@ -229,11 +231,14 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
         .toDouble();
     final thumbCenterX =
         thumbW / 2.0 + _sliderValue.clamp(0.0, 1.0).toDouble() * trackWidth;
+    // Lower bound must never exceed trackLength/laneWidth — a fine grid
+    // preset (e.g. 4x5) can allocate this control less than 48px in either
+    // axis, and clamp(lower, upper) throws if lower > upper.
     final hitWidth = (thumbW + _thumbHitSlop * 2)
-        .clamp(48.0, trackLength)
+        .clamp(math.min(48.0, trackLength), trackLength)
         .toDouble();
     final hitHeight = (thumbH + _thumbHitSlop * 2)
-        .clamp(48.0, laneWidth)
+        .clamp(math.min(48.0, laneWidth), laneWidth)
         .toDouble();
 
     return Rect.fromCenter(
@@ -583,10 +588,10 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
     final thumbCenterX =
         thumbW / 2.0 + _sliderValue.clamp(0.0, 1.0).toDouble() * trackWidth;
     final hitWidth = (thumbW + _thumbHitSlop * 2)
-        .clamp(48.0, trackLength)
+        .clamp(math.min(48.0, trackLength), trackLength)
         .toDouble();
     final hitHeight = (thumbH + _thumbHitSlop * 2)
-        .clamp(48.0, laneWidth)
+        .clamp(math.min(48.0, laneWidth), laneWidth)
         .toDouble();
 
     return Listener(

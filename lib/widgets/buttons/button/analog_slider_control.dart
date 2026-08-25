@@ -117,8 +117,15 @@ class _AnalogSliderControlState extends State<AnalogSliderControl>
   }) {
     final trackWidth = (trackLength - thumbW).clamp(0.0, trackLength);
     final thumbCenterX = thumbW / 2.0 + _normalized * trackWidth;
-    final hitWidth = (thumbW + _thumbHitSlop * 2).clamp(48.0, trackLength);
-    final hitHeight = (thumbH + _thumbHitSlop * 2).clamp(48.0, laneWidth);
+    // Lower bound must never exceed trackLength/laneWidth — a fine grid
+    // preset (e.g. 4x5) can allocate this control less than 48px in either
+    // axis, and clamp(lower, upper) throws if lower > upper.
+    final hitWidth = (thumbW + _thumbHitSlop * 2)
+        .clamp(math.min(48.0, trackLength), trackLength)
+        .toDouble();
+    final hitHeight = (thumbH + _thumbHitSlop * 2)
+        .clamp(math.min(48.0, laneWidth), laneWidth)
+        .toDouble();
     return Rect.fromCenter(
       center: Offset(thumbCenterX, laneWidth / 2.0),
       width: hitWidth,
