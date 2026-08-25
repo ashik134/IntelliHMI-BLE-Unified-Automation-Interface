@@ -6,6 +6,7 @@ import 'package:rev_crane_control_ops/models/button_behavior_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart'
     show PushButtonWiringConfig;
+import 'package:rev_crane_control_ops/models/detented_selector_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
@@ -101,7 +102,7 @@ final List<CatalogEntry> kWidgetCatalog = [
   const CatalogEntry(
     category: _digital,
     group: 'Sliders',
-    name: '3-Step (O-T-T)',
+    name: 'Digital 3 Step Slider',
     notation: 'O → Step 1 → Step 2',
     description:
         'Three-position momentary slider that returns to the neutral '
@@ -231,6 +232,47 @@ final List<CatalogEntry> kWidgetCatalog = [
       wiring: PushButtonWiringConfig.mixedLeftLatchRightSpring,
     ),
     previewSize: Size(120, 230),
+  ),
+
+  // ── Digital Controls › Selectors ────────────────────────────────────────
+  CatalogEntry(
+    category: _digital,
+    group: 'Selectors',
+    name: '3-Position Selector Switch',
+    notation: 'P1 ↔ P2 ↔ P3',
+    description:
+        'Rotary selector switch with three fixed detent positions, each '
+        'independently labeled, iconed, and mapped to its own PLC output.',
+    tags: const ['Digital', 'Rotary', 'Multi-Position'],
+    buttonType: ButtonType.detentedSelector,
+    customProperties: const DetentedSelectorConfig(
+      positions: [
+        SelectorPosition(id: 'pos0', label: 'OFF', iconKey: 'radio_unchecked'),
+        SelectorPosition(id: 'pos1', label: 'LOW', iconKey: 'radio_checked'),
+        SelectorPosition(id: 'pos2', label: 'HIGH', iconKey: 'radio_checked'),
+      ],
+    ).applyToCustomProperties(const {}),
+    previewSize: const Size(160, 160),
+  ),
+  CatalogEntry(
+    category: _digital,
+    group: 'Selectors',
+    name: '4-Position Selector Switch',
+    notation: 'P1 ↔ P2 ↔ P3 ↔ P4',
+    description:
+        'Rotary selector switch with four fixed detent positions, each '
+        'independently labeled, iconed, and mapped to its own PLC output.',
+    tags: const ['Digital', 'Rotary', 'Multi-Position'],
+    buttonType: ButtonType.detentedSelector,
+    customProperties: const DetentedSelectorConfig(
+      positions: [
+        SelectorPosition(id: 'pos0', label: 'OFF', iconKey: 'radio_unchecked'),
+        SelectorPosition(id: 'pos1', label: 'P1', iconKey: 'radio_checked'),
+        SelectorPosition(id: 'pos2', label: 'P2', iconKey: 'radio_checked'),
+        SelectorPosition(id: 'pos3', label: 'P3', iconKey: 'radio_checked'),
+      ],
+    ).applyToCustomProperties(const {}),
+    previewSize: const Size(160, 160),
   ),
 
   // ── Digital Controls › Joysticks ────────────────────────────────────────
@@ -383,11 +425,7 @@ final List<CatalogEntry> kWidgetCatalog = [
   ),
 ];
 
-/// Groups [kWidgetCatalog] into category -> subgroup -> entries, preserving
-/// [CatalogCategory]'s declaration order for categories and first-seen order
-/// for subgroups within each category. A category/subgroup with zero
-/// entries (e.g. Feedback and Status today — see CatalogCategory doc) simply
-/// never appears, so the screen never has to special-case emptiness.
+
 Map<CatalogCategory, Map<String, List<CatalogEntry>>> groupCatalog(
   List<CatalogEntry> entries,
 ) {

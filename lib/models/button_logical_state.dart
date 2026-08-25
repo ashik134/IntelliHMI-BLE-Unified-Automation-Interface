@@ -93,6 +93,15 @@ extension ButtonTypeLogicalStates on ButtonType {
     ButtonType.analogJoystick2D ||
     ButtonType.analogSliderOT ||
     ButtonType.analogSliderTOT => const [],
+    // The detented selector's state-id set is per-instance data (however
+    // many positions the operator configured — see DetentedSelectorConfig),
+    // not a fixed compile-time list like every other digital type here, so
+    // it can't be expressed as a static ButtonLogicalState list. OutputTab
+    // special-cases it directly against DetentedSelectorConfig.positions,
+    // exactly like the joystick's own virtual sub-buttons bypass this table
+    // (see joystickSubButtonMappings) — this empty list is never actually
+    // consulted for detentedSelector.
+    ButtonType.detentedSelector => const [],
   };
 }
 

@@ -120,5 +120,15 @@ String logicalStateIdFor({
         'logicalStateIdFor does not handle multi-zone slider types; use '
         'multiZoneId instead.',
       );
+    case ButtonType.detentedSelector:
+      // A detented selector has an operator-configurable number of
+      // positions (not the fixed idle/level1/level2 ControlState space this
+      // function translates from) and dispatches exclusively via
+      // onStateIdCommand with its own raw position id — see
+      // DetentedSelectorStrategy. Reaching here is a programming error.
+      throw UnsupportedError(
+        'logicalStateIdFor does not handle ButtonType.detentedSelector; its '
+        'strategy dispatches raw position ids via onStateIdCommand.',
+      );
   }
 }

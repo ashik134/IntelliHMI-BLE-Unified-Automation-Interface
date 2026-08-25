@@ -38,6 +38,14 @@ enum ButtonType {
   // position at neutralValue with a magnetic center detent, instead of
   // treating neutralValue as an incidental spring-return target).
   potentiometerCenterOff,
+  // Rotary selector switch with a user-configurable number of fixed detent
+  // positions (see DetentedSelectorConfig). Digital, like push/toggle/
+  // sliders — dispatches via onStateIdCommand with each position's own
+  // stable id and is mapped to PLC output variants through the normal
+  // ButtonConfig.stateMappings table, but (unlike every other digital type)
+  // the state-id set is per-instance data, not a fixed compile-time list —
+  // see button_logical_state.dart's doc comment.
+  detentedSelector,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +173,13 @@ class ButtonConfig {
   /// on [AnalogSliderConfig.orientation]).
   static const int minAnalogSliderGridColumns = 1;
   static const int minAnalogSliderGridRows = 2;
+
+  /// Fixed 2x2 footprint for [ButtonType.detentedSelector] — always square,
+  /// like the dual-axis joystick above, since the dial has no single axis to
+  /// orient and needs room for its position tick ring regardless of how many
+  /// detents are configured.
+  static const int detentedSelectorGridColumns = 2;
+  static const int detentedSelectorGridRows = 2;
 
   static const int controlSlotCount = 6;
   static const int controlGridColumns = 2;
@@ -546,6 +561,9 @@ class ButtonConfig {
     }
     if (type == ButtonType.analogJoystick2D) {
       return (2, 2);
+    }
+    if (type == ButtonType.detentedSelector) {
+      return (detentedSelectorGridColumns, detentedSelectorGridRows);
     }
     if (type == ButtonType.joystick) {
       final joystickConfig = JoystickConfig.fromCustomProperties(

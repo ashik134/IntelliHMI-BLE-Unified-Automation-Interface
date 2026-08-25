@@ -7,6 +7,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_icon_registry.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart'
     show PushButtonWiringConfig;
+import 'package:rev_crane_control_ops/models/detented_selector_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/multi_zone_slider_config.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
@@ -55,6 +56,7 @@ class FunctionTab extends StatelessWidget {
         ButtonType.joystick => _joystickFields(),
         ButtonType.potentiometer ||
         ButtonType.potentiometerCenterOff => _potentiometerFields(),
+        ButtonType.detentedSelector => _detentedSelectorFields(context),
         ButtonType.analogSliderOT ||
         ButtonType.analogSliderTOT => _analogSliderFields(),
         ButtonType.analogJoystick1D ||
@@ -299,6 +301,200 @@ class FunctionTab extends StatelessWidget {
         title: 'Disable right side',
         value: toggleConfig.disableRight,
         onChanged: (v) => updateToggle((c) => c.copyWith(disableRight: v)),
+      ),
+    ];
+  }
+
+  // ── Detented selector ────────────────────────────────────────────────────
+
+  List<Widget> _detentedSelectorFields(BuildContext context) {
+    final selectorConfig = DetentedSelectorConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+    final positions = selectorConfig.positions;
+    final canAdd = positions.length < DetentedSelectorConfig.maxPositions;
+    final canRemove = positions.length > DetentedSelectorConfig.minPositions;
+
+    void update(
+      DetentedSelectorConfig Function(DetentedSelectorConfig) f,
+    ) {
+      _updateCustomProperties(
+        (props) => f(selectorConfig).applyToCustomProperties(props),
+      );
+    }
+
+    Future<void> pickIcon(int index) async {
+      final result = await showIconPickerSheet(
+        context,
+        currentKey: positions[index].iconKey,
+      );
+      if (result == null) return;
+      update(
+        (c) => c.withUpdatedPositionAt(
+          index,
+          (p) => p.copyWith(
+            iconKey: result.iconKey,
+            clearIconKey: result.iconKey == null,
+          ),
+        ),
+      );
+    }
+
+    return [
+      const PropertySectionHeader('Rotation', padTop: 4),
+      PropertyLabeledSlider(
+        label: 'Sweep angle',
+        value: selectorConfig.sweepDegrees,
+        min: DetentedSelectorConfig.minSweepDegrees,
+        max: DetentedSelectorConfig.maxSweepDegrees,
+        valueLabel: '${selectorConfig.sweepDegrees.round()}°',
+        onChanged: (v) => update((c) => c.copyWith(sweepDegrees: v)),
+      ),
+      PropertyLabeledSlider(
+        label: 'Start angle',
+        value: selectorConfig.startAngleDegrees,
+        min: 0,
+        max: 359,
+        valueLabel: '${selectorConfig.startAngleDegrees.round()}°',
+        onChanged: (v) => update((c) => c.copyWith(startAngleDegrees: v)),
+      ),
+      const PropertySectionHeader('Behavior'),
+      PropertySwitchTile(
+        title: 'Show position readout',
+        subtitle: 'Displays the selected label and DETENT i / N on the dial.',
+        value: selectorConfig.showReadout,
+        onChanged: (v) => update((c) => c.copyWith(showReadout: v)),
+      ),
+      PropertySwitchTile(
+        title: 'Spring return to neutral',
+        subtitle: 'Releasing the knob springs it back to the neutral position.',
+        value: selectorConfig.springReturnEnabled,
+        onChanged: (v) => update((c) => c.copyWith(springReturnEnabled: v)),
+      ),
+      if (selectorConfig.springReturnEnabled) ...[
+        const SizedBox(height: 4),
+        PropertySegmented<int>(
+          options: [
+            for (var i = 0; i < positions.length; i++)
+              (i, positions[i].label?.trim().isNotEmpty == true
+                  ? positions[i].label!.trim()
+                  : 'Position ${i + 1}'),
+          ],
+          selected: selectorConfig.neutralPositionIndex.clamp(
+            0,
+            positions.length - 1,
+          ),
+          onChanged: (i) => update((c) => c.copyWith(neutralPositionIndex: i)),
+        ),
+      ],
+      PropertySectionHeader('Positions (${positions.length})'),
+      for (var i = 0; i < positions.length; i++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B1823),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF30363D)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Position ${i + 1}',
+                        style: const TextStyle(
+                          color: Color(0xFF94A6B7),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                      color: const Color(0xFF94A6B7),
+                      tooltip: 'Move up',
+                      onPressed: i == 0
+                          ? null
+                          : () => update((c) {
+                              final next = [...c.positions];
+                              final tmp = next[i - 1];
+                              next[i - 1] = next[i];
+                              next[i] = tmp;
+                              return c.copyWith(positions: next);
+                            }),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                      color: const Color(0xFF94A6B7),
+                      tooltip: 'Move down',
+                      onPressed: i == positions.length - 1
+                          ? null
+                          : () => update((c) {
+                              final next = [...c.positions];
+                              final tmp = next[i + 1];
+                              next[i + 1] = next[i];
+                              next[i] = tmp;
+                              return c.copyWith(positions: next);
+                            }),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      color: canRemove
+                          ? const Color(0xFFE57373)
+                          : const Color(0xFF3A4552),
+                      tooltip: canRemove
+                          ? 'Remove position'
+                          : 'At least ${DetentedSelectorConfig.minPositions} '
+                                'positions required',
+                      onPressed: canRemove
+                          ? () => update((c) => c.withRemovedPositionAt(i))
+                          : null,
+                    ),
+                  ],
+                ),
+                _ResyncTextField(
+                  key: ValueKey('detent_label_${positions[i].id}'),
+                  label: 'Label',
+                  value: positions[i].label ?? '',
+                  maxLength: ControlButtonVisualMetrics.maxLabelLength,
+                  onChanged: (v) => update(
+                    (c) => c.withUpdatedPositionAt(
+                      i,
+                      (p) => v.trim().isEmpty
+                          ? p.copyWith(clearLabel: true)
+                          : p.copyWith(label: v),
+                    ),
+                  ),
+                ),
+                _IconPickerRow(
+                  label: 'Icon',
+                  iconKey: positions[i].iconKey,
+                  onTap: () => pickIcon(i),
+                ),
+              ],
+            ),
+          ),
+        ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: canAdd ? () => update((c) => c.withAddedPosition()) : null,
+          icon: const Icon(Icons.add_rounded, size: 18),
+          label: Text(
+            canAdd
+                ? 'Add position'
+                : 'Maximum ${DetentedSelectorConfig.maxPositions} positions',
+          ),
+        ),
+      ),
+      const PropertyInfoBanner(
+        text:
+            'PLC output mapping for each position is configured on the '
+            'Output tab.',
       ),
     ];
   }
@@ -624,6 +820,7 @@ String _formatNumber(double value) =>
 /// mirroring GeneralTab's label field.
 class _ResyncTextField extends StatefulWidget {
   const _ResyncTextField({
+    super.key,
     required this.label,
     required this.value,
     required this.onChanged,

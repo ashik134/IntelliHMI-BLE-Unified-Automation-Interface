@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
 import 'package:rev_crane_control_ops/models/control_role.dart';
+import 'package:rev_crane_control_ops/models/detented_selector_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
@@ -77,6 +78,7 @@ class OutputTab extends StatelessWidget {
         ButtonType.analogJoystick1D ||
         ButtonType.analogJoystick2D => _analogJoystickOutput(),
         ButtonType.joystick => _joystickOutput(),
+        ButtonType.detentedSelector => _detentedSelectorOutput(),
         ButtonType.horn || ButtonType.alarmIndicator => const [
           PropertyInfoBanner(
             text:
@@ -151,6 +153,79 @@ class OutputTab extends StatelessWidget {
         children: [
           Text(
             state.label,
+            style: const TextStyle(
+              color: Color(0xFFF3F6F9),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          PropertyMultiSelect(
+            options: _variantOptions,
+            selectedKeys: selected,
+            onToggle: toggle,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Detented selector: one row per configured position ───────────────────
+
+  List<Widget> _detentedSelectorOutput() {
+    final selectorConfig = DetentedSelectorConfig.fromCustomProperties(
+      config.customProperties,
+    ).normalized();
+
+    return [
+      const PropertyInfoBanner(
+        text:
+            'Each detent position asserts its own set of PLC outputs while '
+            'selected — unlike push/toggle, no position is forced inert.',
+      ),
+      for (final position in selectorConfig.positions)
+        _positionMappingRow(position),
+    ];
+  }
+
+  Widget _positionMappingRow(SelectorPosition position) {
+    final mapping = config.stateMappings[position.id];
+    final selected = mapping?.activeVariants.map((v) => v.storageKey).toSet() ?? {};
+    final label = position.label?.trim().isNotEmpty == true
+        ? position.label!.trim()
+        : position.id;
+
+    void toggle(String key) {
+      final variant = PlcOutputVariant.fromStorageKey(key);
+      if (variant == null) return;
+      final current = Set<PlcOutputVariant>.from(
+        config.stateMappings[position.id]?.activeVariants ?? const {},
+      );
+      if (current.contains(variant)) {
+        current.remove(variant);
+      } else {
+        current.add(variant);
+      }
+      onUpdate(
+        (b) => b.copyWith(
+          stateMappings: {
+            ...b.stateMappings,
+            position.id: ButtonStateOutputMapping(
+              stateId: position.id,
+              activeVariants: current,
+            ),
+          },
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
             style: const TextStyle(
               color: Color(0xFFF3F6F9),
               fontSize: 13,

@@ -323,4 +323,5 @@ String _typeDisplayName(ButtonType type) => switch (type) {
   ButtonType.analogJoystick2D => 'Analog Joystick (2-Axis)',
   ButtonType.analogSliderOT => 'Analog Slider (O-T)',
   ButtonType.analogSliderTOT => 'Analog Slider (T-O-T)',
+  ButtonType.detentedSelector => 'Detented Selector Switch',
 };

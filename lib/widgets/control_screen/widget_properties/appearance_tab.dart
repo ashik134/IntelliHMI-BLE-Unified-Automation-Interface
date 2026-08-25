@@ -31,6 +31,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
   ButtonType.analogSliderOT ||
   ButtonType.analogSliderTOT => ('Track fill color', 'Active highlight color'),
   ButtonType.horn || ButtonType.alarmIndicator => ('Primary color', 'Active color'),
+  ButtonType.detentedSelector => ('Dial / tick color', 'Selected-position color'),
 };
 
 const List<(FontWeight, String)> _kFontWeightOptions = [

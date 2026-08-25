@@ -93,13 +93,15 @@ ResolvedButtonCommand resolveButtonCommand({
   if (config.type == ButtonType.horn ||
       config.type == ButtonType.alarmIndicator ||
       config.type == ButtonType.bidirectionalSlider5Step ||
-      config.type == ButtonType.bidirectionalSlider3Step) {
+      config.type == ButtonType.bidirectionalSlider3Step ||
+      config.type == ButtonType.detentedSelector) {
     // Horn/alarmIndicator are PLC status-driven FEEDBACK widgets (see
-    // HornButtonStrategy/AlarmIndicatorStrategy); the multi-zone sliders
-    // dispatch exclusively via onStateIdCommand with their own raw zone id
-    // (see multi_zone_slider_strategy.dart). None of these ever call
-    // onCommand, so this branch only guards against a stray/legacy call
-    // reaching here; always inert.
+    // HornButtonStrategy/AlarmIndicatorStrategy); the multi-zone sliders and
+    // the detented selector dispatch exclusively via onStateIdCommand with
+    // their own raw zone/position id (see multi_zone_slider_strategy.dart /
+    // detented_selector_strategy.dart). None of these ever call onCommand,
+    // so this branch only guards against a stray/legacy call reaching here;
+    // always inert.
     return const ResolvedButtonCommand(stateId: 'idle', activeVariants: {});
   }
 

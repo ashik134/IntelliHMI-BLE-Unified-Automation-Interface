@@ -23,7 +23,8 @@ enum GridLayoutOption {
   threeByThree(columns: 3, rows: 3),
   fourByThree(columns: 4, rows: 3),
   threeByFour(columns: 3, rows: 4),
-  fourByFour(columns: 4, rows: 4);
+  fourByFour(columns: 4, rows: 4),
+  fourByFive(columns: 4, rows: 5);
 
   const GridLayoutOption({required this.columns, required this.rows});
 

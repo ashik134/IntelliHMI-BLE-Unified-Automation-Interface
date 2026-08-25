@@ -210,6 +210,9 @@ Map<String, ButtonStateOutputMapping> legacyMotionStateMappings({
     case ButtonType.analogJoystick2D:
     case ButtonType.analogSliderOT:
     case ButtonType.analogSliderTOT:
+    case ButtonType.detentedSelector:
+      // detentedSelector never existed in any pre-this-feature saved
+      // layout, so there is no legacy id to migrate from.
       return const <String, ButtonStateOutputMapping>{};
     case ButtonType.toggle:
       return {
