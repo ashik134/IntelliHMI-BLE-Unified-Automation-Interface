@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
 
@@ -67,6 +68,41 @@ void main() {
 
     expect(_dotColor(tester, 1), AppColors.selectionViolet);
   });
+
+  for (final style in CanvasPageTransitionStyle.values) {
+    testWidgets('${style.displayName} transition navigates between pages', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _PaginationHarness(isEditing: true, transitionStyle: style),
+      );
+
+      if (style == CanvasPageTransitionStyle.slide) {
+        expect(
+          find.byKey(
+            ValueKey('control_canvas_page_effect_${style.name}_0'),
+          ),
+          findsNothing,
+        );
+      } else {
+        expect(
+          find.byKey(
+            ValueKey('control_canvas_page_effect_${style.name}_0'),
+          ),
+          findsOneWidget,
+        );
+      }
+
+      await tester.drag(
+        find.byKey(const ValueKey('control_canvas_page_view')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_dotColor(tester, 1), AppColors.selectionViolet);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
 
 PageView _pageView(WidgetTester tester) => tester.widget<PageView>(
@@ -81,9 +117,13 @@ Color? _dotColor(WidgetTester tester, int index) {
 }
 
 class _PaginationHarness extends StatelessWidget {
-  const _PaginationHarness({required this.isEditing});
+  const _PaginationHarness({
+    required this.isEditing,
+    this.transitionStyle = CanvasPageTransitionStyle.slide,
+  });
 
   final bool isEditing;
+  final CanvasPageTransitionStyle transitionStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +142,7 @@ class _PaginationHarness extends StatelessWidget {
               activeStateFor: (_) => ControlState.idle,
               isDisabled: (_) => false,
               onCommand: (_, _) {},
+              pageTransitionStyle: transitionStyle,
             ),
           ),
         ),

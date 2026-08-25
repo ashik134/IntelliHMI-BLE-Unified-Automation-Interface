@@ -13,6 +13,7 @@ Future<void> showPageTransitionSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
+    isScrollControlled: true,
     builder: (_) => const _PageTransitionSheet(),
   );
 }
@@ -29,16 +30,20 @@ class _PageTransitionSheet extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.all(12),
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+        ),
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.darkBorder),
           boxShadow: AppMetrics.shadowMd,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Center(
               child: Container(
                 width: 36,
@@ -86,7 +91,8 @@ class _PageTransitionSheet extends StatelessWidget {
                 child: const Text('Close'),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -133,12 +139,29 @@ class _TransitionOptionTile extends StatelessWidget {
                   : AppColors.darkTextMuted,
             ),
             const SizedBox(width: 10),
-            Text(
-              style.displayName,
-              style: TextStyle(
-                color: AppColors.darkText,
-                fontSize: 13.5,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    style.displayName,
+                    style: TextStyle(
+                      color: AppColors.darkText,
+                      fontSize: 13.5,
+                      fontWeight: selected
+                          ? FontWeight.w700
+                          : FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    style.description,
+                    style: const TextStyle(
+                      color: AppColors.darkTextMuted,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

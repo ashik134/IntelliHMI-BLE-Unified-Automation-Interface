@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -251,6 +253,81 @@ class _ControlCanvasState extends State<ControlCanvas> {
     );
   }
 
+  Widget _buildPageTransition({
+    required int pageIndex,
+    required Widget child,
+  }) {
+    final style = widget.pageTransitionStyle;
+    if (style == CanvasPageTransitionStyle.slide) return child;
+
+    return AnimatedBuilder(
+      key: ValueKey('control_canvas_page_effect_${style.name}_$pageIndex'),
+      animation: _pageController,
+      child: child,
+      builder: (context, transitionChild) {
+        var currentPage = pageIndex.toDouble();
+        if (_pageController.hasClients &&
+            _pageController.position.haveDimensions) {
+          currentPage = _pageController.page ?? currentPage;
+        }
+
+        // Negative means this page is to the left of the viewport's current
+        // position; positive means it is to the right. Limiting the value to
+        // one page keeps off-screen pre-built pages from receiving extreme
+        // transforms.
+        final offset = (pageIndex - currentPage).clamp(-1.0, 1.0);
+        final distance = offset.abs();
+        final content = transitionChild!;
+
+        return switch (style) {
+          CanvasPageTransitionStyle.slide => content,
+          CanvasPageTransitionStyle.fade => Opacity(
+            opacity: 1 - distance,
+            child: content,
+          ),
+          CanvasPageTransitionStyle.zoomFade => Opacity(
+            opacity: 1 - distance,
+            child: Transform.scale(
+              scale: 0.92 + (0.08 * (1 - distance)),
+              child: content,
+            ),
+          ),
+          // Only the page being covered moves. It holds its place (the
+          // FractionalTranslation cancels PageView's own slide) while
+          // shrinking and dimming; the incoming page keeps its full slide,
+          // so it reads as arriving OVER the old one rather than the two
+          // trading places.
+          CanvasPageTransitionStyle.depth => offset > 0
+              ? content
+              : Opacity(
+                  opacity: 1 - (0.55 * distance),
+                  child: FractionalTranslation(
+                    translation: Offset(-offset, 0),
+                    child: Transform.scale(
+                      scale: 1 - (0.14 * distance),
+                      child: content,
+                    ),
+                  ),
+                ),
+          CanvasPageTransitionStyle.cube => Opacity(
+            opacity: 1 - (0.28 * distance),
+            child: Transform(
+              alignment: offset < 0
+                  ? Alignment.centerRight
+                  : offset > 0
+                  ? Alignment.centerLeft
+                  : Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.0012)
+                ..rotateY(-offset * math.pi / 3),
+              child: content,
+            ),
+          ),
+        };
+      },
+    );
+  }
+
   @override
   void dispose() {
     _ownedPageController?.dispose();
@@ -365,26 +442,9 @@ class _ControlCanvasState extends State<ControlCanvas> {
           },
         );
 
-        if (widget.pageTransitionStyle != CanvasPageTransitionStyle.fade) {
-          return content;
-        }
-        // Fade preview: cross-fades pages by distance from the controller's
-        // current scroll offset instead of the PageView's built-in slide.
-        // Guarded by hasClients/haveDimensions since itemBuilder can run
-        // before the Scrollable beneath this PageView has attached a
-        // position (e.g. the very first frame).
-        return AnimatedBuilder(
-          animation: _pageController,
+        return _buildPageTransition(
+          pageIndex: pageIndex,
           child: content,
-          builder: (context, child) {
-            var page = pageIndex.toDouble();
-            if (_pageController.hasClients &&
-                _pageController.position.haveDimensions) {
-              page = _pageController.page ?? page;
-            }
-            final opacity = (1 - (page - pageIndex).abs()).clamp(0.0, 1.0);
-            return Opacity(opacity: opacity, child: child);
-          },
         );
       },
     );
