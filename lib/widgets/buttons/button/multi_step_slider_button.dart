@@ -98,6 +98,10 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
   static const double _idleDeadZone = 0.01;
   static const double _thumbHitSlop = 12.0;
 
+  /// Thickness (local-frame width) of the deg90/deg270 bottom label strip -
+  /// see [_SidewaysBottomLabel] and its placement in [build].
+  static const double _sidewaysLabelThickness = 16.0;
+
   String _stateId = MultiStepSliderStateId.idle;
   double _sliderValue = 0.0;
   bool _isTouching = false;
@@ -438,7 +442,7 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
         final thumbH = (sliderLaneWidth * 0.82).clamp(0.0, 52.0).toDouble();
         final trackH = (sliderLaneWidth * 0.28).clamp(0.0, 16.0).toDouble();
 
-        return Opacity(
+        final content = Opacity(
           opacity: widget.enabled ? 1.0 : 0.55,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -452,21 +456,36 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
                     SizedBox(
                       width: sliderLaneWidth,
                       height: bodyHeight,
-                      child: Center(
-                        child: RotatedBox(
-                          quarterTurns: -1,
-                          child: SizedBox(
-                            width: trackLength,
-                            height: sliderLaneWidth,
-                            child: _buildSliderStage(
-                              trackLength: trackLength,
-                              laneWidth: sliderLaneWidth,
-                              thumbW: thumbW,
-                              thumbH: thumbH,
-                              trackH: trackH,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.none,
+                        children: [
+                          RotatedBox(
+                            quarterTurns: -1,
+                            child: SizedBox(
+                              width: trackLength,
+                              height: sliderLaneWidth,
+                              child: _buildSliderStage(
+                                trackLength: trackLength,
+                                laneWidth: sliderLaneWidth,
+                                thumbW: thumbW,
+                                thumbH: thumbH,
+                                trackH: trackH,
+                              ),
                             ),
                           ),
-                        ),
+                          IgnorePointer(
+                            child: SizedBox(
+                              width: sliderLaneWidth,
+                              height: trackLength,
+                              child: _StepPositionIndicators(
+                                trackLength: trackLength,
+                                thumbWidth: thumbW,
+                                rotation: widget.rotation,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -486,6 +505,60 @@ class _IndustrialMultiStepSliderState extends State<IndustrialMultiStepSlider>
                     rotation: widget.rotation,
                   ),
                 ),
+            ],
+          ),
+        );
+
+        // ConfigurableButton wraps this whole widget in an ambient
+        // Transform.rotate for deg90/deg270 (outside this file), which
+        // carries the body+footer column above off to the physical
+        // left/right edge instead of the bottom - the footer above is left
+        // exactly as it renders today (icon position unchanged, per spec).
+        // Rather than touch that, add a second, label-only strip pinned to
+        // whichever LOCAL edge the ambient rotation carries to the
+        // physical bottom, sized purely from real available pixels and
+        // gated so it can never encroach on the slider/knob/P1-P2 markers,
+        // which always keep layout priority over this optional caption.
+        final isSideways =
+            widget.rotation == ButtonRotation.deg90 ||
+            widget.rotation == ButtonRotation.deg270;
+        final hasRoomForSidewaysLabel =
+            isSideways &&
+            widget.label.trim().isNotEmpty &&
+            (widget.style?.showLabel ?? true) &&
+            width >= sliderLaneWidth + _sidewaysLabelThickness * 2;
+
+        if (!hasRoomForSidewaysLabel) {
+          return content;
+        }
+
+        final sidewaysLabelColor = !widget.enabled
+            ? AppColors.darkTextMuted
+            : !_isIdle
+            ? _activeSliderColor
+            : AppColors.darkText;
+
+        return SizedBox(
+          width: width,
+          height: height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(child: content),
+              Positioned(
+                top: 0,
+                bottom: 0,
+                left: widget.rotation == ButtonRotation.deg270 ? 0 : null,
+                right: widget.rotation == ButtonRotation.deg90 ? 0 : null,
+                width: _sidewaysLabelThickness,
+                child: _SidewaysBottomLabel(
+                  label: widget.label,
+                  color: sidewaysLabelColor,
+                  rotation: widget.rotation,
+                  runLength: height,
+                  thickness: _sidewaysLabelThickness,
+                ),
+              ),
             ],
           ),
         );
@@ -623,6 +696,171 @@ class _SliderFooter extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Label-only caption for [ButtonRotation.deg90]/[ButtonRotation.deg270]:
+/// pinned to the local edge that the ambient rotation (applied outside this
+/// widget, see IndustrialMultiStepSlider.build) carries to the physical
+/// BOTTOM of the button. Deliberately independent of [_SliderFooter]/the
+/// icon - it never grows past the strip it's given, so on tight layouts it
+/// simply renders nothing rather than compressing the slider or overlapping
+/// the track/knob/P1-P2 markers, which always keep display priority.
+class _SidewaysBottomLabel extends StatelessWidget {
+  const _SidewaysBottomLabel({
+    required this.label,
+    required this.color,
+    required this.rotation,
+    required this.runLength,
+    required this.thickness,
+  });
+
+  final String label;
+  final Color color;
+  final ButtonRotation rotation;
+
+  /// Local-frame length along the strip - the physical width the bar spans
+  /// once rotated upright.
+  final double runLength;
+
+  /// Local-frame thickness of the strip - the physical height of the
+  /// bottom bar once rotated upright.
+  final double thickness;
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = ControlButtonVisualMetrics.clampLabel(label);
+    if (trimmed.isEmpty) return const SizedBox.shrink();
+
+    // The size the text actually lays out in once counter-rotated upright -
+    // how it really appears on screen - not the (swapped) local strip box.
+    final effectiveSize = Size(runLength, thickness);
+    if (!ControlButtonVisualMetrics.canShowText(
+      size: effectiveSize,
+      hasIcon: false,
+      hasLabel: true,
+    )) {
+      return const SizedBox.shrink();
+    }
+
+    final text = SizedBox(
+      width: runLength,
+      height: thickness,
+      child: Center(
+        child: Text(
+          trimmed,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+          textAlign: TextAlign.center,
+          style: ControlButtonVisualMetrics.labelTextStyle(
+            color: color,
+            bounds: effectiveSize,
+          ),
+        ),
+      ),
+    );
+
+    // Same counter-rotation technique as _StepPositionLabel/
+    // ControlButtonLabelIcon: cancels the ambient ButtonRotation transform
+    // an ancestor applies (see ConfigurableButton) so the text itself stays
+    // upright and correctly measured.
+    return RotatedBox(quarterTurns: -rotation.quarterTurns, child: text);
+  }
+}
+
+/// Fixed "P1"/"P2" tick labels marking where step1/step2 sit on the track,
+/// independent of the label footer below (see [_SliderFooter]) and of
+/// wherever the thumb currently is. Painted as ordinary (non-rotated)
+/// widgets laid over the already-vertical track — i.e. outside the internal
+/// `RotatedBox(quarterTurns: -1)` that turns this slider's horizontally
+/// authored content vertical — so the text itself stays upright instead of
+/// rotating sideways with that track content.
+class _StepPositionIndicators extends StatelessWidget {
+  const _StepPositionIndicators({
+    required this.trackLength,
+    required this.thumbWidth,
+    required this.rotation,
+  });
+
+  final double trackLength;
+  final double thumbWidth;
+  final ButtonRotation rotation;
+
+  /// Mirrors the thumb's own `thumbCenterX` placement (see
+  /// `_buildSliderStage`/`_thumbHitRect`) so a marker at [fraction] lands
+  /// exactly where the thumb sits once that same point is carried through
+  /// the surrounding RotatedBox into vertical screen space.
+  double _positionFor(double fraction) {
+    final trackLeft = thumbWidth / 2.0;
+    final trackWidth = (trackLength - thumbWidth)
+        .clamp(0.0, trackLength)
+        .toDouble();
+    final thumbCenterX = trackLeft + fraction.clamp(0.0, 1.0) * trackWidth;
+    return trackLength - thumbCenterX;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (trackLength <= 0) return const SizedBox.shrink();
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _marker('P1', _positionFor(0.5)),
+        _marker('P2', _positionFor(1.0)),
+      ],
+    );
+  }
+
+  Widget _marker(String text, double top) {
+    return Positioned(
+      top: top,
+      left: 0,
+      right: 0,
+      child: FractionalTranslation(
+        translation: const Offset(0, -0.5),
+        child: Center(
+          child: _StepPositionLabel(text: text, rotation: rotation),
+        ),
+      ),
+    );
+  }
+}
+
+class _StepPositionLabel extends StatelessWidget {
+  const _StepPositionLabel({required this.text, required this.rotation});
+
+  final String text;
+  final ButtonRotation rotation;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg.withAlpha(150),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.2,
+          height: 1.0,
+          color: AppColors.darkTextMuted,
+        ),
+      ),
+    );
+
+    // Counter-rotate against the button's own ButtonRotation (applied by an
+    // ancestor outside this widget — see ControlButtonLabelIcon.rotation)
+    // the same way the footer label does, so these stay readable text
+    // rather than rotating along with the rest of the button.
+    final quarterTurns = rotation.quarterTurns;
+    if (quarterTurns == 0) return label;
+    return RotatedBox(quarterTurns: -quarterTurns, child: label);
   }
 }
 
