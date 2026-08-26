@@ -2,26 +2,31 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppPreferences {
-  Future<void> saveCredentials(String email, String password) async {
+  /// SharedPreferences is intentionally limited to the non-secret operator
+  /// email. Passwords belong in SecureCredentialStore only.
+  Future<void> saveOperatorEmail(String email) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConstants.prefsKeyEmail, email);
-    await prefs.setString(AppConstants.prefsKeyPassword, password);
   }
 
-  Future<String?> getEmail() async {
+  Future<String?> getOperatorEmail() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(AppConstants.prefsKeyEmail);
   }
 
-  Future<String?> getPassword() async {
+  Future<void> clearOperatorEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(AppConstants.prefsKeyPassword);
+    await Future.wait([
+      prefs.remove(AppConstants.prefsKeyEmail),
+      prefs.remove(AppConstants.legacyPrefsKeyPassword),
+    ]);
   }
 
-  Future<void> clearCredentials() async {
+  /// Removes plaintext passwords written by older app versions while leaving
+  /// the remembered, non-secret email intact.
+  Future<void> clearLegacyPassword() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppConstants.prefsKeyEmail);
-    await prefs.remove(AppConstants.prefsKeyPassword);
+    await prefs.remove(AppConstants.legacyPrefsKeyPassword);
   }
 
   Future<void> saveLastDeviceId(String deviceId) async {

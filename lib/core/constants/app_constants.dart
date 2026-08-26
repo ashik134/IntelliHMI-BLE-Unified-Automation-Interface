@@ -6,7 +6,10 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 
   static const String prefsKeyEmail = 'saved_email';
-  static const String prefsKeyPassword = 'saved_password';
+
+  /// Key used by app versions that stored the operator password in
+  /// SharedPreferences. It must only be used to remove that legacy value.
+  static const String legacyPrefsKeyPassword = 'saved_password';
   static const String prefsKeyDeviceId = 'last_device_id';
 
   /// Legacy single-config key from before per-PLC-type layout storage.

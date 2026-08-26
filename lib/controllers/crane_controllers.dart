@@ -86,7 +86,7 @@ class CraneController extends ChangeNotifier
   PermissionState _permissionState = const PermissionState.initial();
   bool _bluetoothReady = false;
   bool _permissionBannerDismissed = false;
-  bool _rememberCredentials = true;
+  bool _rememberOperatorEmail = false;
   bool _estopLatched = false;
   bool _startupEmergencyArmedForConnection = false;
   bool _biometricAvailable = false;
@@ -96,7 +96,6 @@ class CraneController extends ChangeNotifier
   String? _sessionEmail;
   String? _errorMessage;
   String _savedEmail = '';
-  String _savedPassword = '';
   String _deviceId = '';
 
   bool _deviceTrustRejected = false;
@@ -119,7 +118,7 @@ class CraneController extends ChangeNotifier
     notifyListeners();
   }
 
-  bool get rememberCredentials => _rememberCredentials;
+  bool get rememberOperatorEmail => _rememberOperatorEmail;
   bool get isBiometricAvailable => _biometricAvailable;
   bool get isBiometricEnrolled => _biometricEnrolled;
 
@@ -137,7 +136,6 @@ class CraneController extends ChangeNotifier
   List<BleScanDevice> get devices => _devices;
   Map<String, int> get analogValues => _analogValues;
   String get savedEmail => _savedEmail;
-  String get savedPassword => _savedPassword;
 
   /// The PLC model type detected from BLE manufacturer data during scan.
   PlcType get connectedPlcType =>
@@ -290,14 +288,12 @@ class CraneController extends ChangeNotifier
     try {
       final results = await Future.wait<dynamic>([
         DeviceIdentityService.getOrCreate(),
-        _preferences.getEmail(),
-        _preferences.getPassword(),
+        _preferences.getOperatorEmail(),
+        _preferences.clearLegacyPassword(),
       ]);
       _deviceId = results[0] as String;
       _savedEmail = (results[1] as String?) ?? '';
-      _savedPassword = (results[2] as String?) ?? '';
-      _rememberCredentials =
-          _savedEmail.isNotEmpty && _savedPassword.isNotEmpty;
+      _rememberOperatorEmail = _savedEmail.isNotEmpty;
 
       await _prepareRunTime();
       await checkBiometricStatus();
@@ -524,8 +520,12 @@ class CraneController extends ChangeNotifier
     notifyListeners();
   }
 
-  void setRememberCredentials(bool value) {
-    _rememberCredentials = value;
+  Future<void> setRememberOperatorEmail(bool value) async {
+    _rememberOperatorEmail = value;
+    if (!value) {
+      _savedEmail = '';
+      await _preferences.clearOperatorEmail();
+    }
     notifyListeners();
   }
 
@@ -796,14 +796,12 @@ class CraneController extends ChangeNotifier
 
       if (outcome == BleAuthOutcome.success) {
         _sessionEmail = email.trim();
-        if (_rememberCredentials) {
-          await _preferences.saveCredentials(email.trim(), password);
+        if (_rememberOperatorEmail) {
+          await _preferences.saveOperatorEmail(email.trim());
           _savedEmail = email.trim();
-          _savedPassword = password;
         } else {
-          await _preferences.clearCredentials();
+          await _preferences.clearOperatorEmail();
           _savedEmail = '';
-          _savedPassword = '';
         }
         final correlationId = await BleCrypto.sessionCorrelationId;
         unawaited(
@@ -955,6 +953,7 @@ class CraneController extends ChangeNotifier
 
     final credentials = await SecureCredentialStore.retrieveCredentials();
     if (credentials == null) {
+      await SecureCredentialStore.clearCredentials();
       _biometricEnrolled = false;
       unawaited(
         _auditLog.record(

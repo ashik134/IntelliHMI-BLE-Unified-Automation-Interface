@@ -87,7 +87,6 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     _emailController.text = controller.savedEmail;
-    _passwordController.text = controller.savedPassword;
     _seeded = true;
   }
 
@@ -526,23 +525,25 @@ class _LoginScreenState extends State<LoginScreen>
                     children: [
                       Expanded(
                         child: Text(
-                          'Remember credentials on this device',
+                          'Remember operator email',
                           style: TextStyle(
-                            color: AppColors.brandTextSub.withValues(alpha: 0.9),
+                            color: AppColors.brandTextSub.withValues(
+                              alpha: 0.9,
+                            ),
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                       Switch.adaptive(
-                        value: controller.rememberCredentials,
+                        value: controller.rememberOperatorEmail,
                         activeThumbColor: AppColors.brandViolet,
                         activeTrackColor: AppColors.brandViolet.withValues(
                           alpha: 0.35,
                         ),
                         onChanged: controller.isAuthenticating
                             ? null
-                            : controller.setRememberCredentials,
+                            : controller.setRememberOperatorEmail,
                       ),
                     ],
                   ),
@@ -1096,7 +1097,9 @@ class _BiometricLoginButton extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      busy ? 'Verifying biometrics…' : 'Sign in with biometrics',
+                      busy
+                          ? 'Verifying biometrics…'
+                          : 'Sign in with biometrics',
                       style: const TextStyle(
                         color: AppColors.brandVioletDeep,
                         fontSize: 14,

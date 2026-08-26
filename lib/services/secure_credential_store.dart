@@ -1,6 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// Hardware-backed secure storage for biometric-protected operator credentials.
+/// Secure storage for credentials used only by the biometric sign-in flow.
 
 class SecureCredentialStore {
   SecureCredentialStore._();
@@ -21,15 +21,21 @@ class SecureCredentialStore {
   static Future<bool> hasCredentials() async {
     try {
       final enrolled = await _storage.read(key: _kEnrolled);
-      if (enrolled != 'true') return false;
-
       final email = await _storage.read(key: _kEmail);
       final password = await _storage.read(key: _kPassword);
 
-      return email != null &&
+      final isComplete =
+          enrolled == 'true' &&
+          email != null &&
           email.isNotEmpty &&
           password != null &&
           password.isNotEmpty;
+      final hasAnyStoredValue =
+          enrolled != null || email != null || password != null;
+      if (!isComplete && hasAnyStoredValue) {
+        await clearCredentials();
+      }
+      return isComplete;
     } catch (_) {
       return false;
     }
@@ -41,9 +47,14 @@ class SecureCredentialStore {
     required String email,
     required String password,
   }) async {
-    await _storage.write(key: _kEmail, value: email);
-    await _storage.write(key: _kPassword, value: password);
-    await _storage.write(key: _kEnrolled, value: 'true');
+    try {
+      await _storage.write(key: _kEmail, value: email);
+      await _storage.write(key: _kPassword, value: password);
+      await _storage.write(key: _kEnrolled, value: 'true');
+    } catch (_) {
+      await clearCredentials();
+      rethrow;
+    }
   }
 
   // Read
@@ -51,13 +62,16 @@ class SecureCredentialStore {
   static Future<({String email, String password})?>
   retrieveCredentials() async {
     try {
+      final enrolled = await _storage.read(key: _kEnrolled);
       final email = await _storage.read(key: _kEmail);
       final password = await _storage.read(key: _kPassword);
 
-      if (email == null ||
+      if (enrolled != 'true' ||
+          email == null ||
           email.isEmpty ||
           password == null ||
           password.isEmpty) {
+        await clearCredentials();
         return null;
       }
 
