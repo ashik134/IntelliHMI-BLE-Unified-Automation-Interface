@@ -54,6 +54,9 @@ dependencies:
   app_settings: ^8.0.3
   webview_flutter: ^4.14.1
   path_provider: ^2.1.6
+  google_mlkit_face_detection: ^0.15.1
+  tflite_flutter: ^0.12.1
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:
@@ -123,6 +126,8 @@ flutter:
     - assets/images/app_icon3.png
     - assets/images/Intellicontrol Final Logo300PPI.png
     - assets/images/intellicontrol-icon-1024x1024 (6).png
+    - assets/models/mobilefacenet.tflite
+    - assets/models/NOTICE_mobilefacenet.txt
     - assets/icons/Connector.png
     - assets/icons/plc.png
   #   - images/a_dot_ham.jpeg

@@ -1,0 +1,69 @@
+mobilefacenet.tflite
+=====================
+
+Source: https://github.com/MCarlomagno/FaceRecognitionAuth
+        (assets/mobilefacenet.tflite, fetched 2026-08-26)
+        Repository archived/read-only since 2024-12-12 — the code around
+        it is no longer maintained, but the model file itself is a static
+        asset and remains usable as such.
+
+License (applies to the source repository, reproduced verbatim below as
+required by its terms):
+
+    BSD 3-Clause License
+
+    Copyright (c) 2020, Marcos Carlomagno
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are
+    met:
+
+    1. Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+       contributors may be used to endorse or promote products derived
+       from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Model architecture: MobileFaceNet (Chen et al., 2018), 112x112x3 RGB
+input, 192-dimensional output embedding, pixel normalization
+(pixel - 128) / 128.
+
+------------------------------------------------------------------------
+PRE-PRODUCTION GATE — READ BEFORE ENABLING REAL OPERATOR ENROLLMENT
+------------------------------------------------------------------------
+This model's training-data provenance is not documented by its source
+repository. Models in this MobileFaceNet/InsightFace lineage are
+commonly trained on MS-Celeb-1M and/or CASIA-WebFace — large, web-scraped
+face datasets assembled without the depicted individuals' consent for
+this purpose. Microsoft withdrew MS-Celeb-1M in 2019 specifically over
+this concern. This is standard practice across the mobile face-
+recognition ecosystem (no well-documented, mobile-ready alternative with
+cleaner provenance exists as of the plan that added this file), but it
+is a real compliance/legal consideration, not a formality.
+
+Do not enable real operator face enrollment or matching against real
+users in a production deployment until this has been through your own
+legal/compliance review (data-protection regulation applicable to your
+deployment, biometric-data-specific statutes where relevant, and your
+organization's own AI/ML sourcing policy). This model is bundled so the
+detection/liveness/matching pipeline is genuinely testable during
+development — that is not the same as being cleared for production use
+on real people.
