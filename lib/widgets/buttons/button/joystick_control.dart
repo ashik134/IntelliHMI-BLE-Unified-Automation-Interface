@@ -791,6 +791,8 @@ class _AnalogRail extends StatelessWidget {
     required this.activeColorLight,
     required this.maxWidth,
     required this.maxHeight,
+    this.unit = '%',
+    this.decimalPlaces = 1,
   });
 
   final JoystickConfig config;
@@ -804,6 +806,8 @@ class _AnalogRail extends StatelessWidget {
   final Color activeColorLight;
   final double maxWidth;
   final double maxHeight;
+  final String unit;
+  final int decimalPlaces;
 
   bool get _horizontal => config.axis == JoystickAxis.horizontal;
 
@@ -811,14 +815,14 @@ class _AnalogRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final trackThickness = _safeVisualExtent(
       _horizontal ? maxHeight : maxWidth,
-      min: 58.0,
-      max: 118.0,
+      min: 64.0,
+      max: 124.0,
       scale: _kSingleAxisVisualScale,
     );
     final trackLength = _safeVisualExtent(
       _horizontal ? maxWidth : maxHeight,
-      min: 104.0,
-      max: 312.0,
+      min: 132.0,
+      max: 420.0,
       scale: _kSingleAxisVisualScale,
     );
 
@@ -853,9 +857,11 @@ class _AnalogRail extends StatelessWidget {
                       : trackThickness * 0.90,
                   child: IgnorePointer(
                     child: ExcludeSemantics(
-                      child: _AnalogAxisValueChip(
+                      child: _AnalogRailValueReadout(
                         axis: _horizontal ? 'X' : 'Y',
                         value: output,
+                        unit: unit,
+                        decimalPlaces: decimalPlaces,
                         directionIcon: output.abs() < 0.0005
                             ? Icons.remove_rounded
                             : _horizontal
@@ -877,6 +883,122 @@ class _AnalogRail extends StatelessWidget {
                       ),
                     ),
                   ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalogRailValueReadout extends StatelessWidget {
+  const _AnalogRailValueReadout({
+    required this.axis,
+    required this.value,
+    required this.unit,
+    required this.decimalPlaces,
+    required this.directionIcon,
+    required this.valueKey,
+    required this.directionKey,
+    required this.side,
+    required this.activeColorLight,
+    required this.enabled,
+  });
+
+  final String axis;
+  final double value;
+  final String unit;
+  final int decimalPlaces;
+  final IconData directionIcon;
+  final Key valueKey;
+  final Key directionKey;
+  final double side;
+  final Color activeColorLight;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = enabled ? activeColorLight : AppColors.darkTextMuted;
+    final safeDecimals = decimalPlaces.clamp(0, 4).toInt();
+    final number = value.toStringAsFixed(safeDecimals);
+    final trimmedUnit = unit.trim();
+
+    return Semantics(
+      liveRegion: true,
+      label: trimmedUnit.isEmpty
+          ? '$axis axis current value $number'
+          : '$axis axis current value $number $trimmedUnit',
+      child: Container(
+        height: (side * 0.25).clamp(24.0, 32.0).toDouble(),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF070B0F),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: accent.withAlpha(enabled ? 145 : 65)),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: activeColorLight.withAlpha(42),
+                    blurRadius: 7,
+                  ),
+                  const BoxShadow(
+                    color: Color(0x88000000),
+                    offset: Offset(0, 2),
+                    blurRadius: 3,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              axis,
+              style: TextStyle(
+                color: accent.withAlpha(enabled ? 170 : 85),
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              directionIcon,
+              key: directionKey,
+              size: 12,
+              color: accent.withAlpha(enabled ? 190 : 90),
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: number,
+                        style: TextStyle(
+                          color: accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      if (trimmedUnit.isNotEmpty)
+                        TextSpan(
+                          text: ' $trimmedUnit',
+                          style: TextStyle(
+                            color: accent.withAlpha(enabled ? 200 : 95),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
+                  key: valueKey,
+                  maxLines: 1,
                 ),
               ),
             ),
@@ -916,7 +1038,7 @@ class _AnalogRailPainter extends CustomPainter {
       Radius.circular(math.min(w, h) / 2),
     );
 
-    // Outer shell shadow + body.*
+    // Outer shell shadow + body.
     canvas.drawRRect(
       capsule.shift(const Offset(0, 3)),
       Paint()
@@ -940,7 +1062,7 @@ class _AnalogRailPainter extends CustomPainter {
         ..color = Colors.white.withAlpha(24),
     );
 
-    // Inner recessed channel (the "travel path").*
+    // Inner recessed channel (the "travel path").
     final inset = math.min(w, h) * 0.24;
     final channelRect = horizontal
         ? Rect.fromLTWH(inset, h * 0.36, w - inset * 2, h * 0.28)
@@ -958,7 +1080,7 @@ class _AnalogRailPainter extends CustomPainter {
         ..color = Colors.black.withAlpha(200),
     );
 
-    // Fine calibration ticks along the travel path (continuous-scale cue).*
+    // Fine calibration ticks along the travel path (continuous-scale cue).
     final tickPaint = Paint()
       ..color = Colors.white.withAlpha(28)
       ..strokeWidth = 1.0;
@@ -984,11 +1106,11 @@ class _AnalogRailPainter extends CustomPainter {
       }
     }
 
-    // Center neutral notch.*
+    // Center neutral notch.
     final center = channelRect.center;
     canvas.drawCircle(center, 3.0, Paint()..color = Colors.white.withAlpha(60));
 
-    // Fill trail from center to puck position.*
+    // Fill trail from center to puck position.
     final travel = horizontal
         ? (channelRect.width - channelRect.height) / 2
         : (channelRect.height - channelRect.width) / 2;
@@ -1022,7 +1144,7 @@ class _AnalogRailPainter extends CustomPainter {
       );
     }
 
-    // Puck (continuous, no snapping).*
+    // Puck (continuous, no snapping).
     final puckRadius = math.min(channelRect.width, channelRect.height) / 2 - 3;
     final puckBase = isActive && enabled
         ? activeColor
@@ -1064,7 +1186,7 @@ class _AnalogRailPainter extends CustomPainter {
           ..color = activeColorLight.withAlpha(110),
       );
     }
-    // Grip lines on puck for tactile affordance.*
+    // Grip lines on puck for tactile affordance.
     final gripPaint = Paint()
       ..color = Colors.black.withAlpha(90)
       ..strokeWidth = 1.2;
@@ -1085,7 +1207,7 @@ class _AnalogRailPainter extends CustomPainter {
       }
     }
 
-    // Label at the opposite end.*
+    // Label at the opposite end.
     final labelPainter = TextPainter(
       text: ControlButtonVisualMetrics.labelIconTextSpan(
         label: label,
