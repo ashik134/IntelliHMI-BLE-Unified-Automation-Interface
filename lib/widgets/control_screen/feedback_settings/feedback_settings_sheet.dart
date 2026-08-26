@@ -219,10 +219,47 @@ class _LiveFeedbackStrip extends StatelessWidget {
       snapshot.severity,
       config: manager.config.alarm,
     );
+    final statusChips = <Widget>[
+      FeedbackStatusChip(
+        icon: snapshot.isAnnunciating
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline_rounded,
+        label: snapshot.severity.displayLabel,
+        color: severityColor,
+        expanded: true,
+      ),
+      FeedbackStatusChip(
+        icon: snapshot.buzzerActive
+            ? Icons.campaign_rounded
+            : Icons.notifications_off_outlined,
+        label: snapshot.buzzerActive ? 'Buzzer active' : 'Buzzer idle',
+        color: snapshot.buzzerActive
+            ? AppColors.fastColorLight
+            : AppColors.darkTextMuted,
+        expanded: true,
+      ),
+      FeedbackStatusChip(
+        icon: Icons.wifi_tethering_rounded,
+        label: FeedbackPalette.commsLabel(snapshot.comms),
+        color: FeedbackPalette.comms(snapshot.comms),
+        expanded: true,
+      ),
+      for (final reading in snapshot.analog)
+        FeedbackStatusChip(
+          icon: Icons.speed_rounded,
+          label:
+              '${reading.displayLabel} '
+              '${reading.value.toStringAsFixed(reading.config.isUnscaled ? 0 : 1)}'
+              '${reading.config.unit.isEmpty ? '' : ' ${reading.config.unit}'}',
+          color: FeedbackPalette.analogZone(reading.zone, AppColors.darkInfo),
+          expanded: true,
+        ),
+    ];
 
     return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.darkBg,
         borderRadius: BorderRadius.circular(12),
@@ -231,54 +268,68 @@ class _LiveFeedbackStrip extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'LIVE',
-            style: TextStyle(
-              color: AppColors.darkTextMuted,
-              fontSize: 9.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.1,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const Row(
             children: [
-              FeedbackStatusChip(
-                icon: snapshot.isAnnunciating
-                    ? Icons.warning_amber_rounded
-                    : Icons.check_circle_outline_rounded,
-                label: snapshot.severity.displayLabel,
-                color: severityColor,
-              ),
-              FeedbackStatusChip(
-                icon: snapshot.buzzerActive
-                    ? Icons.campaign_rounded
-                    : Icons.notifications_off_outlined,
-                label: snapshot.buzzerActive ? 'Buzzer active' : 'Buzzer idle',
-                color: snapshot.buzzerActive
-                    ? AppColors.fastColorLight
-                    : AppColors.darkTextMuted,
-              ),
-              FeedbackStatusChip(
-                icon: Icons.wifi_tethering_rounded,
-                label: FeedbackPalette.commsLabel(snapshot.comms),
-                color: FeedbackPalette.comms(snapshot.comms),
-              ),
-              for (final reading in snapshot.analog)
-                FeedbackStatusChip(
-                  icon: Icons.speed_rounded,
-                  label:
-                      '${reading.displayLabel} '
-                      '${reading.value.toStringAsFixed(reading.config.isUnscaled ? 0 : 1)}'
-                      '${reading.config.unit.isEmpty ? '' : ' ${reading.config.unit}'}',
-                  color: FeedbackPalette.analogZone(
-                    reading.zone,
-                    AppColors.darkInfo,
-                  ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.selectionViolet,
+                  shape: BoxShape.circle,
                 ),
+                child: SizedBox.square(dimension: 7),
+              ),
+              SizedBox(width: 7),
+              Text(
+                'LIVE STATUS',
+                style: TextStyle(
+                  color: AppColors.darkText,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.05,
+                ),
+              ),
+              Spacer(),
+              Icon(
+                Icons.sync_rounded,
+                size: 13,
+                color: AppColors.darkTextMuted,
+              ),
+              SizedBox(width: 5),
+              Text(
+                'Updates in real time',
+                style: TextStyle(
+                  color: AppColors.darkTextMuted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final preferredColumns = constraints.maxWidth >= 840
+                  ? 5
+                  : constraints.maxWidth >= 520
+                  ? 3
+                  : constraints.maxWidth >= 300
+                  ? 2
+                  : 1;
+              final columns = statusChips.length < preferredColumns
+                  ? statusChips.length
+                  : preferredColumns;
+              final chipWidth =
+                  (constraints.maxWidth - ((columns - 1) * 8)) / columns;
+
+              return Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final chip in statusChips)
+                    SizedBox(width: chipWidth, child: chip),
+                ],
+              );
+            },
           ),
         ],
       ),

@@ -368,7 +368,8 @@ class PlcConditionEditor extends StatelessWidget {
             (PlcConditionCombinator.all, 'All selected are ON'),
           ],
           selected: condition.combinator,
-          onChanged: (value) => onChanged(condition.copyWith(combinator: value)),
+          onChanged: (value) =>
+              onChanged(condition.copyWith(combinator: value)),
         ),
         if (!condition.hasCondition && emptyWarning != null) ...[
           const SizedBox(height: 10),
@@ -431,7 +432,10 @@ class FeedbackNumberField extends StatelessWidget {
         isDense: true,
         filled: true,
         fillColor: AppColors.darkBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: AppColors.darkBorder),
@@ -461,34 +465,52 @@ class FeedbackStatusChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.color,
+    this.expanded = false,
   });
 
   final IconData icon;
   final String label;
   final Color color;
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: expanded
+          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+          : const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: color.withAlpha(26),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(expanded ? 9 : 999),
         border: Border.all(color: color.withAlpha(90)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Icon(icon, size: 13, color: color),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+          SizedBox(width: expanded ? 6 : 5),
+          if (expanded)
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
         ],
       ),
     );
