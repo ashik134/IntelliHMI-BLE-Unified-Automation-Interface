@@ -8,8 +8,11 @@ import 'package:rev_crane_control_ops/controllers/feedback_manager.dart'
     show FeedbackSource;
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
+import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
+import 'package:rev_crane_control_ops/services/ble_crypto.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
@@ -25,10 +28,20 @@ import 'package:rev_crane_control_ops/utils/button_state_log.dart';
 class CraneController extends ChangeNotifier
     with WidgetsBindingObserver
     implements FeedbackSource {
+  CraneController({AuditLogger? auditLog})
+    : _auditLog = auditLog ?? AuthAuditLogService();
+
   final BleService _bleService = BleService();
   final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
   final PermissionService _permissionService = PermissionService();
   final AppPreferences _preferences = AppPreferences();
+
+  // Injected rather than reached for statically — this controller never
+  // touches the filesystem/crypto/secure-storage directly, only this one
+  // object. Every call site below is fire-and-forget (never awaited): a
+  // slow or failing audit write must never hold up PLC authentication or
+  // the BLE heartbeat.
+  final AuditLogger _auditLog;
 
   StreamSubscription<BleConnectionState>? _connStateSubscription;
   StreamSubscription<List<BleScanDevice>>? _scanSubscription;
@@ -757,9 +770,15 @@ class CraneController extends ChangeNotifier
     return PlcOutputCommand.compose(fields);
   }
 
+  /// [method] identifies what actually drove this PLC authentication for
+  /// audit purposes — [AuthEventMethod.password] for a manually-typed
+  /// login, [AuthEventMethod.biometric] when [authenticateWithBiometrics]
+  /// calls through with stored credentials. The wire protocol/PLC exchange
+  /// is identical either way; only the log attribution differs.
   Future<bool> authenticate({
     required String email,
     required String password,
+    AuthEventMethod method = AuthEventMethod.password,
   }) async {
     _errorMessage = null;
     _deviceTrustRejected = false;
@@ -786,6 +805,19 @@ class CraneController extends ChangeNotifier
           _savedEmail = '';
           _savedPassword = '';
         }
+        final correlationId = await BleCrypto.sessionCorrelationId;
+        unawaited(
+          _auditLog.record(
+            result: AuthEventResult.success,
+            method: method,
+            userIdentifier: email.trim(),
+            deviceId: _deviceId,
+            plcDeviceName: connectedDeviceName,
+            plcType: connectedPlcType.displayName,
+            connectionStatus: _transportConnState.status.name,
+            sessionCorrelationId: correlationId,
+          ),
+        );
         notifyListeners();
         return true;
       }
@@ -795,6 +827,19 @@ class CraneController extends ChangeNotifier
         _errorMessage =
             'DEVICE NOT AUTHORIZED\nThis device is not registered with the PLC. '
             'Provide your Device ID to an administrator for registration.';
+        final correlationId = await BleCrypto.sessionCorrelationId;
+        unawaited(
+          _auditLog.record(
+            result: AuthEventResult.failed,
+            method: method,
+            userIdentifier: email.trim(),
+            deviceId: _deviceId,
+            connectionStatus: _transportConnState.status.name,
+            sessionCorrelationId: correlationId,
+            failureReason: _errorMessage,
+            detailCode: 'device_untrusted',
+          ),
+        );
         notifyListeners();
         return false;
       }
@@ -802,10 +847,39 @@ class CraneController extends ChangeNotifier
       _errorMessage = outcome == BleAuthOutcome.timedOut
           ? 'PLC authentication timed out.'
           : 'Credentials were rejected by the PLC.';
+      final correlationId = await BleCrypto.sessionCorrelationId;
+      unawaited(
+        _auditLog.record(
+          result: outcome == BleAuthOutcome.timedOut
+              ? AuthEventResult.error
+              : AuthEventResult.failed,
+          method: method,
+          userIdentifier: email.trim(),
+          deviceId: _deviceId,
+          connectionStatus: _transportConnState.status.name,
+          sessionCorrelationId: correlationId,
+          failureReason: _errorMessage,
+          detailCode: outcome == BleAuthOutcome.timedOut
+              ? 'ble_timeout'
+              : 'ble_failed',
+        ),
+      );
       notifyListeners();
       return false;
     } catch (error) {
       _errorMessage = 'Authentication failed. $error';
+      final correlationId = await BleCrypto.sessionCorrelationId;
+      unawaited(
+        _auditLog.record(
+          result: AuthEventResult.error,
+          method: method,
+          userIdentifier: email.trim(),
+          deviceId: _deviceId,
+          sessionCorrelationId: correlationId,
+          failureReason: _errorMessage,
+          detailCode: 'exception',
+        ),
+      );
       notifyListeners();
       return false;
     }
@@ -840,6 +914,17 @@ class CraneController extends ChangeNotifier
 
   Future<BiometricAuthResult> authenticateWithBiometrics() async {
     if (!_biometricAvailable || !_biometricEnrolled) {
+      unawaited(
+        _auditLog.record(
+          result: AuthEventResult.error,
+          method: AuthEventMethod.biometric,
+          deviceId: _deviceId,
+          connectionStatus: _transportConnState.status.name,
+          failureReason:
+              'Biometric authentication is not configured on this device.',
+          detailCode: 'biometric_preflight_notAvailable',
+        ),
+      );
       return const BiometricAuthResult(
         status: BiometricAuthStatus.notAvailable,
         message: 'Biometric authentication is not configured on this device.',
@@ -849,6 +934,20 @@ class CraneController extends ChangeNotifier
     //  Local biometric verification (device biometric hardware gate).
     final biometricResult = await BiometricService.authenticate();
     if (!biometricResult.isSuccess) {
+      unawaited(
+        _auditLog.record(
+          result: biometricResult.isCancelled
+              ? AuthEventResult.cancelled
+              : AuthEventResult.failed,
+          method: AuthEventMethod.biometric,
+          deviceId: _deviceId,
+          connectionStatus: _transportConnState.status.name,
+          failureReason: biometricResult.message,
+          detailCode: biometricResult.isCancelled
+              ? 'biometric_cancelled'
+              : 'biometric_hardware_failure',
+        ),
+      );
       return biometricResult;
     }
 
@@ -857,6 +956,17 @@ class CraneController extends ChangeNotifier
     final credentials = await SecureCredentialStore.retrieveCredentials();
     if (credentials == null) {
       _biometricEnrolled = false;
+      unawaited(
+        _auditLog.record(
+          result: AuthEventResult.error,
+          method: AuthEventMethod.biometric,
+          deviceId: _deviceId,
+          connectionStatus: _transportConnState.status.name,
+          failureReason:
+              'Stored operator credentials not found. Log in manually to re-enable biometric access.',
+          detailCode: 'biometric_credentials_missing',
+        ),
+      );
       notifyListeners();
       return const BiometricAuthResult(
         status: BiometricAuthStatus.credentialsMissing,
@@ -865,12 +975,16 @@ class CraneController extends ChangeNotifier
       );
     }
 
-    // PLC validates the operator, enforces single-operator policy,
-    // and returns AUTH_OK / AUTH_FAIL as normal.
+    // PLC validates the operator, enforces single-operator policy, and
+    // returns AUTH_OK / AUTH_FAIL as normal. `authenticate()` logs the
+    // outcome itself, tagged as AuthEventMethod.biometric so the audit
+    // trail correctly attributes it to the fingerprint unlock rather than
+    // a manually-typed password.
     _errorMessage = null;
     final plcSuccess = await authenticate(
       email: credentials.email,
       password: credentials.password,
+      method: AuthEventMethod.biometric,
     );
 
     if (!plcSuccess) {

@@ -55,9 +55,9 @@ class SettingsScreen extends StatelessWidget {
               const _SecurityInfoCard(),
 
               // ── Active Session Section ──────────────────────────────────────
-              if (_isAuthenticated) ...[
+              if (controller.isAuthenticated) ...[
                 const _SectionHeader(label: 'ACTIVE SESSION'),
-                const _ActiveSessionCard(),
+                _ActiveSessionCard(sessionEmail: controller.sessionEmail),
               ],
 
               const SizedBox(height: 32),
@@ -66,12 +66,6 @@ class SettingsScreen extends StatelessWidget {
         },
       ),
     );
-  }
-
-  bool get _isAuthenticated {
-    // Replace with your actual authentication check
-    // Example: return context.read<AuthController>().isAuthenticated;
-    return false; // Placeholder - implement based on your auth state
   }
 }
 
@@ -452,26 +446,27 @@ class _SecurityFact extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ActiveSessionCard extends StatelessWidget {
-  const _ActiveSessionCard();
+  const _ActiveSessionCard({required this.sessionEmail});
+
+  final String? sessionEmail;
 
   @override
   Widget build(BuildContext context) {
-    // Replace with your actual session data
-    return const _IndustrialCard(
+    return _IndustrialCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _InfoRow(
             label: 'Operator',
-            value: 'admin@plc.com',
+            value: sessionEmail ?? 'Unknown',
             valueColor: AppColors.connSuccess,
           ),
-          SizedBox(height: 8),
-          _InfoRow(label: 'PLC Device', value: 'RRC_PLC'),
-          SizedBox(height: 8),
-          _InfoRow(label: 'Signal', value: '-62 dBm'),
-          SizedBox(height: 8),
-          _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
+          const SizedBox(height: 8),
+          const _InfoRow(label: 'PLC Device', value: 'RRC_PLC'),
+          const SizedBox(height: 8),
+          const _InfoRow(label: 'Signal', value: '-62 dBm'),
+          const SizedBox(height: 8),
+          const _InfoRow(label: 'Encryption', value: 'AES-128-GCM Active'),
         ],
       ),
     );

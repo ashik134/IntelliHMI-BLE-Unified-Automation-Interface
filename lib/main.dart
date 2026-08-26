@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/utils/app_theme.dart';
 import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 
+import 'package:rev_crane_control_ops/screens/event_log_screen.dart';
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
 import 'package:rev_crane_control_ops/screens/splash_screen.dart';
@@ -21,6 +22,13 @@ import 'package:rev_crane_control_ops/controllers/feedback_manager.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
+import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
+
+// Constructed once at the composition root and handed out from here —
+// CraneController gets it via constructor injection (as an AuditLogger),
+// EventLogScreen reads it via Provider. Neither reaches into the
+// filesystem/crypto/flutter_secure_storage directly.
+final AuthAuditLogService _authAuditLogService = AuthAuditLogService();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,7 +61,10 @@ class IntelliHMIApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => CraneController()),
+        Provider<AuthAuditLogService>.value(value: _authAuditLogService),
+        ChangeNotifierProvider(
+          create: (_) => CraneController(auditLog: _authAuditLogService),
+        ),
         ChangeNotifierProvider(create: (_) => LayoutSettingsController()),
         ChangeNotifierProxyProvider2<
           CraneController,
@@ -121,11 +132,7 @@ class MainShell extends StatelessWidget {
             title: 'Diagnostics',
             subtitle: 'System health monitoring — coming soon',
           ),
-          _PlaceholderTab(
-            icon: Icons.receipt_long_outlined,
-            title: 'Event Logs',
-            subtitle: 'Activity history — coming soon',
-          ),
+          EventLogScreen(),
         ],
       ),
     );

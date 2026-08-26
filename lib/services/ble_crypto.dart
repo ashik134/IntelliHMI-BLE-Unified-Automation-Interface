@@ -56,6 +56,21 @@ class BleCrypto {
 
   static bool get sessionActive => _sessionId != null;
 
+  /// Short one-way correlation id for the active session, safe to persist
+  /// in audit logs — e.g. `AuthLogEntry.sessionCorrelationId`. Derived via
+  /// SHA-256 so it can never be reversed back to the real session id/nonce
+  /// material; it only lets log entries be grouped by "same BLE session",
+  /// nothing more.
+  static Future<String?> get sessionCorrelationId async {
+    final session = _sessionId;
+    if (session == null) return null;
+    final hash = await Sha256().hash(session);
+    return hash.bytes
+        .take(4)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
   // --------------------------------------------------------------------------
   // Session Lifecycle
   // --------------------------------------------------------------------------
