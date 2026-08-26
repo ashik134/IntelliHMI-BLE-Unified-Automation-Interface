@@ -2,9 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:rev_crane_control_ops/models/operator_profile.dart';
 import 'package:rev_crane_control_ops/services/encrypted_store_codec.dart';
+import 'package:rev_crane_control_ops/services/secure_key_provider.dart';
+
+const String _kOperatorStoreKeyDomain = 'intellihmi.operator-store.key';
 
 /// Thrown when the operator store file exists but cannot be decrypted —
 /// wrong/rotated key, corruption, or tampering. Deliberately distinct from
@@ -34,6 +38,19 @@ class OperatorRepository {
     required SecretKey key,
   }) : _baseDirectory = baseDirectory,
        _key = key;
+
+  /// Resolves the real on-device app-support directory and the operator
+  /// store's domain key, mirroring how `AuthAuditLogService` lazily
+  /// resolves its own repository. Call once per screen/session; there's
+  /// no need to thread this through `main.dart`'s provider tree yet since
+  /// only Operator Management uses it so far.
+  static Future<OperatorRepository> open() async {
+    final directory = await getApplicationSupportDirectory();
+    final key = await SecureKeyProvider.getOrCreateKey(
+      _kOperatorStoreKeyDomain,
+    );
+    return OperatorRepository(baseDirectory: directory, key: key);
+  }
 
   final Directory _baseDirectory;
   final SecretKey _key;

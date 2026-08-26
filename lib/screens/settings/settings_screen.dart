@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/screens/operator/operator_management_screen.dart';
+import 'package:rev_crane_control_ops/widgets/settings/admin_pin_gate_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/settings/plc_webserver_sheet.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
@@ -59,6 +61,10 @@ class SettingsScreen extends StatelessWidget {
                 const _SectionHeader(label: 'ACTIVE SESSION'),
                 _ActiveSessionCard(sessionEmail: controller.sessionEmail),
               ],
+
+              // ── Administration Section ───────────────────────────────────────
+              const _SectionHeader(label: 'ADMINISTRATION'),
+              const _OperatorManagementCard(),
 
               const SizedBox(height: 32),
             ],
@@ -502,6 +508,95 @@ class _InfoRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operator Management entry
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _OperatorManagementCard extends StatelessWidget {
+  const _OperatorManagementCard();
+
+  Future<void> _open(BuildContext context) async {
+    final verified = await requireAdminPin(context);
+    if (!verified || !context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const OperatorManagementScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.divider),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(18),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      // Same reasoning as EventLogScreen/OperatorManagementScreen's cards:
+      // without a nearer Material ancestor, this Container's own
+      // background would hide InkWell's splash entirely.
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _open(context),
+            child: const Padding(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.admin_panel_settings_outlined,
+                    color: AppColors.connPrimary,
+                    size: 22,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Operator Management',
+                          style: TextStyle(
+                            color: AppColors.connText,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Add, edit, or remove registered operators',
+                          style: TextStyle(
+                            color: AppColors.connTextMuted,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.connTextMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

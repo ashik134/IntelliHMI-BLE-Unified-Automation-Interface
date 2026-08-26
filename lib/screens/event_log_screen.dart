@@ -43,7 +43,18 @@ List<AuthLogEntry> _applyFilter(List<AuthLogEntry> entries, _LogFilter filter) {
 }
 
 class EventLogScreen extends StatefulWidget {
-  const EventLogScreen({super.key});
+  const EventLogScreen({super.key, this.operatorId, this.titleOverride});
+
+  /// When set, entries are filtered client-side to this operator — used by
+  /// OperatorDetailScreen's "View Authentication History" (Stage 2). No
+  /// change to `AuthAuditLogService.getEntries()`'s API was needed for
+  /// this; it's a view-level filter on top of the same full fetch.
+  final String? operatorId;
+
+  /// Overrides the app bar title (e.g. "Ashik R — History"). Also the
+  /// signal for whether this is a pushed sub-screen (show a back arrow)
+  /// versus the bottom-nav tab root (no back arrow).
+  final String? titleOverride;
 
   @override
   State<EventLogScreen> createState() => _EventLogScreenState();
@@ -70,14 +81,14 @@ class _EventLogScreenState extends State<EventLogScreen> {
     return Scaffold(
       backgroundColor: AppColors.brandBg,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: widget.titleOverride != null,
         backgroundColor: AppColors.brandSurface,
         foregroundColor: AppColors.brandText,
         elevation: 0,
         titleSpacing: 20,
-        title: const Text(
-          'Event Log',
-          style: TextStyle(
+        title: Text(
+          widget.titleOverride ?? 'Event Log',
+          style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
             color: AppColors.brandText,
@@ -105,7 +116,13 @@ class _EventLogScreenState extends State<EventLogScreen> {
             );
           }
 
-          final entries = _applyFilter(snapshot.data!, _filter);
+          var scoped = snapshot.data!;
+          if (widget.operatorId != null) {
+            scoped = scoped
+                .where((e) => e.operatorId == widget.operatorId)
+                .toList();
+          }
+          final entries = _applyFilter(scoped, _filter);
           return Column(
             children: [
               _FilterChipsRow(

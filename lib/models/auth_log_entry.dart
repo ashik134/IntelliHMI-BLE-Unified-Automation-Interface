@@ -41,6 +41,12 @@ enum AuthEventMethod {
 
 /// Operator-record lifecycle events (Operator Management, added in Stage 2).
 enum OperatorLifecycleEvent {
+  /// A bare profile was created — name/employeeId/role only, no biometric
+  /// template yet. Distinct from [enrolled], which is reserved for when a
+  /// face template is actually attached (Stage 3/4) — logging profile
+  /// creation as "Operator Enrolled" would misleadingly imply a biometric
+  /// credential exists before it does.
+  profileCreated('Operator Profile Created'),
   enrolled('Operator Enrolled'),
   reenrolled('Operator Re-enrolled'),
   disabled('Operator Disabled'),
