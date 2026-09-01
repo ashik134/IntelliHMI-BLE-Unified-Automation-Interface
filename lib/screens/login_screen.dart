@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/application/operator_session_controller.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/domain/operator_record.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
@@ -346,6 +348,7 @@ class _LoginScreenState extends State<LoginScreen>
     final authSessionReady = _hasAuthenticationSession(controller);
     final errorState = _resolveErrorState(controller.errorMessage);
     final authenticated = controller.isAuthenticated;
+    final faceOperator = context.watch<OperatorSessionController>().operator;
 
     return Container(
       padding: EdgeInsets.all(isWide ? 28 : 20),
@@ -373,6 +376,54 @@ class _LoginScreenState extends State<LoginScreen>
             'Sign in to start a secure crane control session.',
             style: TextStyle(color: AppColors.brandTextSub, fontSize: 13.5),
           ),
+          if (faceOperator != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.brandSuccessSoft,
+                borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+                border: Border.all(
+                  color: AppColors.brandSuccess.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.verified_user_rounded,
+                    color: AppColors.brandSuccess,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'FACE IDENTITY VERIFIED',
+                          style: TextStyle(
+                            color: AppColors.brandSuccess,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${faceOperator.name} · ${faceOperator.employeeId} · ${faceOperator.role.label}',
+                          style: const TextStyle(
+                            color: AppColors.brandText,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           _buildLiveStatusBanner(controller),
           if (authenticated) ...[
@@ -528,7 +579,9 @@ class _LoginScreenState extends State<LoginScreen>
                         child: Text(
                           'Remember credentials on this device',
                           style: TextStyle(
-                            color: AppColors.brandTextSub.withValues(alpha: 0.9),
+                            color: AppColors.brandTextSub.withValues(
+                              alpha: 0.9,
+                            ),
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1096,7 +1149,9 @@ class _BiometricLoginButton extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      busy ? 'Verifying biometrics…' : 'Sign in with biometrics',
+                      busy
+                          ? 'Verifying biometrics…'
+                          : 'Sign in with biometrics',
                       style: const TextStyle(
                         color: AppColors.brandVioletDeep,
                         fontSize: 14,

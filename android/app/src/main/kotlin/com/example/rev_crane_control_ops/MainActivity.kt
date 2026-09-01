@@ -3,9 +3,14 @@ package com.example.rev_crane_control_ops
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.security.GeneralSecurityException
+import java.util.concurrent.Executors
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import kotlin.concurrent.thread
 import kotlin.math.PI
 import kotlin.math.min
@@ -13,6 +18,9 @@ import kotlin.math.sin
 
 class MainActivity : FlutterFragmentActivity() {
     private val buzzerTonePlayer = BuzzerTonePlayer()
+    private val securityExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "intellihmi-admin-kdf").apply { isDaemon = true }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -45,15 +53,98 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            FACE_SDK_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getNativeLibDir" -> result.success(applicationInfo.nativeLibraryDir)
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SECURITY_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setSecureScreen" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    runOnUiThread {
+                        if (enabled) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        result.success(null)
+                    }
+                }
+
+                "deriveAdminVerifier" -> {
+                    val credential = call.argument<String>("credential")
+                    val salt = call.argument<ByteArray>("salt")
+                    val iterations = call.argument<Int>("iterations")
+                    val outputBytes = call.argument<Int>("outputBytes")
+                    if (
+                        credential == null ||
+                        salt == null ||
+                        iterations == null ||
+                        outputBytes == null ||
+                        iterations < 1000 ||
+                        outputBytes <= 0
+                    ) {
+                        result.error("INVALID_KDF_ARGUMENTS", "Invalid administrator KDF arguments.", null)
+                    } else {
+                        securityExecutor.execute {
+                            val password = credential.toCharArray()
+                            val spec = PBEKeySpec(password, salt, iterations, outputBytes * 8)
+                            try {
+                                val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                                val verifier = factory.generateSecret(spec).encoded
+                                runOnUiThread {
+                                    try {
+                                        result.success(verifier)
+                                    } finally {
+                                        verifier.fill(0)
+                                    }
+                                }
+                            } catch (_: GeneralSecurityException) {
+                                runOnUiThread {
+                                    result.error(
+                                        "KDF_FAILED",
+                                        "Administrator credential derivation failed.",
+                                        null,
+                                    )
+                                }
+                            } finally {
+                                spec.clearPassword()
+                                password.fill('\u0000')
+                                salt.fill(0)
+                            }
+                        }
+                    }
+                }
+
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onDestroy() {
         buzzerTonePlayer.stopAll()
+        securityExecutor.shutdownNow()
         super.onDestroy()
     }
 
     companion object {
+        init {
+            System.loadLibrary("facerec")
+        }
+
         private const val BUZZER_CHANNEL = "rev_crane_control_ops/buzzer"
+        private const val FACE_SDK_CHANNEL = "samples.flutter.dev/facesdk"
+        private const val SECURITY_CHANNEL = "rev_crane_control_ops/security"
         private const val DEFAULT_BUZZER_ID = "default"
     }
 }

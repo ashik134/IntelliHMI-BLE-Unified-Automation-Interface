@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/presentation/administrator_gate.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/presentation/face_sdk_diagnostic_screen.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/presentation/operator_management_screen.dart';
 import 'package:rev_crane_control_ops/widgets/settings/plc_webserver_sheet.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
+
+const bool _faceSdkDiagnosticsEnabled = bool.fromEnvironment(
+  'FACE_SDK_DIAGNOSTICS',
+  defaultValue: false,
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsScreen
@@ -50,9 +59,17 @@ class SettingsScreen extends StatelessWidget {
               const _SectionHeader(label: 'SECURITY'),
               const _BiometricCard(),
 
+              const _SectionHeader(label: 'OPERATOR AUTHENTICATION'),
+              const _OperatorManagementCard(),
+
               // ── Security Information Section ────────────────────────────────
               const _SectionHeader(label: 'SECURITY INFORMATION'),
               const _SecurityInfoCard(),
+
+              if (kDebugMode && _faceSdkDiagnosticsEnabled) ...[
+                const _SectionHeader(label: 'DEVELOPER DIAGNOSTICS'),
+                const _FaceSdkDiagnosticCard(),
+              ],
 
               // ── Active Session Section ──────────────────────────────────────
               if (_isAuthenticated) ...[
@@ -364,6 +381,133 @@ class _BiometricCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OperatorManagementCard extends StatelessWidget {
+  const _OperatorManagementCard();
+
+  Future<void> _open(BuildContext context) async {
+    final authorized = await requestAdministratorAuthorization(context);
+    if (!authorized || !context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const OperatorManagementScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _IndustrialCard(
+      child: InkWell(
+        onTap: () => _open(context),
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.brandVioletSoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: AppColors.brandVioletDeep,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Operator Management / Face Registration',
+                      style: TextStyle(
+                        color: AppColors.connText,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Add, enable, disable, re-enroll, or delete authorized operators.',
+                      style: TextStyle(
+                        color: AppColors.connTextMuted,
+                        fontSize: 11.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.lock_rounded, color: AppColors.connTextMuted),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.connTextMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FaceSdkDiagnosticCard extends StatelessWidget {
+  const _FaceSdkDiagnosticCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return _IndustrialCard(
+      child: Row(
+        children: [
+          const Icon(
+            Icons.center_focus_strong_rounded,
+            color: AppColors.brandVioletDeep,
+            size: 22,
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '3DiVi Face SDK diagnostic',
+                  style: TextStyle(
+                    color: AppColors.connText,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Camera, detection, quality, and passive PAD only.',
+                  style: TextStyle(
+                    color: AppColors.connTextMuted,
+                    fontSize: 11.5,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Open diagnostic',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const FaceSdkDiagnosticScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.chevron_right_rounded),
           ),
         ],
       ),

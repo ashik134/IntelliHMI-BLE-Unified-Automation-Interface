@@ -33,6 +33,15 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# 3DiVi Face SDK local runtime. These files are staged from the separately
+# licensed SDK installation by tool/setup_facesdk.ps1 and must not be committed.
+/.facesdk/
+/assets/conf/facerec/
+/assets/license/
+/assets/lib/
+/assets/share/
+/assets/facesdk/
+
 # Symbolication related
 app.*.symbols
 

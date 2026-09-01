@@ -29,6 +29,29 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("../../assets/lib")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // The licensed 3DiVi runtime supplied for IntelliHMI is ARM64.
+            // Excluding the remaining Flutter/plugin ABIs prevents an APK from
+            // appearing installable on a device where libfacerec is absent.
+            excludes += setOf(
+                "lib/armeabi-v7a/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
+        }
     }
 
     buildTypes {

@@ -21,6 +21,8 @@ import 'package:rev_crane_control_ops/controllers/feedback_manager.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/application/operator_session_controller.dart';
+import 'package:rev_crane_control_ops/features/operator_auth/presentation/operator_face_gate_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,11 +76,11 @@ class IntelliHMIApp extends StatelessWidget {
         // FeedbackManager.updateConfig), which is the edit draft while
         // Feedback Settings is open, so changes preview live.
         ChangeNotifierProxyProvider<CraneController, FeedbackManager>(
-          create: (ctx) =>
-              FeedbackManager(source: ctx.read<CraneController>()),
+          create: (ctx) => FeedbackManager(source: ctx.read<CraneController>()),
           update: (ctx, crane, previous) => previous!,
         ),
         ChangeNotifierProvider(create: (_) => NavigationController()),
+        ChangeNotifierProvider(create: (_) => OperatorSessionController()),
       ],
       child: MaterialApp(
         title: AppConstants.appTitle,
@@ -147,6 +149,7 @@ class _ControlTabState extends State<_ControlTab> {
   CraneController? _controllerRef;
 
   bool _subShellPushed = false;
+  Route<void>? _subShellRoute;
 
   @override
   void didChangeDependencies() {
@@ -187,18 +190,25 @@ class _ControlTabState extends State<_ControlTab> {
           return;
         }
         context.read<NavigationController>().navigateToControl();
-        Navigator.of(
-          context,
-          rootNavigator: true,
-        ).push<void>(_buildSubShellRoute()).then((_) {
-          if (mounted) _subShellPushed = false;
+        final navigator = Navigator.of(context, rootNavigator: true);
+        final route = _buildSubShellRoute();
+        _subShellRoute = route;
+        navigator.push<void>(route).then((_) {
+          if (!mounted) return;
+          _subShellPushed = false;
+          if (identical(_subShellRoute, route)) _subShellRoute = null;
+          context.read<OperatorSessionController>().clear();
         });
       });
     } else if (screen == AppScreen.connection && _subShellPushed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_subShellPushed) return;
         final nav = Navigator.of(context, rootNavigator: true);
-        if (nav.canPop()) nav.pop();
+        final subShellRoute = _subShellRoute;
+        context.read<OperatorSessionController>().clear();
+        if (subShellRoute == null || !subShellRoute.isActive) return;
+        nav.popUntil((route) => identical(route, subShellRoute));
+        if (subShellRoute.isActive) nav.pop();
       });
     }
   }
@@ -239,15 +249,24 @@ class _ControlSubShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      child: Consumer<CraneController>(
-        builder: (context, controller, _) {
+      child: Consumer2<CraneController, OperatorSessionController>(
+        builder: (context, controller, operatorSession, _) {
           final screen = controller.currentScreen;
-          final destination = switch (screen) {
-            AppScreen.authentication => const LoginScreen(),
-            AppScreen.control => const ControlScreen(),
-            AppScreen.plc38Control => const Plc38ControlScreen(),
-            AppScreen.connection => const SizedBox.shrink(),
-          };
+          final connectionId = controller.connectionState.connectedDevice?.id;
+          final hasHumanIdentity = operatorSession.isAuthorizedFor(
+            connectionId,
+          );
+          final destination =
+              !hasHumanIdentity &&
+                  screen != AppScreen.connection &&
+                  connectionId != null
+              ? OperatorFaceGateScreen(plcConnectionId: connectionId)
+              : switch (screen) {
+                  AppScreen.authentication => const LoginScreen(),
+                  AppScreen.control => const ControlScreen(),
+                  AppScreen.plc38Control => const Plc38ControlScreen(),
+                  AppScreen.connection => const SizedBox.shrink(),
+                };
           return AnimatedSwitcher(
             duration: const Duration(milliseconds: 320),
             reverseDuration: const Duration(milliseconds: 240),
@@ -269,7 +288,10 @@ class _ControlSubShell extends StatelessWidget {
                 child: SlideTransition(position: offset, child: child),
               );
             },
-            child: KeyedSubtree(key: ValueKey(screen), child: destination),
+            child: KeyedSubtree(
+              key: ValueKey(hasHumanIdentity ? screen : 'face:$connectionId'),
+              child: destination,
+            ),
           );
         },
       ),
