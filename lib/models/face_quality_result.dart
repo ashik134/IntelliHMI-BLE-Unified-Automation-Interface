@@ -1,8 +1,10 @@
 /// A single reason a frame failed quality validation (spec section 8).
-/// Not checked here (scoped out of Stage 3, not an oversight — see
-/// FaceDetectionService's doc comment): lighting and blur, since ML Kit's
-/// `Face` doesn't expose either and a real check needs the raw pixel
-/// buffer, which fits Stage 4's capture flow more naturally.
+///
+/// [poorLighting] and [tooBlurry] are evaluated separately from the rest —
+/// see `FrameQualityAnalyzer`, which operates on the raw pixel buffer
+/// (ML Kit's `Face` doesn't expose either) — but they share this enum so
+/// downstream code (the enrollment capture screen) has one issue type to
+/// render regardless of which stage caught the problem.
 enum FaceQualityIssue {
   noFaceDetected,
   multipleFacesDetected,
@@ -11,6 +13,8 @@ enum FaceQualityIssue {
   offCenter,
   extremePose,
   eyesNotVisible,
+  poorLighting,
+  tooBlurry,
 }
 
 extension FaceQualityIssueMessage on FaceQualityIssue {
@@ -22,8 +26,10 @@ extension FaceQualityIssueMessage on FaceQualityIssue {
     FaceQualityIssue.faceTooSmall => 'Move closer',
     FaceQualityIssue.faceTooLarge => 'Move farther away',
     FaceQualityIssue.offCenter => 'Center your face',
-    FaceQualityIssue.extremePose => 'Look toward the camera',
+    FaceQualityIssue.extremePose => 'Look straight at the camera',
     FaceQualityIssue.eyesNotVisible => 'Keep your eyes visible',
+    FaceQualityIssue.poorLighting => 'Improve lighting',
+    FaceQualityIssue.tooBlurry => 'Hold still',
   };
 }
 

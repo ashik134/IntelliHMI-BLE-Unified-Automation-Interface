@@ -12,12 +12,13 @@ Future<SecretKey> _testKey() => AesGcm.with256bits().newSecretKey();
 OperatorProfile _profile(
   String id, {
   OperatorRole role = OperatorRole.operator,
+  String? employeeId,
 }) {
   final now = DateTime.now();
   return OperatorProfile(
     operatorId: id,
     name: 'Test Operator $id',
-    employeeId: 'EMP-$id',
+    employeeId: employeeId ?? 'EMP-$id',
     role: role,
     createdAt: now,
     updatedAt: now,
@@ -104,6 +105,45 @@ void main() {
     final repo = OperatorRepository(baseDirectory: tempDir, key: key);
     await repo.add(_profile('OP-1'));
     expect(File('${tempDir.path}/operators.db.enc.tmp').existsSync(), isFalse);
+  });
+
+  test('add() rejects a duplicate employeeId', () async {
+    final key = await _testKey();
+    final repo = OperatorRepository(baseDirectory: tempDir, key: key);
+    await repo.add(_profile('OP-1', employeeId: 'EMP-100'));
+
+    expect(
+      repo.add(_profile('OP-2', employeeId: 'EMP-100')),
+      throwsA(isA<DuplicateEmployeeIdException>()),
+    );
+    final all = await repo.getAll();
+    expect(all, hasLength(1));
+  });
+
+  test('add() rejects a duplicate employeeId case/whitespace-insensitively', () async {
+    final key = await _testKey();
+    final repo = OperatorRepository(baseDirectory: tempDir, key: key);
+    await repo.add(_profile('OP-1', employeeId: 'emp-100'));
+
+    expect(
+      repo.add(_profile('OP-2', employeeId: '  EMP-100  ')),
+      throwsA(isA<DuplicateEmployeeIdException>()),
+    );
+  });
+
+  test('add() allows a distinct employeeId after a rejected duplicate', () async {
+    final key = await _testKey();
+    final repo = OperatorRepository(baseDirectory: tempDir, key: key);
+    await repo.add(_profile('OP-1', employeeId: 'EMP-100'));
+
+    await expectLater(
+      repo.add(_profile('OP-2', employeeId: 'EMP-100')),
+      throwsA(isA<DuplicateEmployeeIdException>()),
+    );
+    await repo.add(_profile('OP-3', employeeId: 'EMP-200'));
+
+    final all = await repo.getAll();
+    expect(all.map((o) => o.operatorId).toSet(), {'OP-1', 'OP-3'});
   });
 
   test('concurrent mutations serialize instead of racing', () async {

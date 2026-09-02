@@ -1,0 +1,63 @@
+import 'package:flutter/material.dart';
+
+import 'package:rev_crane_control_ops/models/face_capture_diagnostics.dart';
+import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
+
+/// Debug-only readout of the live per-frame quality metrics driving
+/// capture decisions — face count, pose angle, framing size, lighting,
+/// sharpness. Only ever constructed behind `kDebugMode` by the screen
+/// that owns it (see `FaceEnrollmentScreen`); never shows an embedding or
+/// any biometric payload, only derived scalar metrics.
+class FaceCaptureDiagnosticsPanel extends StatelessWidget {
+  const FaceCaptureDiagnosticsPanel({super.key, required this.diagnostics});
+
+  final FaceCaptureDiagnostics diagnostics;
+
+  String _fmt(double? value, {int decimals = 1, String suffix = ''}) {
+    if (value == null) return '—';
+    return '${value.toStringAsFixed(decimals)}$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = diagnostics;
+    final lines = [
+      'DEBUG  faces: ${d.faceCount}',
+      'yaw: ${_fmt(d.yawDegrees, suffix: '°')}  pitch: ${_fmt(d.pitchDegrees, suffix: '°')}',
+      'size: ${_fmt(d.faceWidthFraction == null ? null : d.faceWidthFraction! * 100, suffix: '%')}',
+      'bright: ${_fmt(d.brightness, decimals: 0)} '
+          '(${FrameQualityAnalyzer.minBrightness.toStringAsFixed(0)}-'
+          '${FrameQualityAnalyzer.maxBrightness.toStringAsFixed(0)})',
+      'sharp: ${_fmt(d.sharpness, decimals: 0)} '
+          '(min ${FrameQualityAnalyzer.minSharpness.toStringAsFixed(0)})',
+    ];
+
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withAlpha(160),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final line in lines)
+              Text(
+                line,
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontSize: 10.5,
+                  fontFamily: 'monospace',
+                  height: 1.4,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

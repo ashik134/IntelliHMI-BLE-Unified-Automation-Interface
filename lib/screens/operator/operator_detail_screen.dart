@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
+import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/models/operator_profile.dart';
 import 'package:rev_crane_control_ops/models/operator_role.dart';
+import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/repositories/operator_repository.dart';
 import 'package:rev_crane_control_ops/screens/event_log_screen.dart';
+import 'package:rev_crane_control_ops/screens/operator/face_enrollment_screen.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
+import 'package:rev_crane_control_ops/widgets/settings/admin_pin_gate_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 class OperatorDetailScreen extends StatefulWidget {
@@ -16,11 +20,13 @@ class OperatorDetailScreen extends StatefulWidget {
     super.key,
     required this.operator,
     required this.repository,
+    required this.templateRepository,
     required this.auditLog,
   });
 
   final OperatorProfile operator;
   final OperatorRepository repository;
+  final FaceTemplateRepository templateRepository;
   final AuthAuditLogService auditLog;
 
   @override
@@ -102,6 +108,45 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
     });
   }
 
+  Future<void> _reenrollFace() async {
+    final confirmed = await requireAdminPin(context);
+    if (!mounted || !confirmed) return;
+
+    final template = await Navigator.of(context).push<FaceTemplate>(
+      MaterialPageRoute<FaceTemplate>(
+        fullscreenDialog: true,
+        builder: (_) => FaceEnrollmentScreen(
+          operatorId: _operator.operatorId,
+          templateRepository: widget.templateRepository,
+        ),
+      ),
+    );
+    if (!mounted || template == null) return;
+
+    setState(() => _busy = true);
+    // Template first, then the operator profile that references it —
+    // same ordering/reasoning as initial enrollment in AddOperatorScreen.
+    await widget.templateRepository.upsert(template);
+    final updated = _operator.copyWith(
+      faceTemplateId: template.templateId,
+      updatedAt: DateTime.now(),
+    );
+    await widget.repository.update(updated);
+    unawaited(
+      widget.auditLog.recordOperatorEvent(
+        event: OperatorLifecycleEvent.reenrolled,
+        operatorId: updated.operatorId,
+        operatorNameSnapshot: updated.name,
+        role: updated.role.displayName,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _operator = updated;
+      _busy = false;
+    });
+  }
+
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -130,6 +175,7 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
 
     setState(() => _busy = true);
     await widget.repository.delete(_operator.operatorId);
+    await widget.templateRepository.deleteByOperatorId(_operator.operatorId);
     unawaited(
       widget.auditLog.recordOperatorEvent(
         event: OperatorLifecycleEvent.deleted,
@@ -183,12 +229,13 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
           const SizedBox(height: 20),
           const Divider(color: AppColors.brandBorder),
           const SizedBox(height: 4),
-          const _ActionTile(
+          _ActionTile(
             icon: Icons.face_retouching_natural_outlined,
-            label: 'Re-enroll Face',
-            subtitle: 'Available in a future update',
-            enabled: false,
-            onTap: null,
+            label: _operator.faceTemplateId != null
+                ? 'Re-enroll Face'
+                : 'Enroll Face',
+            enabled: !_busy,
+            onTap: _reenrollFace,
           ),
           _ActionTile(
             icon: _operator.enabled
@@ -226,7 +273,10 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       const SizedBox(height: 10),
       _InfoRow(label: 'Status', value: _operator.enabled ? 'Enabled' : 'Disabled'),
       const SizedBox(height: 10),
-      const _InfoRow(label: 'Face Enrollment', value: 'Not enrolled (coming soon)'),
+      _InfoRow(
+        label: 'Face Enrollment',
+        value: _operator.faceTemplateId != null ? 'Enrolled' : 'Not enrolled',
+      ),
       const SizedBox(height: 10),
       _InfoRow(
         label: 'Created',

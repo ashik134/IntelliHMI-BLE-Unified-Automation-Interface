@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui';
 
 /// App-neutral face-detection result. Constructed only inside
@@ -14,6 +15,8 @@ class DetectedFace {
     this.leftEyeOpenProbability,
     this.rightEyeOpenProbability,
     this.smilingProbability,
+    this.leftEyePosition,
+    this.rightEyePosition,
   });
 
   /// Face bounding box in image pixel coordinates.
@@ -36,4 +39,13 @@ class DetectedFace {
   final double? leftEyeOpenProbability;
   final double? rightEyeOpenProbability;
   final double? smilingProbability;
+
+  /// Eye landmark positions in image pixel coordinates (same space as
+  /// [boundingBox]). Null if landmarks weren't enabled or the detector
+  /// didn't report them for this frame. Used by `FaceAlignmentService` to
+  /// level the face before cropping — not used by [FaceQualityIssue]
+  /// checks, which only look at [leftEyeOpenProbability]/
+  /// [rightEyeOpenProbability].
+  final Point<int>? leftEyePosition;
+  final Point<int>? rightEyePosition;
 }

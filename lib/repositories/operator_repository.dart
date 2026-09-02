@@ -25,6 +25,25 @@ class OperatorStoreCorruptedException implements Exception {
       'failed to decrypt/parse — refusing to treat it as empty.';
 }
 
+/// Thrown by [OperatorRepository.add] when [employeeId] is already used by
+/// another operator. There is no SQL layer in this project to enforce a
+/// literal UNIQUE constraint (storage is an encrypted JSON document, not a
+/// database — see the operator-face-enrollment plan for that trade-off),
+/// so this is the write-path enforcement: checked here, inside the same
+/// serialized `_writeQueue` that already makes reads-then-writes
+/// race-free, so two concurrent `add()` calls can never both succeed with
+/// the same employee ID.
+class DuplicateEmployeeIdException implements Exception {
+  const DuplicateEmployeeIdException(this.employeeId);
+
+  final String employeeId;
+
+  @override
+  String toString() =>
+      'DuplicateEmployeeIdException: employeeId "$employeeId" is already '
+      'registered to another operator.';
+}
+
 /// Encrypted local CRUD store for the [OperatorProfile] list.
 ///
 /// Unlike the append-only audit log, this is a small, fully-rewritten-on-
@@ -115,8 +134,19 @@ class OperatorRepository {
     return null;
   }
 
+  /// Throws [DuplicateEmployeeIdException] if [operator.employeeId]
+  /// (trimmed, case-insensitive) already belongs to another operator —
+  /// checked here rather than only in the UI so this holds regardless of
+  /// caller.
   Future<void> add(OperatorProfile operator) {
     return _mutate((current) async {
+      final normalized = operator.employeeId.trim().toLowerCase();
+      final duplicate = current.any(
+        (existing) => existing.employeeId.trim().toLowerCase() == normalized,
+      );
+      if (duplicate) {
+        throw DuplicateEmployeeIdException(operator.employeeId);
+      }
       await _writeAll([...current, operator]);
     });
   }

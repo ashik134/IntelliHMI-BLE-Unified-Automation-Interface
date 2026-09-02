@@ -51,6 +51,8 @@ class FaceDetectionService {
       leftEyeOpenProbability: face.leftEyeOpenProbability,
       rightEyeOpenProbability: face.rightEyeOpenProbability,
       smilingProbability: face.smilingProbability,
+      leftEyePosition: face.landmarks[FaceLandmarkType.leftEye]?.position,
+      rightEyePosition: face.landmarks[FaceLandmarkType.rightEye]?.position,
     );
   }
 

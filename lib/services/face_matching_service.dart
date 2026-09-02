@@ -35,16 +35,19 @@ class FaceMatchingService {
 
     String? bestOperatorId;
     var bestScore = -1.0;
+    String? secondBestOperatorId;
     double? secondBestScore;
 
     for (final candidate in compatible) {
       final score = cosineSimilarity(liveEmbedding, candidate.embedding);
       if (score > bestScore) {
         secondBestScore = bestScore == -1.0 ? null : bestScore;
+        secondBestOperatorId = bestScore == -1.0 ? null : bestOperatorId;
         bestScore = score;
         bestOperatorId = candidate.operatorId;
       } else if (secondBestScore == null || score > secondBestScore) {
         secondBestScore = score;
+        secondBestOperatorId = candidate.operatorId;
       }
     }
 
@@ -59,6 +62,8 @@ class FaceMatchingService {
         bestScore: bestScore,
         secondBestScore: secondBestScore,
         ambiguous: tooAmbiguous && !belowThreshold,
+        bestCandidateOperatorId: bestOperatorId,
+        secondBestCandidateOperatorId: secondBestOperatorId,
       );
     }
 
@@ -67,6 +72,8 @@ class FaceMatchingService {
       bestScore: bestScore,
       secondBestScore: secondBestScore,
       ambiguous: false,
+      bestCandidateOperatorId: bestOperatorId,
+      secondBestCandidateOperatorId: secondBestOperatorId,
     );
   }
 

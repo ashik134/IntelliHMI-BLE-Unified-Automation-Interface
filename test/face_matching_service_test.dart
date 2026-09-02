@@ -108,6 +108,87 @@ void main() {
       );
       expect(result.isMatch, isFalse);
       expect(result.secondBestScore, isNull);
+      expect(result.bestCandidateOperatorId, isNull);
+      expect(result.secondBestCandidateOperatorId, isNull);
     });
+
+    test(
+      'exposes best/second-best candidate IDs even on a confident match',
+      () {
+        final result = FaceMatchingService.match(
+          liveEmbedding: [1.0, 0.0, 0.0],
+          candidates: [
+            _template('OP-1', [0.999, 0.001, 0.0]),
+            _template('OP-2', [0.0, 1.0, 0.0]),
+          ],
+          currentModelVersion: _currentVersion,
+        );
+        expect(result.isMatch, isTrue);
+        expect(result.bestCandidateOperatorId, 'OP-1');
+        expect(result.secondBestCandidateOperatorId, 'OP-2');
+      },
+    );
+
+    test(
+      'exposes the best/second-best candidate IDs even when rejected as '
+      'below threshold — for debug/verification display only, never as a '
+      'match decision',
+      () {
+        final result = FaceMatchingService.match(
+          liveEmbedding: [1.0, 0.0, 0.0],
+          candidates: [
+            _template('OP-1', [0.5, 0.5, 0.0]),
+            _template('OP-2', [0.0, 1.0, 0.0]),
+          ],
+          currentModelVersion: _currentVersion,
+          threshold: 0.9,
+        );
+        expect(result.isMatch, isFalse);
+        expect(result.bestCandidateOperatorId, 'OP-1');
+        expect(result.secondBestCandidateOperatorId, 'OP-2');
+      },
+    );
+
+    test(
+      'exposes best/second-best candidate IDs even when rejected as '
+      'ambiguous',
+      () {
+        final result = FaceMatchingService.match(
+          liveEmbedding: [1.0, 0.0, 0.0],
+          candidates: [
+            _template('OP-1', [0.99, 0.01, 0.0]),
+            _template('OP-2', [0.985, 0.015, 0.0]),
+          ],
+          currentModelVersion: _currentVersion,
+          threshold: 0.8,
+          ambiguityMargin: 0.05,
+        );
+        expect(result.isMatch, isFalse);
+        expect(result.ambiguous, isTrue);
+        expect(result.bestCandidateOperatorId, 'OP-1');
+        expect(result.secondBestCandidateOperatorId, 'OP-2');
+      },
+    );
+
+    test(
+      'best/second-best candidate tracking is order-independent (the '
+      'runner-up can be seen before the eventual best)',
+      () {
+        // OP-2 (the eventual best) is listed after OP-1 — exercises the
+        // branch where a later candidate overtakes the running best and
+        // the previous best must be demoted into the second-best slot.
+        final result = FaceMatchingService.match(
+          liveEmbedding: [1.0, 0.0, 0.0],
+          candidates: [
+            _template('OP-low', [0.2, 0.8, 0.0]),
+            _template('OP-mid', [0.9, 0.1, 0.0]),
+            _template('OP-1', [0.999, 0.001, 0.0]),
+          ],
+          currentModelVersion: _currentVersion,
+        );
+        expect(result.bestCandidateOperatorId, 'OP-1');
+        expect(result.secondBestCandidateOperatorId, 'OP-mid');
+      },
+    );
   });
 }

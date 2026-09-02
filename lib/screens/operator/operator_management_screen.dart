@@ -1,21 +1,31 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/operator_profile.dart';
+import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/repositories/operator_repository.dart';
 import 'package:rev_crane_control_ops/screens/operator/add_operator_screen.dart';
+import 'package:rev_crane_control_ops/screens/operator/face_verify_screen.dart';
 import 'package:rev_crane_control_ops/screens/operator/operator_detail_screen.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 class OperatorManagementScreen extends StatefulWidget {
-  const OperatorManagementScreen({super.key, this.repository});
+  const OperatorManagementScreen({
+    super.key,
+    this.repository,
+    this.templateRepository,
+  });
 
   /// Injectable for consistency with AddOperatorScreen/OperatorDetailScreen
   /// (which require one) and for tests; defaults to lazily resolving the
   /// real on-device store via [OperatorRepository.open] when null.
   final OperatorRepository? repository;
+
+  /// Same pattern as [repository], via [FaceTemplateRepository.open].
+  final FaceTemplateRepository? templateRepository;
 
   @override
   State<OperatorManagementScreen> createState() =>
@@ -24,17 +34,20 @@ class OperatorManagementScreen extends StatefulWidget {
 
 class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
   OperatorRepository? _repository;
+  FaceTemplateRepository? _templateRepository;
   late Future<List<OperatorProfile>> _future;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository;
+    _templateRepository = widget.templateRepository;
     _future = _load();
   }
 
   Future<List<OperatorProfile>> _load() async {
     final repo = _repository ??= await OperatorRepository.open();
+    _templateRepository ??= await FaceTemplateRepository.open();
     // OperatorRepository.getAll() returns a `const []` when the store file
     // doesn't exist yet (fresh install) — .toList() first so .sort() below
     // never throws on that unmodifiable list.
@@ -47,7 +60,8 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
 
   Future<void> _addOperator() async {
     final repo = _repository;
-    if (repo == null) return;
+    final templateRepo = _templateRepository;
+    if (repo == null || templateRepo == null) return;
     final isFirstOperator = (await repo.getAll()).isEmpty;
     if (!mounted) return;
 
@@ -55,6 +69,7 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
       MaterialPageRoute<void>(
         builder: (_) => AddOperatorScreen(
           repository: repo,
+          templateRepository: templateRepo,
           auditLog: context.read<AuthAuditLogService>(),
           forceAdministratorRole: isFirstOperator,
         ),
@@ -65,18 +80,40 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
 
   Future<void> _openDetail(OperatorProfile operator) async {
     final repo = _repository;
-    if (repo == null) return;
+    final templateRepo = _templateRepository;
+    if (repo == null || templateRepo == null) return;
 
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => OperatorDetailScreen(
           operator: operator,
           repository: repo,
+          templateRepository: templateRepo,
           auditLog: context.read<AuthAuditLogService>(),
         ),
       ),
     );
     _reload();
+  }
+
+  /// Debug-only tool (see the `kDebugMode`-gated action button below) —
+  /// live camera face verification against enrolled templates, for
+  /// confirming enrollment actually captured a matchable face without
+  /// needing a full face-login flow. Read-only, no audit log entry.
+  Future<void> _verifyFace() async {
+    final repo = _repository;
+    final templateRepo = _templateRepository;
+    if (repo == null || templateRepo == null) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => FaceVerifyScreen(
+          operatorRepository: repo,
+          templateRepository: templateRepo,
+        ),
+      ),
+    );
   }
 
   @override
@@ -97,6 +134,12 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
           ),
         ),
         actions: [
+          if (kDebugMode)
+            IconButton(
+              tooltip: 'Verify Face (Debug)',
+              icon: const Icon(Icons.fact_check_outlined),
+              onPressed: _verifyFace,
+            ),
           IconButton(
             tooltip: 'Add Operator',
             icon: const Icon(Icons.person_add_alt_1_rounded),
@@ -314,17 +357,21 @@ class _OperatorCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Row(
+                        Row(
                           children: [
                             Icon(
-                              Icons.face_outlined,
+                              operator.faceTemplateId != null
+                                  ? Icons.face_retouching_natural_rounded
+                                  : Icons.face_outlined,
                               size: 12,
                               color: AppColors.brandTextMuted,
                             ),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 4),
                             Text(
-                              'Not enrolled yet',
-                              style: TextStyle(
+                              operator.faceTemplateId != null
+                                  ? 'Face enrolled'
+                                  : 'Not enrolled yet',
+                              style: const TextStyle(
                                 color: AppColors.brandTextMuted,
                                 fontSize: 10.5,
                               ),

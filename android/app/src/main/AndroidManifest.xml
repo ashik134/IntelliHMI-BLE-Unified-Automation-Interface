@@ -24,10 +24,17 @@
     <!-- Required for local_auth biometric sign-in -->
     <uses-permission
         android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Required for operator face enrollment (Settings > Operator Management) -->
+    <uses-permission
+        android:name="android.permission.CAMERA" />
     <!-- Required for BLE feature -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
+    <!-- Face enrollment is an optional admin feature, not core functionality -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
     <application
         android:label="Intelli HMI"
         android:name="${applicationName}"
