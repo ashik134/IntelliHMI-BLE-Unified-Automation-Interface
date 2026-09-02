@@ -24,10 +24,7 @@ import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dar
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 
-// Constructed once at the composition root and handed out from here —
-// CraneController gets it via constructor injection (as an AuditLogger),
-// EventLogScreen reads it via Provider. Neither reaches into the
-// filesystem/crypto/flutter_secure_storage directly.
+
 final AuthAuditLogService _authAuditLogService = AuthAuditLogService();
 
 Future<void> main() async {
@@ -77,13 +74,7 @@ class IntelliHMIApp extends StatelessWidget {
           ),
           update: (ctx, crane, layout, previous) => previous!,
         ),
-        // The feedback stack's single entry point. Constructed with the
-        // CraneController seen only through FeedbackSource — a read-only view
-        // with no command path — so alarms, buzzer, LEDs, values and the
-        // heartbeat are structurally unable to write to the PLC. Its config is
-        // pushed in by the control screens from the layout being rendered (see
-        // FeedbackManager.updateConfig), which is the edit draft while
-        // Feedback Settings is open, so changes preview live.
+      
         ChangeNotifierProxyProvider<CraneController, FeedbackManager>(
           create: (ctx) =>
               FeedbackManager(source: ctx.read<CraneController>()),
@@ -173,14 +164,7 @@ class _ControlTabState extends State<_ControlTab> {
   }
 
   void _onControllerChanged() {
-    // This fires synchronously from CraneController.notifyListeners(), which
-    // can happen at any point in a BLE callback chain — including mid-frame,
-    // while this element's ancestor chain (Provider/Navigator) is itself
-    // transitioning. `mounted` only means "not yet disposed"; it does not
-    // guarantee the element is safe to use for ancestor lookups right now.
-    // So every context-dependent call below is deferred to a post-frame
-    // callback, each re-checking `mounted` immediately before use, rather
-    // than trusting a `mounted` check taken earlier in the same tick.
+    
     if (!mounted) return;
     final screen = _controllerRef!.currentScreen;
 

@@ -217,43 +217,12 @@ class MultiZoneSliderButton extends StatelessWidget {
   }
 }
 
-// / Default centre dead-band, matching this widget's original hardcoded
 
-// / constant — every existing (never-customized) placement renders identically.
 
 const double kMultiZoneSliderDefaultDeadZone = 0.12;
 
-// / Default near/far zone boundary (five-zone mode only), matching this
-
-// / widget's original hardcoded constant.
-
 const double kMultiZoneSliderDefaultFarZone = 0.62;
 
-//  ─────────────────────────────────────────────────────────────────────────────
-
-//  IndustrialMultiZoneSlider
-
-//
-
-//  Reusable industrial multi-zone drag surface: the operator drags a thumb
-
-//  along a track and this widget reports which discrete zone the thumb
-
-//  currently sits in via [onStateChanged]. It owns presentation, drag
-
-//  gesture handling, zone math, spring-return physics, haptics, and local
-
-//  visual state only — it never decides what a zone MEANS (entirely up to
-
-//  the caller, via ButtonConfig.stateMappings) and never composes or sends
-
-//  any PLC/BLE output itself. Auto-orients horizontally or vertically to fit
-
-//  whatever bounds it's given (see build()'s RotatedBox use, matching
-
-//  MultiStepSliderButton's own technique for a vertical layout).
-
-//  ─────────────────────────────────────────────────────────────────────────────
 
 class IndustrialMultiZoneSlider extends StatefulWidget {
   const IndustrialMultiZoneSlider({
