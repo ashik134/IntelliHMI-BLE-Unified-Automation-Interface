@@ -14,6 +14,16 @@ class FaceCaptureDiagnostics {
     this.centerOffsetFraction,
     this.brightness,
     this.sharpness,
+    this.sizePassed,
+    this.centerPassed,
+    this.posePassed,
+    this.eyesPassed,
+    this.brightnessPassed,
+    this.sharpnessPassed,
+    this.stableGoodFrames,
+    this.requiredStableFrames,
+    this.readyForCapture = false,
+    this.failedReason,
   });
 
   const FaceCaptureDiagnostics.empty()
@@ -23,7 +33,17 @@ class FaceCaptureDiagnostics {
       faceWidthFraction = null,
       centerOffsetFraction = null,
       brightness = null,
-      sharpness = null;
+      sharpness = null,
+      sizePassed = null,
+      centerPassed = null,
+      posePassed = null,
+      eyesPassed = null,
+      brightnessPassed = null,
+      sharpnessPassed = null,
+      stableGoodFrames = null,
+      requiredStableFrames = null,
+      readyForCapture = false,
+      failedReason = null;
 
   final int faceCount;
 
@@ -52,4 +72,34 @@ class FaceCaptureDiagnostics {
   /// From `FrameQualityAnalyzer.estimateSharpness` — unitless, only
   /// meaningful relative to `FrameQualityAnalyzer.minSharpness`.
   final double? sharpness;
+
+  /// Per-condition breakdown, all independently computed (a frame can
+  /// fail several at once) — null when [faceCount] != 1, since none of
+  /// these are meaningful without exactly one detected face.
+  final bool? sizePassed;
+  final bool? centerPassed;
+  final bool? posePassed;
+  final bool? eyesPassed;
+  final bool? brightnessPassed;
+  final bool? sharpnessPassed;
+
+  /// Consecutive good frames seen so far / required, from
+  /// `FaceEnrollmentService.stableGoodFrames`/`requiredStableFrames` — how
+  /// close this capture session is to clearing the anti-flicker stability
+  /// gate. Null on the verify screen, which doesn't accumulate samples.
+  final int? stableGoodFrames;
+  final int? requiredStableFrames;
+
+  /// Whether this exact frame would be accepted right now — every check
+  /// above passed, pixel checks included. Distinct from any single
+  /// `*Passed` field: this is the actual gating decision, not just one
+  /// condition of it.
+  final bool readyForCapture;
+
+  /// The single condition currently blocking capture — the same value the
+  /// operator-facing caption is driven from (`FaceQualityResult
+  /// .primaryMessage`/`FrameQualityIssue`), shown here alongside the full
+  /// breakdown so it's clear which failing condition, if several are
+  /// failing at once, is the one actually producing the caption.
+  final String? failedReason;
 }

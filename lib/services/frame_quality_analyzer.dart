@@ -36,6 +36,32 @@ class FrameQualityAnalyzer {
     return null;
   }
 
+  /// Same checks as [evaluate], but computes *both* regardless of which
+  /// one fails first — for the debug diagnostics panel, which wants to
+  /// show brightness and sharpness pass/fail independently rather than
+  /// only whichever [evaluate] short-circuited on. [evaluate] keeps its
+  /// short-circuit for the real capture gate, where skipping a redundant
+  /// pass matters; this is only ever called on an already-decoded debug
+  /// frame, so the extra work is free.
+  static ({
+    double brightness,
+    double sharpness,
+    bool brightnessPassed,
+    bool sharpnessPassed,
+  })
+  diagnose(img.Image frame, Rect faceRegion) {
+    final region = _cropRegion(frame, faceRegion);
+    final brightness = estimateBrightness(region);
+    final sharpness = estimateSharpness(region);
+    return (
+      brightness: brightness,
+      sharpness: sharpness,
+      brightnessPassed:
+          brightness >= minBrightness && brightness <= maxBrightness,
+      sharpnessPassed: sharpness >= minSharpness,
+    );
+  }
+
   /// Mean luma (ITU-R BT.601 weights) over [region], 0..255.
   static double estimateBrightness(img.Image region) {
     var sum = 0.0;

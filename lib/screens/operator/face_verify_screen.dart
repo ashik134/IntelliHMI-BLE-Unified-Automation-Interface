@@ -15,6 +15,7 @@ import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
 import 'package:rev_crane_control_ops/services/face_verification_service.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
+import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 enum _ScreenPhase { initializing, permissionDenied, cameraError, running }
@@ -62,6 +63,14 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
   String _statusMessage = 'Starting camera…';
   FaceMatchResult? _lastResult;
   bool _busyFrame = false;
+
+  /// Consecutive good frames required before running a verification
+  /// attempt — the same anti-flicker rationale as
+  /// `FaceEnrollmentService`'s stability gate, so a single lucky/unlucky
+  /// frame can't decide the outcome. Reset whenever the readiness gate
+  /// stops passing.
+  static const int _requiredStableFrames = 3;
+  int _stableGoodFrames = 0;
 
   @override
   void initState() {
@@ -170,34 +179,58 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
       return;
     }
 
+    final rotation = CameraFrameConverter.rotationDegrees(
+      controller.description,
+      controller.value.deviceOrientation,
+    );
     final inputImage = CameraFrameConverter.toInputImage(
       image,
       controller.description,
       controller.value.deviceOrientation,
     );
     final imageSize = Size(image.width.toDouble(), image.height.toDouble());
-    final faces = await detectionService.detectFaces(inputImage, imageSize);
+    final faces = await detectionService.detectFaces(
+      inputImage,
+      imageSize,
+      rotationDegrees: rotation,
+    );
 
-    if (faces.isEmpty) {
+    // Same readiness gate enrollment uses — a frame reaches the
+    // verification embedder only once it clears the identical
+    // face-count/size/center/pose/eyes checks a sample would need to
+    // clear to be accepted during enrollment. Previously this screen ran
+    // `verify()` on the very first single-face frame regardless of
+    // position, size, or pose, which made a good match depend on
+    // recreating enrollment's incidental framing rather than on identity.
+    final quality = FaceDetectionService.evaluateQuality(
+      faces,
+      imageSize,
+      rotationDegrees: rotation,
+    );
+    if (!quality.passed) {
+      _stableGoodFrames = 0;
       if (!mounted) return;
       setState(() {
-        _statusMessage = 'Position your face in frame';
+        _statusMessage = quality.primaryMessage ?? 'Position your face';
         _lastResult = null;
       });
       return;
     }
-    if (faces.length > 1) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = 'Multiple faces detected';
-        _lastResult = null;
-      });
-      return;
-    }
+
     if (_templates.isEmpty) {
       if (!mounted) return;
       setState(() {
         _statusMessage = 'No enrolled operators to match against';
+        _lastResult = null;
+      });
+      return;
+    }
+
+    _stableGoodFrames++;
+    if (_stableGoodFrames < _requiredStableFrames) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Hold still';
         _lastResult = null;
       });
       return;
@@ -261,6 +294,14 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
     }
   }
 
+  Color get _guideColor {
+    final result = _lastResult;
+    if (result != null) {
+      return result.isMatch ? AppColors.brandSuccess : AppColors.brandDanger;
+    }
+    return Colors.white.withAlpha(210);
+  }
+
   Widget _buildLive(BuildContext context) {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
@@ -269,41 +310,66 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // True (non-mirrored) orientation, scaled to cover without
-        // distorting the camera's aspect ratio — see
-        // `FaceEnrollmentScreen`'s `_CoverCameraPreview` for why a plain
-        // `Stack.expand` child would otherwise stretch it unevenly.
-        _CoverCameraPreview(controller: controller),
-        Container(color: Colors.black.withAlpha(60)),
-        const Positioned(
-          top: 8,
-          right: 8,
-          child: _DebugBadge(),
-        ),
-        Positioned(
-          left: 16,
-          right: 16,
-          bottom: 32,
-          child: _ResultBanner(
-            statusMessage: _statusMessage,
-            result: _lastResult,
-            nameFor: _nameFor,
-          ),
-        ),
-        Positioned(
-          top: 8,
-          left: 8,
-          child: BrandIconButton(
-            icon: Icons.close_rounded,
-            dark: true,
-            tooltip: 'Close',
-            onTap: () => Navigator.of(context).pop(),
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Same geometry-derived guide as enrollment — see
+        // `FaceEnrollmentScreen._buildCapture`'s identical computation and
+        // `FaceDetectionService.centerToleranceRadiusPx`'s doc comment.
+        // Using the exact same helper here (rather than a screen-local
+        // guess) is what keeps enrollment and verification presenting the
+        // same acceptance region for the same underlying check.
+        final guideDiameter =
+            2 *
+            FaceDetectionService.centerToleranceRadiusPx(
+              screenSize: constraints.biggest,
+              cameraAspectRatio: controller.value.aspectRatio,
+            );
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // True (non-mirrored) orientation, scaled to cover without
+            // distorting the camera's aspect ratio — see
+            // `FaceEnrollmentScreen`'s `_CoverCameraPreview` for why a plain
+            // `Stack.expand` child would otherwise stretch it unevenly.
+            _CoverCameraPreview(controller: controller),
+            Container(color: Colors.black.withAlpha(60)),
+            FaceCaptureOverlay(
+              // Blank once a result has landed — the banner below takes
+              // over at that instant (`_statusMessage` is cleared in
+              // `_processFrame` exactly when `_lastResult` is set), so
+              // the two never show conflicting text at once.
+              caption: _lastResult == null
+                  ? (_statusMessage.isEmpty ? 'Scanning…' : _statusMessage)
+                  : '',
+              guideColor: _guideColor,
+              guideDiameter: guideDiameter,
+            ),
+            const Positioned(
+              top: 8,
+              right: 8,
+              child: _DebugBadge(),
+            ),
+            if (_lastResult != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 32,
+                child: _ResultBanner(result: _lastResult!, nameFor: _nameFor),
+              ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: BrandIconButton(
+                icon: Icons.close_rounded,
+                dark: true,
+                tooltip: 'Close',
+                onTap: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -360,28 +426,20 @@ class _DebugBadge extends StatelessWidget {
   }
 }
 
+/// Only ever built once a verification attempt has actually run (see its
+/// call site — the caller checks `_lastResult != null` first); the
+/// "scanning/positioning" state is shown by `FaceCaptureOverlay`'s
+/// caption instead, so there is exactly one place on screen showing
+/// guidance text at any moment.
 class _ResultBanner extends StatelessWidget {
-  const _ResultBanner({
-    required this.statusMessage,
-    required this.result,
-    required this.nameFor,
-  });
+  const _ResultBanner({required this.result, required this.nameFor});
 
-  final String statusMessage;
-  final FaceMatchResult? result;
+  final FaceMatchResult result;
   final String? Function(String?) nameFor;
 
   @override
   Widget build(BuildContext context) {
     final r = result;
-    if (r == null) {
-      return _panel(
-        icon: Icons.face_outlined,
-        color: Colors.white,
-        title: statusMessage.isEmpty ? 'Scanning…' : statusMessage,
-      );
-    }
-
     if (r.isMatch) {
       return _panel(
         icon: Icons.check_circle_rounded,

@@ -39,8 +39,8 @@ class FaceEnrollmentService {
   FaceEnrollmentService({
     required this.embeddingService,
     required this.templateRepository,
-    this.requiredSamples = 7,
-    this.minSurvivingSamples = 5,
+    this.requiredSamples = 10,
+    this.minSurvivingSamples = 7,
   });
 
   final FaceEmbeddingService embeddingService;
@@ -51,7 +51,10 @@ class FaceEnrollmentService {
   final int requiredSamples;
 
   /// Minimum accepted samples that must survive outlier-trimming in
-  /// [finalizeEnrollment] for the resulting template to be trusted.
+  /// [finalizeEnrollment] for the resulting template to be trusted. Kept
+  /// at the same ~70% ratio of [requiredSamples] as before (5/7), not a
+  /// fixed absolute floor, so raising [requiredSamples] doesn't quietly
+  /// loosen how many samples are allowed to be trimmed as outliers.
   final int minSurvivingSamples;
 
   /// Minimum time between two accepted samples, so [requiredSamples]
@@ -69,16 +72,34 @@ class FaceEnrollmentService {
   /// margin on top of the tolerance the quality gates already allow.
   static const double outlierSimilarityFloor = 0.75;
 
+  /// Consecutive good frames required before the *first* sample is
+  /// accepted, so a single noisy frame that happens to clear every check
+  /// out of a resting/positioning state can't trigger capture on its own —
+  /// without this, one lucky frame decides acceptance, which is what
+  /// produces the "waits several seconds, then suddenly captures" feel.
+  /// Only gates the first sample: once enrollment has begun the existing
+  /// [_minSampleInterval] cooldown already spaces later samples apart, and
+  /// the operator is by then already correctly positioned.
+  static const int _requiredStableFrames = 3;
+
   final List<List<double>> _accepted = [];
   DateTime? _lastAcceptedAt;
+  int _stableGoodFrames = 0;
 
   int get samplesCaptured => _accepted.length;
+
+  /// How many consecutive good frames have been seen toward
+  /// [_requiredStableFrames] — exposed for the debug diagnostics panel
+  /// only; [evaluateAndCapture] uses the private counter directly.
+  int get stableGoodFrames => _stableGoodFrames;
+  int get requiredStableFrames => _requiredStableFrames;
 
   /// Clears all in-memory samples — used on cancel/retry. Nothing was
   /// ever written to disk, so there's nothing else to undo.
   void reset() {
     _accepted.clear();
     _lastAcceptedAt = null;
+    _stableGoodFrames = 0;
   }
 
   /// Evaluates one already-detected frame and, if it clears every quality
@@ -111,6 +132,7 @@ class FaceEnrollmentService {
     );
     final earlyStatus = _statusForIssue(quality.primaryIssue);
     if (earlyStatus != null) {
+      _stableGoodFrames = 0;
       return _state(
         earlyStatus,
         offsetDirection: earlyStatus == FaceEnrollmentStatus.offCenter
@@ -123,7 +145,17 @@ class FaceEnrollmentService {
     final frame = frameProvider();
     final pixelIssue = FrameQualityAnalyzer.evaluate(frame, face.boundingBox);
     final pixelStatus = _statusForIssue(pixelIssue);
-    if (pixelStatus != null) return _state(pixelStatus);
+    if (pixelStatus != null) {
+      _stableGoodFrames = 0;
+      return _state(pixelStatus);
+    }
+
+    if (_accepted.isEmpty) {
+      _stableGoodFrames++;
+      if (_stableGoodFrames < _requiredStableFrames) {
+        return _state(FaceEnrollmentStatus.holdStill);
+      }
+    }
 
     final now = DateTime.now();
     if (_lastAcceptedAt != null &&

@@ -47,28 +47,40 @@ class FaceAlignmentService {
     final box = face.boundingBox;
     final faceSize = math.max(box.width, box.height);
     final paddedSide = faceSize * _paddingFactor;
-    final centerX = box.center.dx;
-    final centerY = box.center.dy;
+    final halfPadded = paddedSide / 2;
 
-    final left = (centerX - paddedSide / 2)
-        .clamp(0, sourceImage.width - 1)
-        .round();
-    final top = (centerY - paddedSide / 2)
-        .clamp(0, sourceImage.height - 1)
-        .round();
-    final right = (centerX + paddedSide / 2)
-        .clamp(left + 1, sourceImage.width)
-        .round();
-    final bottom = (centerY + paddedSide / 2)
-        .clamp(top + 1, sourceImage.height)
-        .round();
+    // Expand the source with a border wide enough that the padded window
+    // below is always fully in-bounds, however close the face is to an
+    // image edge. Cropping straight against `sourceImage` and clamping
+    // each edge independently (the previous approach) silently shifts an
+    // asymmetrically-clamped window off the face's true center — so
+    // `_centerSquareCrop`'s "crop from the center" step then crops a
+    // region that isn't actually centered on the face, distorting the
+    // embedding specifically for off-center captures. Padding instead of
+    // clamping keeps the face's position within the crop identical
+    // regardless of where it sat in the source frame, which is what makes
+    // the resulting embedding position-independent.
+    final borderPx = halfPadded.ceil();
+    final expanded = img.copyExpandCanvas(
+      sourceImage,
+      newWidth: sourceImage.width + borderPx * 2,
+      newHeight: sourceImage.height + borderPx * 2,
+      position: img.ExpandCanvasPosition.center,
+      backgroundColor: img.ColorRgb8(0, 0, 0),
+    );
+
+    final centerX = box.center.dx + borderPx;
+    final centerY = box.center.dy + borderPx;
+    final left = (centerX - halfPadded).round();
+    final top = (centerY - halfPadded).round();
+    final side = paddedSide.round();
 
     final padded = img.copyCrop(
-      sourceImage,
+      expanded,
       x: left,
       y: top,
-      width: right - left,
-      height: bottom - top,
+      width: side,
+      height: side,
     );
 
     final leftEye = face.leftEyePosition;

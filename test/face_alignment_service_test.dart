@@ -143,5 +143,80 @@ void main() {
         returnsNormally,
       );
     });
+
+    test(
+      'a face near the image edge produces the same crop — position-'
+      'independence regression test',
+      () {
+        // The same face (same box size, same eye geometry, just
+        // translated) should land at the *same* relative position within
+        // the aligned output regardless of where it sat in the source
+        // frame. Before the padding fix, `align()` clamped the crop
+        // window's edges independently instead of padding the source —
+        // for a face this close to an edge that silently shifted the
+        // window off the face's true center, so the *same* person's face
+        // produced a differently-cropped (and therefore differently-
+        // embedded) input purely because of on-screen position. That's
+        // the exact defect behind "verification only recognizes the same
+        // position used during enrollment".
+        img.Image sourceWith({
+          required double centerX,
+          required int leftEyeX,
+          required int rightEyeX,
+        }) {
+          final source = img.Image(width: 500, height: 500);
+          _markSquare(source, leftEyeX, 200, r: 255, g: 0, b: 0);
+          _markSquare(source, rightEyeX, 200, r: 0, g: 0, b: 255);
+          return source;
+        }
+
+        // Baseline: box comfortably inside the frame — the padded
+        // window (paddedSide 200, i.e. ±100 from center) never reaches
+        // an edge, so this is unaffected by the bug either way.
+        final centered = sourceWith(
+          centerX: 200,
+          leftEyeX: 240,
+          rightEyeX: 160,
+        );
+        final centeredFace = _face(
+          boundingBox: const Rect.fromLTWH(150, 150, 100, 100),
+          leftEyePosition: const math.Point(240, 200),
+          rightEyePosition: const math.Point(160, 200),
+        );
+        final centeredResult = FaceAlignmentService.align(
+          sourceImage: centered,
+          face: centeredFace,
+        );
+
+        // Same face, shifted 130px toward x=0 — the padded window's
+        // desired left edge (70 - 100 = -30) falls outside the source,
+        // exactly the case the old clamp-based crop mishandled.
+        final edge = sourceWith(centerX: 70, leftEyeX: 110, rightEyeX: 30);
+        final edgeFace = _face(
+          boundingBox: const Rect.fromLTWH(20, 150, 100, 100),
+          leftEyePosition: const math.Point(110, 200),
+          rightEyePosition: const math.Point(30, 200),
+        );
+        final edgeResult = FaceAlignmentService.align(
+          sourceImage: edge,
+          face: edgeFace,
+        );
+
+        // Same face size everywhere -> the output crop size itself
+        // should already be identical.
+        expect(edgeResult.width, centeredResult.width);
+        expect(edgeResult.height, centeredResult.height);
+
+        final centeredRed = _findMarker(centeredResult, red: true);
+        final centeredBlue = _findMarker(centeredResult, red: false);
+        final edgeRed = _findMarker(edgeResult, red: true);
+        final edgeBlue = _findMarker(edgeResult, red: false);
+
+        expect(edgeRed.x, closeTo(centeredRed.x, 1));
+        expect(edgeRed.y, closeTo(centeredRed.y, 1));
+        expect(edgeBlue.x, closeTo(centeredBlue.x, 1));
+        expect(edgeBlue.y, closeTo(centeredBlue.y, 1));
+      },
+    );
   });
 }

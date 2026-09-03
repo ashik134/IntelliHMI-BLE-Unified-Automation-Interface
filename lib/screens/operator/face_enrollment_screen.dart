@@ -12,6 +12,7 @@ import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_capture_diagnostics.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_result.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_status.dart';
+import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
@@ -196,7 +197,11 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     );
     final imageSize = Size(image.width.toDouble(), image.height.toDouble());
 
-    final faces = await detectionService.detectFaces(inputImage, imageSize);
+    final faces = await detectionService.detectFaces(
+      inputImage,
+      imageSize,
+      rotationDegrees: rotation,
+    );
 
     // Debug-only: precompute the RGB frame once here (reused below by
     // evaluateAndCapture's frameProvider instead of decoding it a second
@@ -205,18 +210,8 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     // unchanged from before diagnostics existed — evaluateAndCapture's
     // frameProvider still decodes lazily, only if actually needed.
     img.Image? precomputedFrame;
-    if (kDebugMode) {
-      if (faces.length == 1) {
-        precomputedFrame = CameraFrameConverter.toRgbImage(image);
-        _diagnostics = _buildDiagnostics(
-          faces.single,
-          imageSize,
-          rotation,
-          precomputedFrame,
-        );
-      } else {
-        _diagnostics = FaceCaptureDiagnostics(faceCount: faces.length);
-      }
+    if (kDebugMode && faces.length == 1) {
+      precomputedFrame = CameraFrameConverter.toRgbImage(image);
     }
 
     final state = await enrollmentService.evaluateAndCapture(
@@ -226,6 +221,21 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       imageSize: imageSize,
       rotationDegrees: rotation,
     );
+
+    // Built after evaluateAndCapture so the stability counter reflects
+    // this frame's just-updated count, not last frame's.
+    if (kDebugMode) {
+      _diagnostics = precomputedFrame != null
+          ? _buildDiagnostics(
+              faces.single,
+              imageSize,
+              rotation,
+              precomputedFrame,
+              enrollmentService,
+            )
+          : FaceCaptureDiagnostics(faceCount: faces.length);
+    }
+
     if (!mounted) return;
     setState(() => _captureState = state);
 
@@ -236,34 +246,61 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     }
   }
 
-  /// Debug-only (see [kDebugMode] guard at the call site). Reuses
-  /// `FaceEmbeddingService.cropToFace` — the same crop the real embedding
-  /// pipeline uses — so the brightness/sharpness numbers shown match what
-  /// the actual quality gate is evaluating, not a different region.
-  /// `faceWidthFraction`/`centerOffsetFraction` are pulled straight out of
-  /// `FaceDetectionService.evaluateQuality` (same call `evaluateAndCapture`
-  /// makes internally) rather than recomputed here, so this panel can
-  /// never show numbers that disagree with what actually gated the frame.
+  /// Debug-only (see [kDebugMode] guard at the call site). Uses
+  /// `FrameQualityAnalyzer.diagnose` on the *exact* region
+  /// (`face.boundingBox`, no extra padding) `FrameQualityAnalyzer.evaluate`
+  /// itself crops — the real pixel-quality gate `evaluateAndCapture` calls
+  /// — so brightness/sharpness here can never disagree with what actually
+  /// gated the frame. `faceWidthFraction`/`centerOffsetFraction`/the
+  /// per-condition booleans are pulled from `FaceDetectionService
+  /// .evaluateQuality` (same call `evaluateAndCapture` makes internally)
+  /// rather than a separately-tuned approximation, for the same reason.
   static FaceCaptureDiagnostics _buildDiagnostics(
     DetectedFace face,
     Size imageSize,
     int rotationDegrees,
     img.Image frame,
+    FaceEnrollmentService enrollmentService,
   ) {
     final quality = FaceDetectionService.evaluateQuality(
       [face],
       imageSize,
       rotationDegrees: rotationDegrees,
     );
-    final crop = FaceEmbeddingService.cropToFace(frame, face.boundingBox);
+    final pixel = FrameQualityAnalyzer.diagnose(frame, face.boundingBox);
+    final readyForCapture =
+        quality.sizePassed &&
+        quality.centerPassed &&
+        quality.posePassed &&
+        quality.eyesPassed &&
+        pixel.brightnessPassed &&
+        pixel.sharpnessPassed;
+    final failedReason = !quality.passed
+        ? quality.primaryMessage
+        : (!pixel.brightnessPassed
+              ? FaceQualityIssue.poorLighting.guidance
+              : (!pixel.sharpnessPassed
+                    ? FaceQualityIssue.tooBlurry.guidance
+                    : null));
+
     return FaceCaptureDiagnostics(
       faceCount: 1,
       yawDegrees: face.headEulerAngleY,
       pitchDegrees: face.headEulerAngleX,
       faceWidthFraction: quality.widthFraction,
       centerOffsetFraction: quality.centerOffsetFraction,
-      brightness: FrameQualityAnalyzer.estimateBrightness(crop),
-      sharpness: FrameQualityAnalyzer.estimateSharpness(crop),
+      brightness: pixel.brightness,
+      sharpness: pixel.sharpness,
+      sizePassed: quality.sizePassed,
+      centerPassed: quality.centerPassed,
+      posePassed: quality.posePassed,
+      eyesPassed: quality.eyesPassed,
+      brightnessPassed: pixel.brightnessPassed,
+      sharpnessPassed: pixel.sharpnessPassed,
+      stableGoodFrames: enrollmentService.stableGoodFrames,
+      requiredStableFrames: enrollmentService.requiredStableFrames,
+      readyForCapture: readyForCapture,
+      failedReason: failedReason,
     );
   }
 
@@ -392,6 +429,28 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     }
   }
 
+  bool get _isGoodFrame =>
+      _captureState.status == FaceEnrollmentStatus.capturing ||
+      _captureState.status == FaceEnrollmentStatus.processing ||
+      _captureState.status == FaceEnrollmentStatus.complete;
+
+  bool get _isProblem =>
+      _captureState.status == FaceEnrollmentStatus.multipleFaces ||
+      _captureState.status == FaceEnrollmentStatus.duplicateDetected ||
+      _captureState.status == FaceEnrollmentStatus.failed ||
+      _captureState.status == FaceEnrollmentStatus.cameraError ||
+      _captureState.status == FaceEnrollmentStatus.permissionDenied;
+
+  Color get _guideColor {
+    if (_isProblem) return AppColors.brandDanger;
+    if (_isGoodFrame) return AppColors.brandSuccess;
+    return Colors.white.withAlpha(210);
+  }
+
+  bool get _showProgress =>
+      _captureState.status == FaceEnrollmentStatus.capturing ||
+      _captureState.status == FaceEnrollmentStatus.processing;
+
   Widget _buildCapture(BuildContext context) {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
@@ -400,32 +459,62 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // True (non-mirrored) orientation — shown exactly as the sensor
-        // captures it, matching the frames fed to ML Kit/the embedding
-        // pipeline, which are never mirrored either (see class doc
-        // comment). Scaled to cover the full screen without distorting
-        // the camera's native aspect ratio — `CameraPreview` sizes itself
-        // via an internal `AspectRatio`, which a bare `Stack.expand`
-        // parent would force to stretch non-uniformly instead of
-        // respecting it.
-        _CoverCameraPreview(controller: controller),
-        Container(color: Colors.black.withAlpha(60)),
-        FaceCaptureOverlay(state: _captureState),
-        if (kDebugMode) FaceCaptureDiagnosticsPanel(diagnostics: _diagnostics),
-        Positioned(
-          top: 8,
-          left: 8,
-          child: BrandIconButton(
-            icon: Icons.close_rounded,
-            dark: true,
-            tooltip: 'Cancel',
-            onTap: _cancel,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Sized so "inside this circle" and "passes the centering check"
+        // are the same statement — see `centerToleranceRadiusPx`'s doc
+        // comment. Computed from layout constraints, not per ML frame:
+        // depends only on screen size/camera aspect ratio, both stable
+        // for the life of this capture session.
+        final guideDiameter =
+            2 *
+            FaceDetectionService.centerToleranceRadiusPx(
+              screenSize: constraints.biggest,
+              cameraAspectRatio: controller.value.aspectRatio,
+            );
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // True (non-mirrored) orientation — shown exactly as the sensor
+            // captures it, matching the frames fed to ML Kit/the embedding
+            // pipeline, which are never mirrored either (see class doc
+            // comment). Scaled to cover the full screen without distorting
+            // the camera's native aspect ratio — `CameraPreview` sizes itself
+            // via an internal `AspectRatio`, which a bare `Stack.expand`
+            // parent would force to stretch non-uniformly instead of
+            // respecting it.
+            _CoverCameraPreview(controller: controller),
+            Container(color: Colors.black.withAlpha(60)),
+            FaceCaptureOverlay(
+              caption: _captureState.caption,
+              guideColor: _guideColor,
+              guideDiameter: guideDiameter,
+              progressLabel: _showProgress
+                  ? 'Capturing ${_captureState.samplesCaptured}/${_captureState.samplesRequired}'
+                  : null,
+              progressValue: _showProgress
+                  ? (_captureState.samplesRequired == 0
+                        ? 0
+                        : _captureState.samplesCaptured /
+                              _captureState.samplesRequired)
+                  : null,
+            ),
+            if (kDebugMode)
+              FaceCaptureDiagnosticsPanel(diagnostics: _diagnostics),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: BrandIconButton(
+                icon: Icons.close_rounded,
+                dark: true,
+                tooltip: 'Cancel',
+                onTap: _cancel,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

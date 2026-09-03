@@ -90,4 +90,33 @@ class FaceQualityResult {
 
   String? get primaryMessage =>
       offsetDirection?.guidance ?? primaryIssue?.guidance;
+
+  // ── Per-condition breakdown ──────────────────────────────────────────
+  //
+  // [issues] already carries every failing condition for this frame, not
+  // just [primaryIssue] — these are just named readouts of it, for the
+  // debug diagnostics panel to show *all* conditions instead of only the
+  // one condition the operator-facing caption prioritizes. A frame can
+  // legitimately fail several of these at once (e.g. too small *and*
+  // off-center); `passed` is the only field that means "every check in
+  // this group passed."
+
+  bool get faceDetected =>
+      !issues.contains(FaceQualityIssue.noFaceDetected) &&
+      !issues.contains(FaceQualityIssue.multipleFacesDetected);
+
+  bool get sizePassed =>
+      !issues.contains(FaceQualityIssue.faceTooSmall) &&
+      !issues.contains(FaceQualityIssue.faceTooLarge);
+
+  /// Centering is judged as a single radial (Euclidean) distance from the
+  /// image center, not independent X/Y budgets — so there's no meaningful
+  /// separate centerXPassed/centerYPassed distinction to report without
+  /// misrepresenting the algorithm. [offsetDirection] already names
+  /// whichever axis dominates the offset when this is false.
+  bool get centerPassed => !issues.contains(FaceQualityIssue.offCenter);
+
+  bool get posePassed => !issues.contains(FaceQualityIssue.extremePose);
+
+  bool get eyesPassed => !issues.contains(FaceQualityIssue.eyesNotVisible);
 }

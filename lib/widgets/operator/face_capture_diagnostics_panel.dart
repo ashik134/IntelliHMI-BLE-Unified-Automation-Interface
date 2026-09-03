@@ -19,22 +19,36 @@ class FaceCaptureDiagnosticsPanel extends StatelessWidget {
     return '${value.toStringAsFixed(decimals)}$suffix';
   }
 
+  String _pass(bool? value) {
+    if (value == null) return '—';
+    return value ? 'OK' : 'FAIL';
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = diagnostics;
     final lines = [
-      'DEBUG  faces: ${d.faceCount}',
-      'yaw: ${_fmt(d.yawDegrees, suffix: '°')}  pitch: ${_fmt(d.pitchDegrees, suffix: '°')}',
+      'DEBUG  faces: ${d.faceCount}  ready: ${d.readyForCapture ? 'YES' : 'no'}',
+      'yaw: ${_fmt(d.yawDegrees, suffix: '°')} (${_pass(d.posePassed)})  '
+          'pitch: ${_fmt(d.pitchDegrees, suffix: '°')}',
       'size: ${_fmt(d.faceWidthFraction == null ? null : d.faceWidthFraction! * 100, suffix: '%')} '
           '(${(FaceDetectionService.minFaceWidthFraction * 100).toStringAsFixed(0)}-'
-          '${(FaceDetectionService.maxFaceWidthFraction * 100).toStringAsFixed(0)})',
+          '${(FaceDetectionService.maxFaceWidthFraction * 100).toStringAsFixed(0)}) '
+          '(${_pass(d.sizePassed)})',
       'offset: ${_fmt(d.centerOffsetFraction == null ? null : d.centerOffsetFraction! * 100, suffix: '%')} '
-          '(max ${(FaceDetectionService.maxCenterOffsetFraction * 100).toStringAsFixed(0)})',
+          '(max ${(FaceDetectionService.maxCenterOffsetFraction * 100).toStringAsFixed(0)}) '
+          '(${_pass(d.centerPassed)})',
+      'eyes: ${_pass(d.eyesPassed)}',
       'bright: ${_fmt(d.brightness, decimals: 0)} '
           '(${FrameQualityAnalyzer.minBrightness.toStringAsFixed(0)}-'
-          '${FrameQualityAnalyzer.maxBrightness.toStringAsFixed(0)})',
+          '${FrameQualityAnalyzer.maxBrightness.toStringAsFixed(0)}) '
+          '(${_pass(d.brightnessPassed)})',
       'sharp: ${_fmt(d.sharpness, decimals: 0)} '
-          '(min ${FrameQualityAnalyzer.minSharpness.toStringAsFixed(0)})',
+          '(min ${FrameQualityAnalyzer.minSharpness.toStringAsFixed(0)}) '
+          '(${_pass(d.sharpnessPassed)})',
+      if (d.stableGoodFrames != null)
+        'stable: ${d.stableGoodFrames}/${d.requiredStableFrames}',
+      if (d.failedReason != null) 'blocked by: ${d.failedReason}',
     ];
 
     return Positioned(
