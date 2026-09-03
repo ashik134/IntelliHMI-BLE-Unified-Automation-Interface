@@ -1,3 +1,5 @@
+import 'package:rev_crane_control_ops/models/face_quality_result.dart';
+
 /// On-screen state for the live face-enrollment capture flow
 /// (`FaceEnrollmentScreen`/`FaceEnrollmentService`). Distinct from
 /// [FaceQualityIssue], which only describes *why* a single frame was
@@ -56,13 +58,24 @@ class FaceEnrollmentState {
     required this.status,
     required this.samplesCaptured,
     required this.samplesRequired,
+    this.offsetDirection,
   });
 
   const FaceEnrollmentState.initial({this.samplesRequired = 7})
     : status = FaceEnrollmentStatus.initializing,
-      samplesCaptured = 0;
+      samplesCaptured = 0,
+      offsetDirection = null;
 
   final FaceEnrollmentStatus status;
   final int samplesCaptured;
   final int samplesRequired;
+
+  /// Set only when [status] is [FaceEnrollmentStatus.offCenter] — which
+  /// way the operator should move to recenter. Null falls back to the
+  /// generic [FaceEnrollmentStatus.caption].
+  final FaceOffsetDirection? offsetDirection;
+
+  /// User-facing guidance text: directional when available (e.g. "Move
+  /// your face left"), otherwise [status]'s generic [caption].
+  String get caption => offsetDirection?.guidance ?? status.caption;
 }

@@ -48,9 +48,7 @@ class CameraFrameConverter {
     CameraDescription camera,
     DeviceOrientation deviceOrientation,
   ) {
-    final rawRotation = defaultTargetPlatform == TargetPlatform.iOS
-        ? camera.sensorOrientation
-        : _androidRotationCompensation(camera, deviceOrientation);
+    final rawRotation = rotationDegrees(camera, deviceOrientation);
     final rotation =
         InputImageRotationValue.fromRawValue(rawRotation) ??
         InputImageRotation.rotation0deg;
@@ -84,6 +82,22 @@ class CameraFrameConverter {
     return image.format.group == ImageFormatGroup.bgra8888
         ? _bgra8888ToImage(image)
         : _nv21ToImage(image);
+  }
+
+  /// The same rotation-compensation angle applied to [toInputImage]'s
+  /// metadata (and, on Android, to `CameraPreview`'s own on-screen
+  /// rotation) — exposed so callers can reproduce it to reason about
+  /// ML Kit's coordinate space (e.g. mapping a raw-sensor-space
+  /// [DetectedFace.boundingBox] into the upright/on-screen orientation
+  /// for a center/size check), without duplicating the platform-specific
+  /// formula.
+  static int rotationDegrees(
+    CameraDescription camera,
+    DeviceOrientation deviceOrientation,
+  ) {
+    return defaultTargetPlatform == TargetPlatform.iOS
+        ? camera.sensorOrientation
+        : _androidRotationCompensation(camera, deviceOrientation);
   }
 
   static int _androidRotationCompensation(

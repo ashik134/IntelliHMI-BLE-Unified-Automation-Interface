@@ -98,14 +98,26 @@ class FaceEnrollmentService {
     required img.Image Function() frameProvider,
     required List<DetectedFace> faces,
     required Size imageSize,
+    int rotationDegrees = 0,
   }) async {
     if (_accepted.length >= requiredSamples) {
       return _state(FaceEnrollmentStatus.processing);
     }
 
-    final quality = FaceDetectionService.evaluateQuality(faces, imageSize);
+    final quality = FaceDetectionService.evaluateQuality(
+      faces,
+      imageSize,
+      rotationDegrees: rotationDegrees,
+    );
     final earlyStatus = _statusForIssue(quality.primaryIssue);
-    if (earlyStatus != null) return _state(earlyStatus);
+    if (earlyStatus != null) {
+      return _state(
+        earlyStatus,
+        offsetDirection: earlyStatus == FaceEnrollmentStatus.offCenter
+            ? quality.offsetDirection
+            : null,
+      );
+    }
 
     final face = faces.single;
     final frame = frameProvider();
@@ -239,12 +251,15 @@ class FaceEnrollmentService {
     return [for (final s in sums) s / vectors.length];
   }
 
-  FaceEnrollmentState _state(FaceEnrollmentStatus status) =>
-      FaceEnrollmentState(
-        status: status,
-        samplesCaptured: _accepted.length,
-        samplesRequired: requiredSamples,
-      );
+  FaceEnrollmentState _state(
+    FaceEnrollmentStatus status, {
+    FaceOffsetDirection? offsetDirection,
+  }) => FaceEnrollmentState(
+    status: status,
+    samplesCaptured: _accepted.length,
+    samplesRequired: requiredSamples,
+    offsetDirection: offsetDirection,
+  );
 
   static FaceEnrollmentStatus? _statusForIssue(FaceQualityIssue? issue) {
     return switch (issue) {

@@ -11,11 +11,19 @@ class FaceCaptureDiagnostics {
     this.yawDegrees,
     this.pitchDegrees,
     this.faceWidthFraction,
+    this.centerOffsetFraction,
     this.brightness,
     this.sharpness,
   });
 
-  const FaceCaptureDiagnostics.empty() : faceCount = 0, yawDegrees = null, pitchDegrees = null, faceWidthFraction = null, brightness = null, sharpness = null;
+  const FaceCaptureDiagnostics.empty()
+    : faceCount = 0,
+      yawDegrees = null,
+      pitchDegrees = null,
+      faceWidthFraction = null,
+      centerOffsetFraction = null,
+      brightness = null,
+      sharpness = null;
 
   final int faceCount;
 
@@ -25,9 +33,18 @@ class FaceCaptureDiagnostics {
   /// Degrees; matches `DetectedFace.headEulerAngleX`.
   final double? pitchDegrees;
 
-  /// Detected face bounding-box width as a fraction of the frame width —
-  /// same metric `FaceDetectionService.evaluateQuality` gates on.
+  /// Detected face bounding-box width as a fraction of the (upright,
+  /// on-screen) frame width — the exact same value
+  /// `FaceDetectionService.evaluateQuality` gates on (see
+  /// `FaceQualityResult.widthFraction`), not a separately-computed
+  /// approximation.
   final double? faceWidthFraction;
+
+  /// Face-center-to-image-center distance as a fraction of the (upright)
+  /// shorter side — same value `FaceDetectionService.evaluateQuality`
+  /// gates on (`FaceQualityResult.centerOffsetFraction`), for comparison
+  /// against `FaceDetectionService.maxCenterOffsetFraction`.
+  final double? centerOffsetFraction;
 
   /// 0..255, from `FrameQualityAnalyzer.estimateBrightness`.
   final double? brightness;

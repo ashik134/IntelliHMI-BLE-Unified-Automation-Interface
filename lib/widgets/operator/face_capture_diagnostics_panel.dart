@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:rev_crane_control_ops/models/face_capture_diagnostics.dart';
+import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 
 /// Debug-only readout of the live per-frame quality metrics driving
@@ -24,7 +25,11 @@ class FaceCaptureDiagnosticsPanel extends StatelessWidget {
     final lines = [
       'DEBUG  faces: ${d.faceCount}',
       'yaw: ${_fmt(d.yawDegrees, suffix: '°')}  pitch: ${_fmt(d.pitchDegrees, suffix: '°')}',
-      'size: ${_fmt(d.faceWidthFraction == null ? null : d.faceWidthFraction! * 100, suffix: '%')}',
+      'size: ${_fmt(d.faceWidthFraction == null ? null : d.faceWidthFraction! * 100, suffix: '%')} '
+          '(${(FaceDetectionService.minFaceWidthFraction * 100).toStringAsFixed(0)}-'
+          '${(FaceDetectionService.maxFaceWidthFraction * 100).toStringAsFixed(0)})',
+      'offset: ${_fmt(d.centerOffsetFraction == null ? null : d.centerOffsetFraction! * 100, suffix: '%')} '
+          '(max ${(FaceDetectionService.maxCenterOffsetFraction * 100).toStringAsFixed(0)})',
       'bright: ${_fmt(d.brightness, decimals: 0)} '
           '(${FrameQualityAnalyzer.minBrightness.toStringAsFixed(0)}-'
           '${FrameQualityAnalyzer.maxBrightness.toStringAsFixed(0)})',

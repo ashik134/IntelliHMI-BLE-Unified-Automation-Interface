@@ -33,19 +33,61 @@ extension FaceQualityIssueMessage on FaceQualityIssue {
   };
 }
 
+/// Which way the operator should move to bring their face back toward the
+/// center of the acceptance region, in on-screen (upright, unmirrored)
+/// terms — set only alongside [FaceQualityIssue.offCenter].
+enum FaceOffsetDirection { up, down, left, right }
+
+extension FaceOffsetDirectionMessage on FaceOffsetDirection {
+  String get guidance => switch (this) {
+    FaceOffsetDirection.up => 'Move your face up',
+    FaceOffsetDirection.down => 'Move your face down',
+    FaceOffsetDirection.left => 'Move your face left',
+    FaceOffsetDirection.right => 'Move your face right',
+  };
+}
+
 /// Result of evaluating one detection frame against enrollment/
 /// authentication quality requirements.
 class FaceQualityResult {
-  const FaceQualityResult({required this.passed, this.issues = const []});
+  const FaceQualityResult({
+    required this.passed,
+    this.issues = const [],
+    this.offsetDirection,
+    this.centerOffsetFraction,
+    this.widthFraction,
+  });
 
-  const FaceQualityResult.ok() : passed = true, issues = const [];
+  const FaceQualityResult.ok()
+    : passed = true,
+      issues = const [],
+      offsetDirection = null,
+      centerOffsetFraction = null,
+      widthFraction = null;
 
   final bool passed;
   final List<FaceQualityIssue> issues;
+
+  /// Set only when [issues] contains [FaceQualityIssue.offCenter] — the
+  /// direction to move to correct it.
+  final FaceOffsetDirection? offsetDirection;
+
+  /// The face-center-to-image-center distance actually measured, as a
+  /// fraction of the (upright) shorter side — set whenever a face was
+  /// detected, pass or fail, so callers (the debug diagnostics panel) can
+  /// show how close a frame is to `FaceDetectionService
+  /// .maxCenterOffsetFraction`, not just the pass/fail bit.
+  final double? centerOffsetFraction;
+
+  /// The face bounding-box width actually measured, as a fraction of the
+  /// (upright) image width — set whenever a face was detected, pass or
+  /// fail. Same rationale as [centerOffsetFraction].
+  final double? widthFraction;
 
   /// The single most relevant issue to show the operator, or null if
   /// [passed].
   FaceQualityIssue? get primaryIssue => issues.isEmpty ? null : issues.first;
 
-  String? get primaryMessage => primaryIssue?.guidance;
+  String? get primaryMessage =>
+      offsetDirection?.guidance ?? primaryIssue?.guidance;
 }

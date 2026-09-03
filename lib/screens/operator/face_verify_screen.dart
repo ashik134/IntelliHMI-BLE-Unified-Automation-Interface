@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -270,19 +269,14 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
       );
     }
 
-    final isFrontCamera =
-        controller.description.lensDirection == CameraLensDirection.front;
-
     return Stack(
       fit: StackFit.expand,
       children: [
-        Transform(
-          alignment: Alignment.center,
-          transform: isFrontCamera
-              ? Matrix4.rotationY(math.pi)
-              : Matrix4.identity(),
-          child: CameraPreview(controller),
-        ),
+        // True (non-mirrored) orientation, scaled to cover without
+        // distorting the camera's aspect ratio — see
+        // `FaceEnrollmentScreen`'s `_CoverCameraPreview` for why a plain
+        // `Stack.expand` child would otherwise stretch it unevenly.
+        _CoverCameraPreview(controller: controller),
         Container(color: Colors.black.withAlpha(60)),
         const Positioned(
           top: 8,
@@ -310,6 +304,34 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// See `FaceEnrollmentScreen`'s identical `_CoverCameraPreview`: covers
+/// the parent's bounds without stretching or mirroring the preview.
+class _CoverCameraPreview extends StatelessWidget {
+  const _CoverCameraPreview({required this.controller});
+
+  final CameraController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (size.isEmpty) return const SizedBox.shrink();
+
+        var scale = size.aspectRatio * controller.value.aspectRatio;
+        if (scale < 1) scale = 1 / scale;
+
+        return ClipRect(
+          child: Transform.scale(
+            scale: scale,
+            child: Center(child: CameraPreview(controller)),
+          ),
+        );
+      },
     );
   }
 }

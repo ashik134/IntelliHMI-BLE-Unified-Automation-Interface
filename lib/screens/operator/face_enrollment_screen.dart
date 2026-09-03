@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -45,12 +44,13 @@ enum _ScreenPhase {
 /// `OperatorDetailScreen`), so there is never a partial operator/template
 /// left behind regardless of how this screen exits.
 ///
-/// Camera-display concerns (front-camera mirroring, preview aspect/
-/// rotation) are handled only in [build] below, entirely separate from
+/// Camera-display concerns (preview aspect/rotation) are handled only in
+/// [build] below (via `_CoverCameraPreview`), entirely separate from
 /// ML-processing coordinates (`CameraFrameConverter`, `FaceDetectionService`,
-/// `FaceEnrollmentService`) — the raw camera buffer handed to the ML
-/// pipeline is never mirrored; only the on-screen `CameraPreview` is,
-/// purely for a natural selfie-style view.
+/// `FaceEnrollmentService`). The preview is shown in the camera's true,
+/// non-mirrored orientation — matching exactly what the raw buffer handed
+/// to the ML pipeline sees — so the on-screen guide oval and the
+/// acceptance region it represents never disagree.
 class FaceEnrollmentScreen extends StatefulWidget {
   const FaceEnrollmentScreen({
     super.key,
@@ -185,6 +185,10 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       return;
     }
 
+    final rotation = CameraFrameConverter.rotationDegrees(
+      controller.description,
+      controller.value.deviceOrientation,
+    );
     final inputImage = CameraFrameConverter.toInputImage(
       image,
       controller.description,
@@ -204,7 +208,12 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (kDebugMode) {
       if (faces.length == 1) {
         precomputedFrame = CameraFrameConverter.toRgbImage(image);
-        _diagnostics = _buildDiagnostics(faces.single, imageSize, precomputedFrame);
+        _diagnostics = _buildDiagnostics(
+          faces.single,
+          imageSize,
+          rotation,
+          precomputedFrame,
+        );
       } else {
         _diagnostics = FaceCaptureDiagnostics(faceCount: faces.length);
       }
@@ -215,6 +224,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
           precomputedFrame ?? CameraFrameConverter.toRgbImage(image),
       faces: faces,
       imageSize: imageSize,
+      rotationDegrees: rotation,
     );
     if (!mounted) return;
     setState(() => _captureState = state);
@@ -230,17 +240,28 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   /// `FaceEmbeddingService.cropToFace` — the same crop the real embedding
   /// pipeline uses — so the brightness/sharpness numbers shown match what
   /// the actual quality gate is evaluating, not a different region.
+  /// `faceWidthFraction`/`centerOffsetFraction` are pulled straight out of
+  /// `FaceDetectionService.evaluateQuality` (same call `evaluateAndCapture`
+  /// makes internally) rather than recomputed here, so this panel can
+  /// never show numbers that disagree with what actually gated the frame.
   static FaceCaptureDiagnostics _buildDiagnostics(
     DetectedFace face,
     Size imageSize,
+    int rotationDegrees,
     img.Image frame,
   ) {
+    final quality = FaceDetectionService.evaluateQuality(
+      [face],
+      imageSize,
+      rotationDegrees: rotationDegrees,
+    );
     final crop = FaceEmbeddingService.cropToFace(frame, face.boundingBox);
     return FaceCaptureDiagnostics(
       faceCount: 1,
       yawDegrees: face.headEulerAngleY,
       pitchDegrees: face.headEulerAngleX,
-      faceWidthFraction: face.boundingBox.width / imageSize.width,
+      faceWidthFraction: quality.widthFraction,
+      centerOffsetFraction: quality.centerOffsetFraction,
       brightness: FrameQualityAnalyzer.estimateBrightness(crop),
       sharpness: FrameQualityAnalyzer.estimateSharpness(crop),
     );
@@ -379,22 +400,18 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       );
     }
 
-    final isFrontCamera =
-        controller.description.lensDirection == CameraLensDirection.front;
-
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Mirroring is applied ONLY here, for display — the frames fed to
-        // ML Kit/the embedding pipeline are never touched by this
-        // transform (see class doc comment).
-        Transform(
-          alignment: Alignment.center,
-          transform: isFrontCamera
-              ? Matrix4.rotationY(math.pi)
-              : Matrix4.identity(),
-          child: CameraPreview(controller),
-        ),
+        // True (non-mirrored) orientation — shown exactly as the sensor
+        // captures it, matching the frames fed to ML Kit/the embedding
+        // pipeline, which are never mirrored either (see class doc
+        // comment). Scaled to cover the full screen without distorting
+        // the camera's native aspect ratio — `CameraPreview` sizes itself
+        // via an internal `AspectRatio`, which a bare `Stack.expand`
+        // parent would force to stretch non-uniformly instead of
+        // respecting it.
+        _CoverCameraPreview(controller: controller),
         Container(color: Colors.black.withAlpha(60)),
         FaceCaptureOverlay(state: _captureState),
         if (kDebugMode) FaceCaptureDiagnosticsPanel(diagnostics: _diagnostics),
@@ -409,6 +426,42 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Renders [CameraPreview] scaled to cover its parent's full bounds while
+/// preserving the camera's true aspect ratio — cropping overflow instead
+/// of stretching it, and never mirroring. `CameraPreview` sizes itself via
+/// an internal `AspectRatio`, but a tight-constraining parent (a plain
+/// `Stack.expand` child) forces that `AspectRatio` to just fill the given
+/// box, silently ignoring the ratio and stretching the image unevenly.
+/// Giving it loose constraints (via [Center]) first lets it size itself
+/// correctly, then [Transform.scale] enlarges that correctly-proportioned
+/// image just enough to cover the available space, centered, clipped by
+/// the parent [Stack]'s default hard-edge clip.
+class _CoverCameraPreview extends StatelessWidget {
+  const _CoverCameraPreview({required this.controller});
+
+  final CameraController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (size.isEmpty) return const SizedBox.shrink();
+
+        var scale = size.aspectRatio * controller.value.aspectRatio;
+        if (scale < 1) scale = 1 / scale;
+
+        return ClipRect(
+          child: Transform.scale(
+            scale: scale,
+            child: Center(child: CameraPreview(controller)),
+          ),
+        );
+      },
     );
   }
 }

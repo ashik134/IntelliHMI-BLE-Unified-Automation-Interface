@@ -47,7 +47,16 @@ class FaceCaptureOverlay extends StatelessWidget {
       alignment: Alignment.center,
       children: [
         Align(
-          alignment: const Alignment(0, -0.1),
+          // Must stay dead-center: `FaceDetectionService.evaluateQuality`'s
+          // center-offset acceptance check is measured against the raw
+          // frame's true geometric center, which — by construction, this
+          // preview fills the same rect this overlay does — maps exactly
+          // onto this rect's center regardless of rotation/scaling. Any
+          // offset here (e.g. shifting the oval up for a "chin-inclusive"
+          // look) desyncs the visible guide from the actual acceptance
+          // region: a face centered in the oval would then read as
+          // off-center to the quality check, and vice versa.
+          alignment: Alignment.center,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             width: 260,
@@ -66,7 +75,7 @@ class FaceCaptureOverlay extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                state.status.caption,
+                state.caption,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white,
