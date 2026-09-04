@@ -46,8 +46,12 @@ class FaceCaptureDiagnosticsPanel extends StatelessWidget {
       'sharp: ${_fmt(d.sharpness, decimals: 0)} '
           '(min ${FrameQualityAnalyzer.minSharpness.toStringAsFixed(0)}) '
           '(${_pass(d.sharpnessPassed)})',
-      if (d.stableGoodFrames != null)
-        'stable: ${d.stableGoodFrames}/${d.requiredStableFrames}',
+      if (d.scanning)
+        'SCANNING ${((d.scanProgress ?? 0) * 100).toStringAsFixed(0)}%  '
+            'locked: ${d.identityLocked ? 'YES' : 'no'}  '
+            'samples: ${d.samplesAccepted ?? 0}'
+      else if (d.stableProgress != null)
+        'stable: ${((d.stableProgress ?? 0) * 100).toStringAsFixed(0)}%',
       if (d.failedReason != null) 'blocked by: ${d.failedReason}',
     ];
 

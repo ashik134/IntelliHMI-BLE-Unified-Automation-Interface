@@ -20,8 +20,11 @@ class FaceCaptureDiagnostics {
     this.eyesPassed,
     this.brightnessPassed,
     this.sharpnessPassed,
-    this.stableGoodFrames,
-    this.requiredStableFrames,
+    this.stableProgress,
+    this.scanning = false,
+    this.scanProgress,
+    this.identityLocked = false,
+    this.samplesAccepted,
     this.readyForCapture = false,
     this.failedReason,
   });
@@ -40,8 +43,11 @@ class FaceCaptureDiagnostics {
       eyesPassed = null,
       brightnessPassed = null,
       sharpnessPassed = null,
-      stableGoodFrames = null,
-      requiredStableFrames = null,
+      stableProgress = null,
+      scanning = false,
+      scanProgress = null,
+      identityLocked = false,
+      samplesAccepted = null,
       readyForCapture = false,
       failedReason = null;
 
@@ -83,12 +89,31 @@ class FaceCaptureDiagnostics {
   final bool? brightnessPassed;
   final bool? sharpnessPassed;
 
-  /// Consecutive good frames seen so far / required, from
-  /// `FaceEnrollmentService.stableGoodFrames`/`requiredStableFrames` — how
-  /// close this capture session is to clearing the anti-flicker stability
-  /// gate. Null on the verify screen, which doesn't accumulate samples.
-  final int? stableGoodFrames;
-  final int? requiredStableFrames;
+  /// Fraction (0.0..1.0) toward clearing the pre-scan stability gate, from
+  /// `FaceEnrollmentService.stableProgress` — how close this capture
+  /// session is to entering the continuous scan. Meaningless once
+  /// [scanning] is true.
+  final double? stableProgress;
+
+  /// Whether the continuous scan (`FaceEnrollmentService.isScanning`) has
+  /// been entered.
+  final bool scanning;
+
+  /// Fraction (0.0..1.0) of the scan window elapsed, from
+  /// `FaceEnrollmentService`'s internal scan clock — only meaningful when
+  /// [scanning] is true.
+  final double? scanProgress;
+
+  /// Whether the enrollment identity has locked yet
+  /// (`FaceEnrollmentService.identityLocked`) — before this, accepted
+  /// samples are still unconfirmed seeds.
+  final bool identityLocked;
+
+  /// Accepted sample count so far (`FaceEnrollmentService.samplesCaptured`)
+  /// — debug-only; never shown to the operator (see this feature's
+  /// continuous-scan design, which deliberately has no visible "N of M"
+  /// counter).
+  final int? samplesAccepted;
 
   /// Whether this exact frame would be accepted right now — every check
   /// above passed, pixel checks included. Distinct from any single

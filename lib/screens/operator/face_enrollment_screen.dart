@@ -232,6 +232,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
               rotation,
               precomputedFrame,
               enrollmentService,
+              state,
             )
           : FaceCaptureDiagnostics(faceCount: faces.length);
     }
@@ -239,9 +240,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (!mounted) return;
     setState(() => _captureState = state);
 
-    final reachedTarget = state.status == FaceEnrollmentStatus.processing &&
-        state.samplesCaptured >= state.samplesRequired;
-    if (reachedTarget && !_finalizing) {
+    if (state.status == FaceEnrollmentStatus.processing && !_finalizing) {
       await _finalize();
     }
   }
@@ -261,6 +260,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     int rotationDegrees,
     img.Image frame,
     FaceEnrollmentService enrollmentService,
+    FaceEnrollmentState state,
   ) {
     final quality = FaceDetectionService.evaluateQuality(
       [face],
@@ -297,8 +297,11 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       eyesPassed: quality.eyesPassed,
       brightnessPassed: pixel.brightnessPassed,
       sharpnessPassed: pixel.sharpnessPassed,
-      stableGoodFrames: enrollmentService.stableGoodFrames,
-      requiredStableFrames: enrollmentService.requiredStableFrames,
+      stableProgress: enrollmentService.stableProgress,
+      scanning: enrollmentService.isScanning,
+      scanProgress: enrollmentService.isScanning ? state.scanProgress : null,
+      identityLocked: enrollmentService.identityLocked,
+      samplesAccepted: enrollmentService.samplesCaptured,
       readyForCapture: readyForCapture,
       failedReason: failedReason,
     );
@@ -430,7 +433,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   bool get _isGoodFrame =>
-      _captureState.status == FaceEnrollmentStatus.capturing ||
+      _captureState.status == FaceEnrollmentStatus.scanning ||
       _captureState.status == FaceEnrollmentStatus.processing ||
       _captureState.status == FaceEnrollmentStatus.complete;
 
@@ -446,10 +449,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (_isGoodFrame) return AppColors.brandSuccess;
     return Colors.white.withAlpha(210);
   }
-
-  bool get _showProgress =>
-      _captureState.status == FaceEnrollmentStatus.capturing ||
-      _captureState.status == FaceEnrollmentStatus.processing;
 
   Widget _buildCapture(BuildContext context) {
     final controller = _cameraController;
@@ -490,15 +489,10 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
               caption: _captureState.caption,
               guideColor: _guideColor,
               guideDiameter: guideDiameter,
-              progressLabel: _showProgress
-                  ? 'Capturing ${_captureState.samplesCaptured}/${_captureState.samplesRequired}'
-                  : null,
-              progressValue: _showProgress
-                  ? (_captureState.samplesRequired == 0
-                        ? 0
-                        : _captureState.samplesCaptured /
-                              _captureState.samplesRequired)
-                  : null,
+              scanProgress:
+                  _captureState.status == FaceEnrollmentStatus.scanning
+                      ? _captureState.scanProgress
+                      : null,
             ),
             if (kDebugMode)
               FaceCaptureDiagnosticsPanel(diagnostics: _diagnostics),
