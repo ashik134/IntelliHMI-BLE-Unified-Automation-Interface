@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -304,16 +305,44 @@ class _PlcWebserverSheetState extends State<_PlcWebserverSheet> {
                     ),
                     const SizedBox(height: 6),
                     Center(
-                      child: TextButton(
-                        onPressed: _isBusy ? null : _openWebserverDirectly,
-                        child: const Text(
-                          'Already connected? Open PLC Web Portal',
-                          style: TextStyle(
-                            color: AppColors.connPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Already connected? ',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
+                          GestureDetector(
+                            onTap: _isBusy ? null : _openWebserverDirectly,
+                            child: Text(
+                              'Open PLC Web Portal',
+                              style: TextStyle(
+                                color: _isBusy
+                                    ? AppColors.connPrimary
+                                    : const Color.fromARGB(
+                                        255,
+                                        0,
+                                        160,
+                                        253,
+                                      ).withValues(alpha: 0.5),
+
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                                decorationColor: const Color.fromARGB(
+                                        255,
+                                        0,
+                                        160,
+                                        253,
+                                      ).withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -433,6 +462,7 @@ class _WifiCredentialsFields extends StatelessWidget {
         TextField(
           controller: ssidController,
           enabled: enabled,
+          style: const TextStyle(color: AppColors.brandInkAlt),
           textInputAction: TextInputAction.next,
           onChanged: (_) => onChanged(),
           decoration: _plcWebserverInputDecoration(
@@ -445,6 +475,7 @@ class _WifiCredentialsFields extends StatelessWidget {
         TextField(
           controller: passwordController,
           enabled: enabled,
+          style: const TextStyle(color: AppColors.brandInkAlt),
           obscureText: obscurePassword,
           onChanged: (_) => onChanged(),
           decoration: _plcWebserverInputDecoration(

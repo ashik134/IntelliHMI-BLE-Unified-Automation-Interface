@@ -2,11 +2,11 @@ import 'dart:ui';
 import 'dart:math' as math;
 
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 
 import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
-
 
 class FaceDetectionService {
   FaceDetectionService()
@@ -21,7 +21,6 @@ class FaceDetectionService {
 
   final FaceDetector _detector;
 
- 
   static bool get _detectorPreRotatesResults =>
       defaultTargetPlatform != TargetPlatform.iOS;
 
@@ -47,7 +46,6 @@ class FaceDetectionService {
     var leftEye = face.landmarks[FaceLandmarkType.leftEye]?.position;
     var rightEye = face.landmarks[FaceLandmarkType.rightEye]?.position;
 
-  
     if (_detectorPreRotatesResults && rotationDegrees != 0) {
       boundingBox = downrightRect(boundingBox, imageSize, rotationDegrees);
       if (leftEye != null) {
@@ -77,10 +75,8 @@ class FaceDetectionService {
   static const double minFaceWidthFraction = 0.25;
   static const double maxFaceWidthFraction = 0.85;
 
-  
-  static const double maxCenterOffsetFraction = 0.25;
+  static const double maxCenterOffsetFraction = 0.28;
   static const double maxPoseAngle = 20.0;
-
 
   static FaceQualityResult evaluateQuality(
     List<DetectedFace> faces,
@@ -166,7 +162,6 @@ class FaceDetectionService {
         : imageSize;
   }
 
-  
   static Rect uprightRect(Rect rect, Size rawSize, int rotationDegrees) {
     switch (rotationDegrees) {
       case 90:
@@ -195,7 +190,6 @@ class FaceDetectionService {
     }
   }
 
- 
   static Rect downrightRect(
     Rect rect,
     Size originalRawSize,
@@ -206,7 +200,6 @@ class FaceDetectionService {
     return uprightRect(rect, rectSpaceSize, inverseRotation);
   }
 
-  
   static math.Point<int> _downrightPoint(
     math.Point<int> point,
     Size originalRawSize,
@@ -217,7 +210,6 @@ class FaceDetectionService {
     return math.Point<int>(transformed.left.round(), transformed.top.round());
   }
 
- 
   static double centerToleranceRadiusPx({
     required Size screenSize,
     required double cameraAspectRatio,
@@ -233,10 +225,7 @@ class FaceDetectionService {
         screenSize.height,
       );
     } else {
-      displayed = Size(
-        screenSize.width,
-        screenSize.width / displayAspectRatio,
-      );
+      displayed = Size(screenSize.width, screenSize.width / displayAspectRatio);
     }
 
     return maxCenterOffsetFraction * displayed.shortestSide;

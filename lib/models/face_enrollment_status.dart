@@ -47,7 +47,8 @@ extension FaceEnrollmentStatusCaption on FaceEnrollmentStatus {
     FaceEnrollmentStatus.tooClose => 'Move farther away',
     FaceEnrollmentStatus.offCenter => 'Center your face',
     FaceEnrollmentStatus.lookStraight => 'Look straight at the camera',
-    FaceEnrollmentStatus.poorLighting => 'Improve lighting',
+    FaceEnrollmentStatus.poorLighting =>
+      'Still too dark — move to a brighter location',
     FaceEnrollmentStatus.holdStill => 'Hold still',
     FaceEnrollmentStatus.scanning => 'Scanning your face…',
     FaceEnrollmentStatus.processing => 'Processing…',

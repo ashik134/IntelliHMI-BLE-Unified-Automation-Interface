@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
@@ -23,6 +24,7 @@ import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_diagnostics_panel.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
+import 'package:rev_crane_control_ops/widgets/operator/face_illumination_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 enum _ScreenPhase {
@@ -79,6 +81,17 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   bool _busyFrame = false;
   bool _finalizing = false;
 
+  /// The device's application-level brightness exactly as
+  /// [_activateIllumination] found it, saved once per illuminated session
+  /// so it can be restored byte-for-byte — never a hardcoded/assumed
+  /// default. Null whenever illumination isn't currently active.
+  double? _originalBrightness;
+
+  /// Drives [FaceIlluminationOverlay]'s fade — true only while this screen
+  /// has both raised the screen brightness and is showing the white
+  /// illumination ring (see [_activateIllumination]/[_restoreBrightness]).
+  bool _illuminationActive = false;
+
   @override
   void initState() {
     super.initState();
@@ -98,6 +111,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     unawaited(_disposeCamera());
+    unawaited(_restoreBrightness());
     unawaited(_detectionService?.close());
     _embeddingService?.close();
     super.dispose();
@@ -110,6 +124,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       unawaited(_disposeCamera());
+      unawaited(_restoreBrightness());
     } else if (state == AppLifecycleState.resumed &&
         _phase == _ScreenPhase.capturing) {
       unawaited(_initializeCamera());
@@ -120,6 +135,55 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     final controller = _cameraController;
     _cameraController = null;
     await FrontCameraSession.close(controller);
+  }
+
+  /// Turns the screen itself into a front-facing light source: saves
+  /// whatever application brightness is currently in effect (once per
+  /// illuminated session — the `??=` means a resume-from-background
+  /// reactivation can't clobber the true original with the already-raised
+  /// value), then raises it to maximum and fades in
+  /// [FaceIlluminationOverlay]'s white ring around the guide oval. Only
+  /// ever called while entering/re-entering [_ScreenPhase.capturing] —
+  /// verification (`FaceVerifyScreen`) never calls this, matching the
+  /// "enrollment only" requirement for screen illumination.
+  ///
+  /// Silently gives up on any platform error (brightness control can be
+  /// unsupported or permission-gated) — illumination is a UX enhancement,
+  /// never a precondition for enrollment to work.
+  Future<void> _activateIllumination() async {
+    try {
+      _originalBrightness ??= await ScreenBrightness().application;
+      await ScreenBrightness().setApplicationScreenBrightness(1.0);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || _phase != _ScreenPhase.capturing) return;
+    setState(() => _illuminationActive = true);
+  }
+
+  /// Restores exactly the brightness [_activateIllumination] found in
+  /// place before it ran, and clears [_illuminationActive] so
+  /// [FaceIlluminationOverlay] fades back out. Safe to call any number of
+  /// times, including when illumination was never activated (a no-op past
+  /// the first two lines) — every exit from the capture phase (finalize,
+  /// cancel, backgrounding, dispose) calls this so the device is never left
+  /// brighter than the operator had it, matching the "never permanently
+  /// modify brightness" requirement.
+  ///
+  /// Deliberately does not call `setState` itself: [_illuminationActive]
+  /// flips synchronously (before the first `await` below), so every
+  /// existing `setState` at each call site already picks up the new value
+  /// on its next rebuild without this needing its own.
+  Future<void> _restoreBrightness() async {
+    final original = _originalBrightness;
+    _originalBrightness = null;
+    _illuminationActive = false;
+    if (original == null) return;
+    try {
+      await ScreenBrightness().setApplicationScreenBrightness(original);
+    } catch (_) {
+      // Best-effort — nothing further to do if the platform rejects it.
+    }
   }
 
   Future<void> _initialize() async {
@@ -163,6 +227,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
       _cameraController = controller;
       setState(() => _phase = _ScreenPhase.capturing);
+      unawaited(_activateIllumination());
       await controller.startImageStream(_onFrame);
     } catch (_) {
       if (!mounted) return;
@@ -324,6 +389,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     final result = await enrollmentService.finalizeEnrollment(
       operatorId: widget.operatorId,
     );
+    unawaited(_restoreBrightness());
     if (!mounted) return;
 
     if (result.success) {
@@ -348,13 +414,17 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       _phase = _ScreenPhase.capturing;
       _captureState = const FaceEnrollmentState.initial();
     });
+    unawaited(_activateIllumination());
     final controller = _cameraController;
     if (controller != null && !controller.value.isStreamingImages) {
       await controller.startImageStream(_onFrame);
     }
   }
 
-  void _cancel() => Navigator.of(context).pop();
+  void _cancel() {
+    unawaited(_restoreBrightness());
+    Navigator.of(context).pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -485,6 +555,14 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
             // respecting it.
             _CoverCameraPreview(controller: controller),
             Container(color: Colors.black.withAlpha(60)),
+            // Screen-as-light-source: opaque white outside the guide oval,
+            // fully transparent inside it (see the widget's own doc
+            // comment). Sits below the guide ring so the ring reads as the
+            // seam between "illuminated surround" and "live preview."
+            FaceIlluminationOverlay(
+              active: _illuminationActive,
+              ovalDiameter: guideDiameter,
+            ),
             FaceCaptureOverlay(
               caption: _captureState.caption,
               guideColor: _guideColor,

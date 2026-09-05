@@ -24,7 +24,8 @@ Future<bool> requireAdminPin(BuildContext context) async {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _AdminPinGateSheet(setupMode: !alreadySet, auditLog: auditLog),
+    builder: (_) =>
+        _AdminPinGateSheet(setupMode: !alreadySet, auditLog: auditLog),
   );
 
   return result ?? false;
@@ -130,7 +131,8 @@ class _AdminPinGateSheetState extends State<_AdminPinGateSheet> {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _errorText = 'Too many attempts. Try again in ${_formatDuration(remaining)}.';
+          _errorText =
+              'Too many attempts. Try again in ${_formatDuration(remaining)}.';
         });
         _pinController.clear();
     }
@@ -254,7 +256,7 @@ class _AdminPinGateSheetState extends State<_AdminPinGateSheet> {
                     controller: _confirmController,
                     enabled: !_busy,
                     obscureText: _obscure,
-                     style: const TextStyle(color: AppColors.connText),
+                    style: const TextStyle(color: AppColors.connText),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     maxLength: 10,
@@ -303,7 +305,14 @@ class _AdminPinGateSheetState extends State<_AdminPinGateSheet> {
                               color: Colors.white,
                             ),
                           )
-                        : Text(widget.setupMode ? 'Create PIN' : 'Verify'),
+                        : Text(
+                            widget.setupMode ? 'Create PIN' : 'Verify',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
               ],

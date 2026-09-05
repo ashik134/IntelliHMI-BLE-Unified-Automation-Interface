@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
@@ -302,6 +303,11 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       TextField(
         controller: _employeeIdController,
         enabled: !_busy,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(8),
+        ],
         decoration: brandInputDecoration(
           label: 'Employee ID',
           icon: Icons.badge_outlined,

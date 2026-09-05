@@ -461,7 +461,7 @@ class BrandMark extends StatelessWidget {
       height: size,
       padding: EdgeInsets.all(size * 0.06),
       decoration: BoxDecoration(
-        color: dark ? Colors.white.withAlpha(24) : AppColors.brandVioletSoft,
+        color: dark ? Colors.white.withAlpha(255) : AppColors.brandVioletSoft,
         borderRadius: BorderRadius.circular(size * 0.28),
         border: Border.all(
           color: dark
@@ -472,8 +472,8 @@ class BrandMark extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(size * 0.2),
         child: Image.asset(
-          'assets/images/intellicontrol-icon-1024x1024 (6).png',
-          fit: BoxFit.cover,
+          'assets/images/Intellicontrol Final Logo300PPI.png',
+          fit: BoxFit.contain,
         ),
       ),
     );

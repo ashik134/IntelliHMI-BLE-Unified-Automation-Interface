@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
@@ -204,12 +205,23 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
               controller: _employeeIdController,
               enabled: !_saving,
                style: const TextStyle(color: AppColors.connText),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(8),
+              ],
               decoration: brandInputDecoration(
                 label: 'Employee ID',
                 icon: Icons.badge_outlined,
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
+              validator: (v) {
+                final value = v?.trim() ?? '';
+                if (value.isEmpty) return 'Required';
+                if (!RegExp(r'^\d{1,8}$').hasMatch(value)) {
+                  return 'Numbers only, up to 8 digits';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 14),
             if (widget.forceAdministratorRole)
