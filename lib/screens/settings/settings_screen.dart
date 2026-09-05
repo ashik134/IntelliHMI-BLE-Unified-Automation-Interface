@@ -52,6 +52,12 @@ class SettingsScreen extends StatelessWidget {
               const _SectionHeader(label: 'SECURITY'),
               const _BiometricCard(),
 
+                // ── Administration Section ───────────────────────────────────────
+              const _SectionHeader(label: 'ADMINISTRATION'),
+              const _OperatorManagementCard(),
+
+              
+
               // ── Security Information Section ────────────────────────────────
               const _SectionHeader(label: 'SECURITY INFORMATION'),
               const _SecurityInfoCard(),
@@ -61,10 +67,6 @@ class SettingsScreen extends StatelessWidget {
                 const _SectionHeader(label: 'ACTIVE SESSION'),
                 _ActiveSessionCard(sessionEmail: controller.sessionEmail),
               ],
-
-              // ── Administration Section ───────────────────────────────────────
-              const _SectionHeader(label: 'ADMINISTRATION'),
-              const _OperatorManagementCard(),
 
               const SizedBox(height: 32),
             ],

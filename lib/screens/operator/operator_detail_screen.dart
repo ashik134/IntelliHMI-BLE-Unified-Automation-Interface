@@ -184,7 +184,7 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
         role: _operator.role.displayName,
       ),
     );
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop(_operator.operatorId);
   }
 
   void _viewHistory() {
@@ -271,7 +271,10 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       const SizedBox(height: 10),
       _InfoRow(label: 'Role', value: _operator.role.displayName),
       const SizedBox(height: 10),
-      _InfoRow(label: 'Status', value: _operator.enabled ? 'Enabled' : 'Disabled'),
+      _InfoRow(
+        label: 'Status',
+        value: _operator.enabled ? 'Enabled' : 'Disabled',
+      ),
       const SizedBox(height: 10),
       _InfoRow(
         label: 'Face Enrollment',

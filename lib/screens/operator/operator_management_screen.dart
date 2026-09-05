@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -12,11 +14,20 @@ import 'package:rev_crane_control_ops/screens/operator/operator_detail_screen.da
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
+typedef AddOperatorScreenBuilder =
+    Widget Function(
+      OperatorRepository repository,
+      FaceTemplateRepository templateRepository,
+      AuthAuditLogService auditLog,
+      bool forceAdministratorRole,
+    );
+
 class OperatorManagementScreen extends StatefulWidget {
   const OperatorManagementScreen({
     super.key,
     this.repository,
     this.templateRepository,
+    this.addOperatorScreenBuilder,
   });
 
   /// Injectable for consistency with AddOperatorScreen/OperatorDetailScreen
@@ -27,6 +38,9 @@ class OperatorManagementScreen extends StatefulWidget {
   /// Same pattern as [repository], via [FaceTemplateRepository.open].
   final FaceTemplateRepository? templateRepository;
 
+  @visibleForTesting
+  final AddOperatorScreenBuilder? addOperatorScreenBuilder;
+
   @override
   State<OperatorManagementScreen> createState() =>
       _OperatorManagementScreenState();
@@ -35,56 +49,125 @@ class OperatorManagementScreen extends StatefulWidget {
 class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
   OperatorRepository? _repository;
   FaceTemplateRepository? _templateRepository;
-  late Future<List<OperatorProfile>> _future;
+  List<OperatorProfile> _operators = const [];
+  Object? _loadError;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository;
     _templateRepository = widget.templateRepository;
-    _future = _load();
+    unawaited(_reload());
   }
 
-  Future<List<OperatorProfile>> _load() async {
+  Future<
+    ({OperatorRepository repository, FaceTemplateRepository templateRepository})
+  >
+  _ensureStores() async {
     final repo = _repository ??= await OperatorRepository.open();
-    _templateRepository ??= await FaceTemplateRepository.open();
+    final templateRepo = _templateRepository ??=
+        await FaceTemplateRepository.open();
+    return (repository: repo, templateRepository: templateRepo);
+  }
+
+  Future<List<OperatorProfile>> _loadOperators() async {
+    final stores = await _ensureStores();
     // OperatorRepository.getAll() returns a `const []` when the store file
     // doesn't exist yet (fresh install) — .toList() first so .sort() below
     // never throws on that unmodifiable list.
-    final all = (await repo.getAll()).toList()
+    final all = (await stores.repository.getAll()).toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return all;
   }
 
-  void _reload() => setState(() => _future = _load());
+  Future<void> _reload({bool showLoading = false}) async {
+    if (showLoading && mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+
+    try {
+      final operators = await _loadOperators();
+      if (!mounted) return;
+      setState(() {
+        _operators = operators;
+        _loadError = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e;
+        _loading = false;
+      });
+    }
+  }
+
+  void _upsertVisibleOperator(OperatorProfile operator) {
+    final updated = [
+      for (final existing in _operators)
+        if (existing.operatorId != operator.operatorId) existing,
+      operator,
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    setState(() {
+      _operators = updated;
+      _loadError = null;
+      _loading = false;
+    });
+  }
+
+  void _removeVisibleOperator(String operatorId) {
+    setState(() {
+      _operators = _operators
+          .where((operator) => operator.operatorId != operatorId)
+          .toList();
+      _loadError = null;
+      _loading = false;
+    });
+  }
 
   Future<void> _addOperator() async {
-    final repo = _repository;
-    final templateRepo = _templateRepository;
-    if (repo == null || templateRepo == null) return;
+    final stores = await _ensureStores();
+    final repo = stores.repository;
+    final templateRepo = stores.templateRepository;
     final isFirstOperator = (await repo.getAll()).isEmpty;
     if (!mounted) return;
 
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => AddOperatorScreen(
-          repository: repo,
-          templateRepository: templateRepo,
-          auditLog: context.read<AuthAuditLogService>(),
-          forceAdministratorRole: isFirstOperator,
-        ),
+    final auditLog = context.read<AuthAuditLogService>();
+    final created = await Navigator.of(context).push<OperatorProfile>(
+      MaterialPageRoute<OperatorProfile>(
+        builder: (_) =>
+            widget.addOperatorScreenBuilder?.call(
+              repo,
+              templateRepo,
+              auditLog,
+              isFirstOperator,
+            ) ??
+            AddOperatorScreen(
+              repository: repo,
+              templateRepository: templateRepo,
+              auditLog: auditLog,
+              forceAdministratorRole: isFirstOperator,
+            ),
       ),
     );
-    _reload();
+    if (!mounted) return;
+    if (created != null) _upsertVisibleOperator(created);
+    unawaited(_reload());
   }
 
   Future<void> _openDetail(OperatorProfile operator) async {
-    final repo = _repository;
-    final templateRepo = _templateRepository;
-    if (repo == null || templateRepo == null) return;
+    final stores = await _ensureStores();
+    final repo = stores.repository;
+    final templateRepo = stores.templateRepository;
+    if (!mounted) return;
 
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+    final deletedOperatorId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
         builder: (_) => OperatorDetailScreen(
           operator: operator,
           repository: repo,
@@ -93,7 +176,9 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
         ),
       ),
     );
-    _reload();
+    if (!mounted) return;
+    if (deletedOperatorId != null) _removeVisibleOperator(deletedOperatorId);
+    unawaited(_reload());
   }
 
   /// Debug-only tool (see the `kDebugMode`-gated action button below) —
@@ -143,38 +228,41 @@ class _OperatorManagementScreenState extends State<OperatorManagementScreen> {
           IconButton(
             tooltip: 'Add Operator',
             icon: const Icon(Icons.person_add_alt_1_rounded),
-            onPressed: _addOperator,
+            onPressed: _loading ? null : _addOperator,
           ),
           const SizedBox(width: 4),
         ],
       ),
-      body: FutureBuilder<List<OperatorProfile>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _ErrorState(error: snapshot.error, onRetry: _reload);
-          }
-          if (!snapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.brandViolet),
-            );
-          }
+      body: _buildBody(),
+    );
+  }
 
-          final operators = snapshot.data!;
-          if (operators.isEmpty) {
-            return _EmptyOperatorsState(onAdd: _addOperator);
-          }
+  Widget _buildBody() {
+    final loadError = _loadError;
+    if (loadError != null && _operators.isEmpty) {
+      return _ErrorState(
+        error: loadError,
+        onRetry: () => unawaited(_reload(showLoading: true)),
+      );
+    }
+    if (_loading && _operators.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.brandViolet),
+      );
+    }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            itemCount: operators.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) => _OperatorCard(
-              operator: operators[i],
-              onTap: () => _openDetail(operators[i]),
-            ),
-          );
-        },
+    final operators = _operators;
+    if (operators.isEmpty) {
+      return _EmptyOperatorsState(onAdd: _addOperator);
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      itemCount: operators.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, i) => _OperatorCard(
+        operator: operators[i],
+        onTap: () => _openDetail(operators[i]),
       ),
     );
   }
@@ -291,9 +379,7 @@ class _OperatorCard extends StatelessWidget {
     final parts = operator.name.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     final first = parts.first[0];
-    final last = parts.length > 1 && parts.last.isNotEmpty
-        ? parts.last[0]
-        : '';
+    final last = parts.length > 1 && parts.last.isNotEmpty ? parts.last[0] : '';
     return (first + last).toUpperCase();
   }
 

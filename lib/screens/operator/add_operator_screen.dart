@@ -145,7 +145,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
       ),
     );
 
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop(operator);
   }
 
   void _showError(String message) {
@@ -190,6 +190,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
             TextFormField(
               controller: _nameController,
               enabled: !_saving,
+              style: const TextStyle(color: AppColors.connText),
               textCapitalization: TextCapitalization.words,
               decoration: brandInputDecoration(
                 label: 'Full name',
@@ -202,6 +203,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
             TextFormField(
               controller: _employeeIdController,
               enabled: !_saving,
+               style: const TextStyle(color: AppColors.connText),
               decoration: brandInputDecoration(
                 label: 'Employee ID',
                 icon: Icons.badge_outlined,
@@ -215,6 +217,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
             else
               DropdownButtonFormField<OperatorRole>(
                 initialValue: _role,
+                style: const TextStyle(color:AppColors.brandInk),
                 decoration: brandInputDecoration(
                   label: 'Role',
                   icon: Icons.workspace_premium_outlined,
@@ -223,7 +226,8 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
                   for (final role in OperatorRole.values)
                     DropdownMenuItem(
                       value: role,
-                      child: Text(role.displayName),
+
+                      child: Text(role.displayName,style: const TextStyle(color:Color.fromARGB(255, 168, 169, 172)),),
                     ),
                 ],
                 onChanged: _saving
