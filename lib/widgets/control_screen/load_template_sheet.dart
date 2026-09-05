@@ -16,6 +16,7 @@ import 'package:rev_crane_control_ops/services/saved_template_service.dart';
 Future<void> showLoadTemplateSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => const _LoadTemplateSheet(),
   );
@@ -103,104 +104,111 @@ class _LoadTemplateSheetState extends State<_LoadTemplateSheet> {
   Widget build(BuildContext context) {
     final templates = const LayoutTemplateService().templates;
     final bucket = context.watch<LayoutEditController>().activeBucket;
-    final savedTemplates = context
-        .watch<SavedTemplateService>()
-        .templatesFor(bucket);
+    final savedTemplates = context.watch<SavedTemplateService>().templatesFor(
+      bucket,
+    );
     return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.darkBorder),
-          boxShadow: AppMetrics.shadowMd,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.panelStroke,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Load Template',
-              style: TextStyle(
-                color: AppColors.darkText,
-                fontSize: 16.5,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            for (final template in templates)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  template.name,
-                  style: const TextStyle(
-                    color: AppColors.darkText,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-                subtitle: Text(
-                  template.description,
-                  style: const TextStyle(
-                    color: AppColors.darkTextMuted,
-                    fontSize: 12,
-                  ),
-                ),
-                trailing: const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.darkTextMuted,
-                ),
-                onTap: () => _onSelectBuiltIn(context, template),
-              ),
-            if (savedTemplates.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.only(top: 8, bottom: 4),
-                child: Text(
-                  'MY TEMPLATES',
-                  style: TextStyle(
-                    color: AppColors.darkTextMuted,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-              ),
-              for (final template in savedTemplates)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.bookmark_rounded,
-                    color: AppColors.darkTextMuted,
-                    size: 20,
-                  ),
-                  title: Text(
-                    template.name,
-                    style: const TextStyle(
-                      color: AppColors.darkText,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+          decoration: BoxDecoration(
+            color: AppColors.panel,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.darkBorder),
+            boxShadow: AppMetrics.shadowMd,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.panelStroke,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  trailing: const Icon(
-                    Icons.chevron_right_rounded,
-                    color: AppColors.darkTextMuted,
-                  ),
-                  onTap: () => _onSelectSaved(context, template),
                 ),
-            ],
-          ],
+                const SizedBox(height: 14),
+                const Text(
+                  'Load Template',
+                  style: TextStyle(
+                    color: AppColors.darkText,
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                for (final template in templates)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      template.name,
+                      style: const TextStyle(
+                        color: AppColors.darkText,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: Text(
+                      template.description,
+                      style: const TextStyle(
+                        color: AppColors.darkTextMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.darkTextMuted,
+                    ),
+                    onTap: () => _onSelectBuiltIn(context, template),
+                  ),
+                if (savedTemplates.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8, bottom: 4),
+                    child: Text(
+                      'MY TEMPLATES',
+                      style: TextStyle(
+                        color: AppColors.darkTextMuted,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ),
+                  for (final template in savedTemplates)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.bookmark_rounded,
+                        color: AppColors.darkTextMuted,
+                        size: 20,
+                      ),
+                      title: Text(
+                        template.name,
+                        style: const TextStyle(
+                          color: AppColors.darkText,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.darkTextMuted,
+                      ),
+                      onTap: () => _onSelectSaved(context, template),
+                    ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

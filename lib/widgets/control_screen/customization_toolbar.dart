@@ -173,6 +173,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
   Future<void> _more(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _MoreActionsSheet(
         onSaveLayout: () => _saveLayout(context),
@@ -590,80 +591,88 @@ class _MoreActionsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.darkBorder),
-          boxShadow: AppMetrics.shadowMd,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.panelStroke,
-                  borderRadius: BorderRadius.circular(2),
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          decoration: BoxDecoration(
+            color: AppColors.panel,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.darkBorder),
+            boxShadow: AppMetrics.shadowMd,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.panelStroke,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 14),
+                const Text(
+                  'More',
+                  style: TextStyle(
+                    color: AppColors.darkText,
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const _MoreSectionLabel('LAYOUT'),
+                _MoreActionTile(
+                  icon: Icons.save_rounded,
+                  title: 'Save Layout',
+                  subtitle: 'Persist changes without leaving Edit Mode.',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onSaveLayout();
+                  },
+                ),
+                _MoreActionTile(
+                  icon: Icons.bookmark_add_rounded,
+                  title: 'Save as Template',
+                  subtitle: 'Save this layout as a reusable custom template.',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onSaveAsTemplate();
+                  },
+                ),
+                _MoreActionTile(
+                  icon: Icons.tune_rounded,
+                  title: 'Layout Settings',
+                  subtitle: 'E-Stop instructions, arrangement, and sizing.',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onOpenLayoutSettings();
+                  },
+                ),
+                const _MoreSectionLabel('FEEDBACK & STATUS'),
+                _MoreActionTile(
+                  icon: Icons.notifications_active_rounded,
+                  title: 'Feedback Settings',
+                  subtitle:
+                      'Alarms, buzzer, sensor readings, LED and status '
+                      'indication, calibration and heartbeat — all in one '
+                      'place.',
+                  featured: true,
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onOpenFeedbackSettings();
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            const Text(
-              'More',
-              style: TextStyle(
-                color: AppColors.darkText,
-                fontSize: 16.5,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const _MoreSectionLabel('LAYOUT'),
-            _MoreActionTile(
-              icon: Icons.save_rounded,
-              title: 'Save Layout',
-              subtitle: 'Persist changes without leaving Edit Mode.',
-              onTap: () {
-                Navigator.of(context).pop();
-                onSaveLayout();
-              },
-            ),
-            _MoreActionTile(
-              icon: Icons.bookmark_add_rounded,
-              title: 'Save as Template',
-              subtitle: 'Save this layout as a reusable custom template.',
-              onTap: () {
-                Navigator.of(context).pop();
-                onSaveAsTemplate();
-              },
-            ),
-            _MoreActionTile(
-              icon: Icons.tune_rounded,
-              title: 'Layout Settings',
-              subtitle: 'E-Stop instructions, arrangement, and sizing.',
-              onTap: () {
-                Navigator.of(context).pop();
-                onOpenLayoutSettings();
-              },
-            ),
-            const _MoreSectionLabel('FEEDBACK & STATUS'),
-            _MoreActionTile(
-              icon: Icons.notifications_active_rounded,
-              title: 'Feedback Settings',
-              subtitle:
-                  'Alarms, buzzer, sensor readings, LED and status indication, '
-                  'calibration and heartbeat — all in one place.',
-              featured: true,
-              onTap: () {
-                Navigator.of(context).pop();
-                onOpenFeedbackSettings();
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
