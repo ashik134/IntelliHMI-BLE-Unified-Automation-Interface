@@ -3,12 +3,16 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
+import 'package:rev_crane_control_ops/models/saved_template.dart';
 import 'package:rev_crane_control_ops/services/layout_template_service.dart';
+import 'package:rev_crane_control_ops/services/saved_template_service.dart';
 
 /// Opens a bottom sheet listing built-in starting-point layouts (see
-/// LayoutTemplateService). Selecting one REPLACES the entire draft — if the
-/// draft already has unsaved changes, confirms first so a widget the
-/// operator just added from the catalog isn't silently lost.
+/// LayoutTemplateService) plus any user-saved "Save as Template" layouts for
+/// the active PLC bucket (see SavedTemplateService). Selecting one REPLACES
+/// the entire draft — if the draft already has unsaved changes, confirms
+/// first so a widget the operator just added from the catalog isn't
+/// silently lost.
 Future<void> showLoadTemplateSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -17,57 +21,91 @@ Future<void> showLoadTemplateSheet(BuildContext context) {
   );
 }
 
-class _LoadTemplateSheet extends StatelessWidget {
+class _LoadTemplateSheet extends StatefulWidget {
   const _LoadTemplateSheet();
 
-  Future<void> _onSelect(BuildContext context, LayoutTemplate template) async {
+  @override
+  State<_LoadTemplateSheet> createState() => _LoadTemplateSheetState();
+}
+
+class _LoadTemplateSheetState extends State<_LoadTemplateSheet> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<SavedTemplateService>().load();
+    });
+  }
+
+  Future<bool> _confirmReplace(BuildContext context, String name) async {
     final editCtrl = context.read<LayoutEditController>();
-    if (editCtrl.hasUnsavedChanges) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          backgroundColor: AppColors.panel,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppColors.darkBorder),
-          ),
-          title: const Text(
-            'Replace current layout?',
-            style: TextStyle(color: AppColors.darkText),
-          ),
-          content: Text(
-            'Loading "${template.name}" replaces your in-progress changes. '
-            'This can still be undone by not pressing Save Layout or Done.',
-            style: const TextStyle(color: AppColors.darkTextSub),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: AppColors.darkTextSub),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text(
-                'Replace',
-                style: TextStyle(color: AppColors.appBarGlow),
-              ),
-            ),
-          ],
+    if (!editCtrl.hasUnsavedChanges) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.darkBorder),
         ),
-      );
-      if (confirmed != true) return;
-    }
-    editCtrl.applyTemplate(template);
+        title: const Text(
+          'Replace current layout?',
+          style: TextStyle(color: AppColors.darkText),
+        ),
+        content: Text(
+          'Loading "$name" replaces your in-progress changes. '
+          'This can still be undone by not pressing Save Layout or Done.',
+          style: const TextStyle(color: AppColors.darkTextSub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.darkTextSub),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(
+              'Replace',
+              style: TextStyle(color: AppColors.appBarGlow),
+            ),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _onSelectBuiltIn(
+    BuildContext context,
+    LayoutTemplate template,
+  ) async {
+    if (!await _confirmReplace(context, template.name)) return;
+    if (!context.mounted) return;
+    context.read<LayoutEditController>().applyTemplate(template);
+    if (context.mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _onSelectSaved(
+    BuildContext context,
+    SavedTemplate template,
+  ) async {
+    if (!await _confirmReplace(context, template.name)) return;
+    if (!context.mounted) return;
+    context.read<LayoutEditController>().applySavedTemplate(template.config);
     if (context.mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final templates = const LayoutTemplateService().templates;
+    final bucket = context.watch<LayoutEditController>().activeBucket;
+    final savedTemplates = context
+        .watch<SavedTemplateService>()
+        .templatesFor(bucket);
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
@@ -124,8 +162,44 @@ class _LoadTemplateSheet extends StatelessWidget {
                   Icons.chevron_right_rounded,
                   color: AppColors.darkTextMuted,
                 ),
-                onTap: () => _onSelect(context, template),
+                onTap: () => _onSelectBuiltIn(context, template),
               ),
+            if (savedTemplates.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.only(top: 8, bottom: 4),
+                child: Text(
+                  'MY TEMPLATES',
+                  style: TextStyle(
+                    color: AppColors.darkTextMuted,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+              for (final template in savedTemplates)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.bookmark_rounded,
+                    color: AppColors.darkTextMuted,
+                    size: 20,
+                  ),
+                  title: Text(
+                    template.name,
+                    style: const TextStyle(
+                      color: AppColors.darkText,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.darkTextMuted,
+                  ),
+                  onTap: () => _onSelectSaved(context, template),
+                ),
+            ],
           ],
         ),
       ),

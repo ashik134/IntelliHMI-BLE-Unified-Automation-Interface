@@ -1319,6 +1319,28 @@ class LayoutEditController extends ChangeNotifier {
     _applyDraft(repaired);
   }
 
+  /// Same behavior as [applyTemplate], but for a raw [ControlLayoutConfig]
+  /// snapshot rather than a curated [LayoutTemplate] — the entry point for
+  /// applying a user-saved "Save as Template" layout (see
+  /// SavedTemplateService). Callers (Load Template sheet) are responsible
+  /// for warning the operator first when [hasUnsavedChanges] is true.
+  void applySavedTemplate(ControlLayoutConfig config) {
+    final grid = _draft.gridLayout;
+    final merged = config.copyWith(gridLayout: grid);
+    final repaired = compactControlPages(
+      repairControlGridLayout(
+        merged,
+        slotCount: grid.slotCount,
+        columns: grid.columns,
+        rows: grid.rows,
+      ),
+      slotCount: grid.slotCount,
+      columns: grid.columns,
+      rows: grid.rows,
+    );
+    _applyDraft(repaired);
+  }
+
   /// Switches the draft to a new grid shape — the Customization Toolbar's
   /// Layout tool's Apply action (see GridLayoutToolbar). Reflows any buttons
   /// that no longer fit [option]'s (possibly smaller) footprint via

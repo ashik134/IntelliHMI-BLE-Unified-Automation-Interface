@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/widgets/control_screen/grid_layout_toolbar
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/load_template_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/page_transition_sheet.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/save_as_template_dialog.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +176,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
       backgroundColor: Colors.transparent,
       builder: (_) => _MoreActionsSheet(
         onSaveLayout: () => _saveLayout(context),
+        onSaveAsTemplate: () => showSaveAsTemplateDialog(context),
         onOpenLayoutSettings: () => showLayoutSettingsSheet(context),
         onOpenFeedbackSettings: () => showFeedbackSettingsSheet(context),
       ),
@@ -575,11 +577,13 @@ class _DoneCircleButtonState extends State<_DoneCircleButton> {
 class _MoreActionsSheet extends StatelessWidget {
   const _MoreActionsSheet({
     required this.onSaveLayout,
+    required this.onSaveAsTemplate,
     required this.onOpenLayoutSettings,
     required this.onOpenFeedbackSettings,
   });
 
   final VoidCallback onSaveLayout;
+  final VoidCallback onSaveAsTemplate;
   final VoidCallback onOpenLayoutSettings;
   final VoidCallback onOpenFeedbackSettings;
 
@@ -626,6 +630,15 @@ class _MoreActionsSheet extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).pop();
                 onSaveLayout();
+              },
+            ),
+            _MoreActionTile(
+              icon: Icons.bookmark_add_rounded,
+              title: 'Save as Template',
+              subtitle: 'Save this layout as a reusable custom template.',
+              onTap: () {
+                Navigator.of(context).pop();
+                onSaveAsTemplate();
               },
             ),
             _MoreActionTile(

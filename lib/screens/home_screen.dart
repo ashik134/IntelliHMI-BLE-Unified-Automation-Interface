@@ -8,6 +8,7 @@ import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/screens/settings/settings_screen.dart';
+import 'package:rev_crane_control_ops/services/saved_template_service.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
@@ -95,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<LayoutSettingsController>().load();
+      context.read<SavedTemplateService>().load();
     });
   }
 

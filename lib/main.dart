@@ -24,6 +24,7 @@ import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 import 'package:rev_crane_control_ops/controllers/navigation_controller.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
+import 'package:rev_crane_control_ops/services/saved_template_service.dart';
 
 
 final AuthAuditLogService _authAuditLogService = AuthAuditLogService();
@@ -64,6 +65,7 @@ class IntelliHMIApp extends StatelessWidget {
           create: (_) => CraneController(auditLog: _authAuditLogService),
         ),
         ChangeNotifierProvider(create: (_) => LayoutSettingsController()),
+        ChangeNotifierProvider(create: (_) => SavedTemplateService()),
         ChangeNotifierProxyProvider2<
           CraneController,
           LayoutSettingsController,

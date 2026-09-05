@@ -791,9 +791,8 @@ class _AnalogRail extends StatelessWidget {
     required this.activeColorLight,
     required this.maxWidth,
     required this.maxHeight,
-    this.unit = '%',
-    this.decimalPlaces = 1,
-  });
+  }) : unit = '%',
+       decimalPlaces = 1;
 
   final JoystickConfig config;
   final Offset value;
@@ -1245,28 +1244,8 @@ class _AnalogRailPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────*
-// 2) SINGLE-AXIS DIGITAL 5-STEP (spring return) — a ladder gate with 5*
-// physical detent slots (Fast-, Slow-, Neutral, Slow+, Fast+). The knob*
-// visibly jumps between slot centers instead of gliding, and a center*
-// spring glyph communicates the return-to-neutral behavior.*
+// 2) SINGLE-AXIS DIGITAL 5-STEP (spring return)
 // ─────────────────────────────────────────────────────────────────────────────*
-
-// Drop-in replacement for the supplied _DigitalLadder and*
-// _DigitalLadderPainter classes.*
-//*
-// This file intentionally relies on the surrounding project's existing*
-// JoystickConfig, JoystickAxis, AppColors, ControlButtonVisualMetrics,*
-// _safeVisualExtent, and _kSingleAxisVisualScale declarations.*
-
-// Shell-free single-axis digital joystick visual.*
-//*
-// The complete widget boundary contains only the five-position gate and knob.*
-// There is no surrounding card, status area, label row, padding shell, or*
-// decorative outer panel.*
-//*
-// This file intentionally relies on the surrounding project's existing*
-// JoystickConfig, JoystickAxis, AppColors, _safeVisualExtent, and*
-// _kSingleAxisVisualScale declarations.*
 
 class _DigitalLadder extends StatelessWidget {
   const _DigitalLadder({
@@ -1285,8 +1264,6 @@ class _DigitalLadder extends StatelessWidget {
 
   final JoystickConfig config;
 
-  // Retained to keep this a drop-in replacement. Gesture processing belongs*
-  // in the parent joystick; the ladder renders the settled display value.*
   final Offset rawValue;
   final Offset display;
   final bool isActive;

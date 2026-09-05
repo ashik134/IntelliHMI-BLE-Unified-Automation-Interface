@@ -29,6 +29,10 @@ class AppConstants {
   static const String prefsKeyLayoutConfigFull =
       'control_layout_config_v2_full';
 
+  /// User-saved "Save as Template" custom layout snapshots (all PLC buckets,
+  /// distinguished by [SavedTemplate.bucket]).
+  static const String prefsKeySavedTemplates = 'saved_layout_templates_v1';
+
   static const String defaultAdminEmail = 'admin@plc.com';
   static const String defaultAdminPassword = 'Admin123';
 }
