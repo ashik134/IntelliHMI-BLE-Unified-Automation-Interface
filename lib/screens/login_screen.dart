@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
+import 'package:rev_crane_control_ops/models/operator_profile.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
@@ -345,6 +346,7 @@ class _LoginScreenState extends State<LoginScreen>
     final authSessionReady = _hasAuthenticationSession(controller);
     final errorState = _resolveErrorState(controller.errorMessage);
     final authenticated = controller.isAuthenticated;
+    final verifiedOperator = controller.verifiedOperator;
 
     return Container(
       padding: EdgeInsets.all(isWide ? 28 : 20),
@@ -358,9 +360,13 @@ class _LoginScreenState extends State<LoginScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Operator Login',
-            style: TextStyle(
+          if (verifiedOperator != null) ...[
+            _VerifiedOperatorCard(operatorProfile: verifiedOperator),
+            const SizedBox(height: 18),
+          ],
+          Text(
+            verifiedOperator != null ? 'PLC Authentication' : 'Operator Login',
+            style: const TextStyle(
               color: AppColors.brandText,
               fontSize: 26,
               fontWeight: FontWeight.w800,
@@ -368,9 +374,14 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Sign in to start a secure crane control session.',
-            style: TextStyle(color: AppColors.brandTextSub, fontSize: 13.5),
+          Text(
+            verifiedOperator != null
+                ? 'Enter PLC credentials to open a secure control session.'
+                : 'Sign in to start a secure crane control session.',
+            style: const TextStyle(
+              color: AppColors.brandTextSub,
+              fontSize: 13.5,
+            ),
           ),
           const SizedBox(height: 16),
           _buildLiveStatusBanner(controller),
@@ -969,6 +980,76 @@ class _BeaconPulse extends StatelessWidget {
           color: Colors.white,
           size: 34,
         ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Verified operator card — shows the face-verification result (see
+// FaceVerificationScreen / CraneController.verifiedOperator) before the
+// PLC credential fields. Purely informational: identifies who is
+// attempting to authenticate, never itself grants PLC access.
+// ═══════════════════════════════════════════════════════════════
+
+class _VerifiedOperatorCard extends StatelessWidget {
+  const _VerifiedOperatorCard({required this.operatorProfile});
+
+  final OperatorProfile operatorProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+        color: AppColors.brandSuccessSoft,
+        border: Border.all(color: AppColors.brandSuccess.withAlpha(70)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.brandSuccess.withAlpha(30),
+            ),
+            child: const Icon(
+              Icons.verified_user_rounded,
+              color: AppColors.brandSuccess,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Welcome, ${operatorProfile.name}',
+                  style: const TextStyle(
+                    color: AppColors.brandSuccess,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Employee ID: ${operatorProfile.employeeId}  •  Role: ${operatorProfile.role.displayName}',
+                  style: const TextStyle(
+                    color: AppColors.brandTextSub,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

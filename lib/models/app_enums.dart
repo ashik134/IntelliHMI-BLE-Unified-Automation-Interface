@@ -1,4 +1,10 @@
-enum AppScreen { connection, authentication, control, plc38Control }
+enum AppScreen {
+  connection,
+  faceVerification,
+  authentication,
+  control,
+  plc38Control,
+}
 
 enum DeviceStaleStatus { active, stale, expired }
 

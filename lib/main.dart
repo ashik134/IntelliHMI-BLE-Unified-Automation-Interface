@@ -12,6 +12,7 @@ import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/screens/event_log_screen.dart';
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
+import 'package:rev_crane_control_ops/screens/operator/face_verification_screen.dart';
 import 'package:rev_crane_control_ops/screens/splash_screen.dart';
 import 'package:rev_crane_control_ops/screens/plc14_control_screen.dart';
 import 'package:rev_crane_control_ops/screens/scan_page.dart';
@@ -234,6 +235,7 @@ class _ControlSubShell extends StatelessWidget {
         builder: (context, controller, _) {
           final screen = controller.currentScreen;
           final destination = switch (screen) {
+            AppScreen.faceVerification => const FaceVerificationScreen(),
             AppScreen.authentication => const LoginScreen(),
             AppScreen.control => const ControlScreen(),
             AppScreen.plc38Control => const Plc38ControlScreen(),

@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/controllers/feedback_manager.dart'
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
+import 'package:rev_crane_control_ops/models/operator_profile.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
@@ -93,6 +94,14 @@ class CraneController extends ChangeNotifier
   bool _biometricEnrolled = false;
 
   bool _pendingEnrollmentOffer = false;
+
+  // Gates AppScreen.authentication behind a fresh face-verification pass on
+  // every connection attempt. Reset to true whenever the transport drops
+  // back to disconnected (see the connectionStream listener below) so a
+  // reconnect always re-verifies rather than reusing a stale identity.
+  bool _pendingFaceVerification = true;
+  OperatorProfile? _faceVerifiedOperator;
+
   String? _sessionEmail;
   String? _errorMessage;
   String _savedEmail = '';
@@ -123,6 +132,8 @@ class CraneController extends ChangeNotifier
   bool get isBiometricEnrolled => _biometricEnrolled;
 
   bool get hasPendingEnrollmentOffer => _pendingEnrollmentOffer;
+  bool get needsFaceVerification => _pendingFaceVerification;
+  OperatorProfile? get verifiedOperator => _faceVerifiedOperator;
   PlcOutputCommand get activeCommand => _activeCommand;
 
   PlcOutputCommand get commandedCommand => _commandedCommand;
@@ -229,10 +240,15 @@ class CraneController extends ChangeNotifier
 
     BleConnectionStatus.awaitingAuthentication ||
     BleConnectionStatus.connected ||
-    BleConnectionStatus.authenticating => AppScreen.authentication,
+    BleConnectionStatus.authenticating =>
+      _pendingFaceVerification
+          ? AppScreen.faceVerification
+          : AppScreen.authentication,
     BleConnectionStatus.error
         when _transportConnState.connectedDevice != null =>
-      AppScreen.authentication,
+      _pendingFaceVerification
+          ? AppScreen.faceVerification
+          : AppScreen.authentication,
     _ => AppScreen.connection,
   };
 
@@ -328,6 +344,8 @@ class CraneController extends ChangeNotifier
         _sessionEmail = null;
         _startupEmergencyArmedForConnection = false;
         _pendingEnrollmentOffer = false;
+        _pendingFaceVerification = true;
+        _faceVerifiedOperator = null;
         _deviceTrustRejected = false;
         _buttonFields.clear();
         _fieldOwners.clear();
@@ -1011,6 +1029,50 @@ class CraneController extends ChangeNotifier
     if (!_pendingEnrollmentOffer) return;
     _pendingEnrollmentOffer = false;
     notifyListeners();
+  }
+
+  // ── Face verification (identity gate ahead of PLC credential auth) ───────
+
+  /// Called by the face-verification screen once a live camera frame has
+  /// matched an enrolled, enabled operator. This only identifies which
+  /// operator is present and unlocks the PLC credential screen — it never
+  /// grants PLC/control access on its own; [authenticate] is still required.
+  void completeFaceVerification(OperatorProfile operator) {
+    _faceVerifiedOperator = operator;
+    _pendingFaceVerification = false;
+    unawaited(
+      _auditLog.record(
+        result: AuthEventResult.success,
+        method: AuthEventMethod.face,
+        operatorId: operator.operatorId,
+        operatorNameSnapshot: operator.name,
+        role: operator.role.name,
+        deviceId: _deviceId,
+        plcDeviceName: connectedDeviceName,
+        plcType: connectedPlcType.displayName,
+        connectionStatus: _transportConnState.status.name,
+      ),
+    );
+    notifyListeners();
+  }
+
+  /// Logs a face match against a disabled operator profile. The
+  /// face-verification screen keeps the operator on that screen either way
+  /// — this only records the attempt for the audit trail.
+  void recordFaceVerificationDenied(OperatorProfile operator) {
+    unawaited(
+      _auditLog.record(
+        result: AuthEventResult.failed,
+        method: AuthEventMethod.face,
+        operatorId: operator.operatorId,
+        operatorNameSnapshot: operator.name,
+        role: operator.role.name,
+        deviceId: _deviceId,
+        connectionStatus: _transportConnState.status.name,
+        failureReason: 'Operator account is disabled.',
+        detailCode: 'operator_disabled',
+      ),
+    );
   }
 
   @override
