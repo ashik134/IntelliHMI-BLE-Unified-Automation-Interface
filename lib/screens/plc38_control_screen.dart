@@ -703,7 +703,7 @@ class _DisconnectButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
     return IconButton.filledTonal(
-      onPressed: controller.disconnect,
+      onPressed: () => confirmAndDisconnect(context, controller),
       tooltip: 'Disconnect',
       style: IconButton.styleFrom(
         foregroundColor: AppColors.error,

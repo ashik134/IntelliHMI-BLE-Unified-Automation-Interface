@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/utils/constants.dart';
 
 /// Shows a confirmation dialog before leaving a PLC control screen.
@@ -51,4 +52,20 @@ Future<bool> showControlExitDialog(BuildContext context) async {
     ),
   );
   return result ?? false;
+}
+
+/// The Disconnect button's confirm-then-disconnect flow: shows
+/// [showControlExitDialog] and only calls [CraneController.disconnect] if
+/// the operator confirms. Cancelling leaves the Control Screen exactly as it
+/// was — connection untouched — mirroring the confirmation the back button
+/// already requires before leaving.
+Future<void> confirmAndDisconnect(
+  BuildContext context,
+  CraneController controller,
+) async {
+  final confirmed = await showControlExitDialog(context);
+  if (!context.mounted) return;
+  if (confirmed) {
+    await controller.disconnect();
+  }
 }
