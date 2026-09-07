@@ -31,17 +31,29 @@ class HeroStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = _resolveStatus(controller);
 
-    return BrandStatusBanner(
-      icon: status.icon,
-      title: status.title,
-      message: status.subtitle,
-      tone: status.tone,
-      busy: status.loading,
-      actions: status.actions,
+    // The two routine states — scanning, and idle-ready — are already
+    // spelled out by the console header (radar backdrop, SCAN/STOP control)
+    // and by the devices panel (SCANNING badge, empty-state copy). Repeating
+    // them here made the same sentence appear up to four times on one screen,
+    // so the banner now shows only when it has something those don't say:
+    // a fault, a permission to grant, or a connection in progress.
+    if (status == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+      child: BrandStatusBanner(
+        icon: status.icon,
+        title: status.title,
+        message: status.subtitle,
+        tone: status.tone,
+        busy: status.loading,
+        actions: status.actions,
+      ),
     );
   }
 
-  _StatusCardModel _resolveStatus(CraneController controller) {
+  /// Returns null when the console header already conveys the state.
+  _StatusCardModel? _resolveStatus(CraneController controller) {
     if (!controller.permissionsGranted) {
       return _StatusCardModel(
         tone: BrandTone.warning,
@@ -80,16 +92,8 @@ class HeroStatusCard extends StatelessWidget {
       );
     }
 
-    if (controller.isScanning) {
-      return const _StatusCardModel(
-        tone: BrandTone.violet,
-        icon: Icons.radar_rounded,
-        title: 'Scanning',
-        subtitle:
-            'Searching for ${BLEConstants.deviceName} controllers nearby.',
-        loading: true,
-      );
-    }
+    // Carried by the header's live radar and STOP control.
+    if (controller.isScanning) return null;
 
     if (controller.isConnecting) {
       return _StatusCardModel(
@@ -184,12 +188,8 @@ class HeroStatusCard extends StatelessWidget {
       );
     }
 
-    return const _StatusCardModel(
-      tone: BrandTone.neutral,
-      icon: Icons.bluetooth_searching_rounded,
-      title: 'Ready to Scan',
-      subtitle: 'Tap scan to discover available crane controllers.',
-    );
+    // Idle and ready: the header's SCAN button is the whole message.
+    return null;
   }
 }
 

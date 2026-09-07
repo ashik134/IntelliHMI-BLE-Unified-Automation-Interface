@@ -15,7 +15,13 @@ class FaceDetectionService {
           enableClassification: true,
           enableTracking: true,
           enableLandmarks: true,
-          performanceMode: FaceDetectorMode.accurate,
+          // `fast` over `accurate`: this is only a gating check (bounding
+          // box/pose/eyes) — the embedding step does the real identity
+          // work — and on-device profiling showed `accurate` costing
+          // 400-600ms/frame on mid-range hardware, which alone made the
+          // enrollment scan's sample budget unreachable in its scan
+          // window (see `FaceEnrollmentService.scanDuration`).
+          performanceMode: FaceDetectorMode.fast,
         ),
       );
 

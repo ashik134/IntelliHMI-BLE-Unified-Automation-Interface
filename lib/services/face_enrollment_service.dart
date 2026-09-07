@@ -54,8 +54,8 @@ class FaceEnrollmentService {
   FaceEnrollmentService({
     required this.embeddingService,
     required this.templateRepository,
-    this.requiredSamples = 8,
-    this.minSurvivingSamples = 6,
+    this.requiredSamples = 6,
+    this.minSurvivingSamples = 5,
   });
 
   final FaceEmbeddingService embeddingService;
@@ -73,9 +73,9 @@ class FaceEnrollmentService {
 
   /// Minimum accepted samples that must survive outlier-trimming in
   /// [finalizeEnrollment] for the resulting template to be trusted. Kept
-  /// at the same ~70-75% ratio of [requiredSamples] as before, not a fixed
-  /// absolute floor, so raising [requiredSamples] doesn't quietly loosen
-  /// how many samples are allowed to be trimmed as outliers.
+  /// as a ratio of [requiredSamples] (~83%), not a fixed absolute floor,
+  /// so raising [requiredSamples] doesn't quietly loosen how many samples
+  /// are allowed to be trimmed as outliers.
   final int minSurvivingSamples;
 
   /// How long a frame must continuously clear every quality gate before
@@ -88,8 +88,14 @@ class FaceEnrollmentService {
   /// deliberately held, not incidental."
   static const Duration stabilizeDuration = Duration(milliseconds: 600);
 
-  /// Total continuous scan window, within the spec's "about 4-5 seconds."
-  static const Duration scanDuration = Duration(milliseconds: 4500);
+  /// Total continuous scan window. Originally the spec's "about 4-5
+  /// seconds"; extended after on-device profiling showed mid-range
+  /// hardware spending 600ms-1.2s per detect+embed cycle (`accurate`
+  /// ML Kit mode plus on-device TFLite inference), which made
+  /// [requiredSamples] unreachable in a 4.5s window on that hardware even
+  /// with a perfectly still, well-lit face — see `FaceDetectorMode.fast`
+  /// in `FaceDetectionService` for the other half of that fix.
+  static const Duration scanDuration = Duration(milliseconds: 6500);
 
   /// Minimum time between two accepted samples, so samples collected
   /// across [scanDuration] reflect natural micro-movement rather than
@@ -399,7 +405,7 @@ class FaceEnrollmentService {
     required String operatorId,
     required List<List<double>> samples,
     required FaceTemplateRepository templateRepository,
-    int requiredSamples = 7,
+    int requiredSamples = 6,
     int minSurvivingSamples = 5,
   }) async {
     if (samples.length < requiredSamples) {

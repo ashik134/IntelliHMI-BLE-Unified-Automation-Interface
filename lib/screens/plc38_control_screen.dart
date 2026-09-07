@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
@@ -5,7 +7,9 @@ import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/canvas_page_transition_style.dart';
 import 'package:rev_crane_control_ops/models/control_layout_config.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:vibration/vibration.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/customization_interaction_mode.dart';
@@ -19,6 +23,7 @@ import 'package:rev_crane_control_ops/utils/control_layout_metrics.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/feedback_manager.dart';
+import 'package:rev_crane_control_ops/controllers/inactivity_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
@@ -34,6 +39,8 @@ import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_a
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_sections.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/screen_activity_detector.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/screen_sleep_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/settling_preview.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties_sheet.dart';
 
@@ -77,6 +84,19 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   // from a button's own gesture handler — never from PLC status feedback.
   // See _CanvasSection._activeStateForButton's doc comment.
   final Map<String, ControlState> _localActive = {};
+
+  // ── Inactivity timeout ───────────────────────────────────────────────────
+  //
+  // See InactivityController's own doc comment for the phase state machine,
+  // and Plc14's ControlScreen counterpart for the identical wiring. This
+  // screen owns the instance (created/disposed with it, matching how
+  // _craneController/_editCtrl are already held as plain fields rather than
+  // via Provider) and is the only place that reacts to phase changes:
+  // dimming/restoring brightness, releasing/reacquiring the wakelock, and
+  // running the safe-disconnect flow.
+  late final InactivityController _inactivityController;
+  bool _screenAsleep = false;
+  double? _originalBrightness;
 
   // ── Widget-placement drop geometry ───────────────────────────────────────
   //
@@ -139,6 +159,10 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       _craneController = controller;
       controller.addListener(_onControllerChange);
     });
+
+    _inactivityController = InactivityController()
+      ..addListener(_onInactivityPhaseChanged)
+      ..start();
   }
 
   @override
@@ -148,6 +172,11 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     _craneController?.removeListener(_onControllerChange);
     WidgetsBinding.instance.removeObserver(this);
     _canvasPageController.dispose();
+    _inactivityController.dispose();
+    if (_screenAsleep) {
+      _screenAsleep = false;
+      unawaited(_restorePowerState());
+    }
     super.dispose();
   }
 
@@ -158,6 +187,107 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     // catalogue placement drag, so this prevents a permanently stuck
     // floating preview once the app resumes.
     if (state != AppLifecycleState.resumed) _cancelActivePlacement();
+    if (state == AppLifecycleState.resumed) {
+      _inactivityController.reconcileAfterResume();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _inactivityController.pauseTimerForBackground();
+    }
+  }
+
+  // ── Inactivity timeout: phase reactions ──────────────────────────────────
+
+  void _onInactivityPhaseChanged() {
+    final phase = _inactivityController.phase;
+    if (phase == InactivityPhase.active) {
+      unawaited(_wakeScreen());
+    } else if (phase == InactivityPhase.sleeping) {
+      unawaited(_onInactivityTimeout());
+    } else if (phase == InactivityPhase.expired) {
+      unawaited(_autoDisconnect());
+    }
+  }
+
+  /// The inactivity deadline: latch Emergency Stop, then blank the display.
+  ///
+  /// Ordered, not concurrent, and deliberately so — the operator has walked
+  /// away from a machine that may still be under load, so the PLC must be
+  /// commanded into its safe state before the screen goes dark. Blanking
+  /// first would leave a window, however brief, in which the crane is live
+  /// but nothing on the device can show it. Awaiting the E-Stop write costs
+  /// only the BLE round trip and makes the safe state the precondition for
+  /// sleeping rather than a race against it.
+  Future<void> _onInactivityTimeout() async {
+    await _activateInactivityEStop();
+    await _sleepScreen();
+  }
+
+  /// Latches E-Stop on the operator's behalf after the inactivity timeout.
+  ///
+  /// Left latched when the screen wakes: an E-Stop is cleared by a deliberate
+  /// operator reset (the panel's RESET affordance), never by the act of
+  /// touching the device, so returning to the screen shows the latched state
+  /// rather than silently re-arming the crane.
+  Future<void> _activateInactivityEStop() async {
+    final controller = _craneController;
+    if (controller == null) return;
+    // Already latched, or nothing to command — either way, nothing to send.
+    if (controller.estopLatched || !controller.isConnected) return;
+    try {
+      await controller.triggerEStop();
+    } catch (_) {
+      // A failed write must not stop the display from blanking; the expiry
+      // stage still runs the safe-disconnect flow after this.
+    }
+  }
+
+  Future<void> _sleepScreen() async {
+    if (_screenAsleep) return;
+    setState(() => _screenAsleep = true);
+    try {
+      _originalBrightness ??= await ScreenBrightness().application;
+      await ScreenBrightness().setApplicationScreenBrightness(0.0);
+    } catch (_) {}
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {}
+  }
+
+  Future<void> _wakeScreen() async {
+    if (!_screenAsleep) return;
+    if (mounted) {
+      setState(() => _screenAsleep = false);
+    } else {
+      _screenAsleep = false;
+    }
+    await _restorePowerState();
+  }
+
+  Future<void> _restorePowerState() async {
+    final original = _originalBrightness;
+    _originalBrightness = null;
+    try {
+      await ScreenBrightness().setApplicationScreenBrightness(original ?? 1.0);
+    } catch (_) {}
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {}
+  }
+
+  /// Runs the same safe-disconnect sequence as the confirmed back-navigation
+  /// exit (stopAllMotion then disconnect — see _onBackAttempted/
+  /// confirmAndDisconnect) but with no confirmation dialog, since by
+  /// definition nobody has interacted with the screen in
+  /// sleepAfter+disconnectAfterSleep. A no-op if something else (BLE drop,
+  /// manual disconnect) already disconnected first — see _onControllerChange.
+  Future<void> _autoDisconnect() async {
+    await _wakeScreen();
+    final controller = _craneController;
+    if (controller == null || !controller.isConnected) return;
+    await controller.stopAllMotion();
+    if (!mounted) return;
+    await controller.disconnect();
   }
 
   void _cancelActivePlacement() {
@@ -192,6 +322,13 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       _dismissResetDialogIfVisible();
       _resetLocalButtonStates();
       _cancelActivePlacement();
+      // The PLC disconnected (or this screen is on its way out) for some
+      // reason other than our own auto-disconnect — e.g. a BLE drop or the
+      // operator using Back/Disconnect. Nothing left to time out toward, and
+      // the screen must not be left dimmed with the wakelock released once
+      // whatever replaces this one appears.
+      _inactivityController.stop();
+      unawaited(_wakeScreen());
     }
     if (controller.isDisconnected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -401,128 +538,133 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       preferShowLEDs: arrangement.showLiveLEDs,
     );
 
-    return Stack(
-      children: [
-        PopScope(
-          canPop: !isEditing,
-          onPopInvokedWithResult: _onBackAttempted,
-          child: Scaffold(
-            backgroundColor: AppColors.darkBg,
-            resizeToAvoidBottomInset: false,
-            appBar: _Plc38AppBar(labels: labels, isEditing: isEditing),
-            body: SafeArea(
-              maintainBottomViewPadding: true,
-              child: Stack(
-                children: [
-                  Padding(
-                    padding: metrics.bodyPadding,
-                    child: Column(
-                      children: [
-                        // ── Alarm banner ────────────────────────────────
-                        const FeedbackAlarmBanner(),
+    return ScreenActivityDetector(
+      onActivity: _inactivityController.registerActivity,
+      child: Stack(
+        children: [
+          PopScope(
+            canPop: !isEditing,
+            onPopInvokedWithResult: _onBackAttempted,
+            child: Scaffold(
+              backgroundColor: AppColors.darkBg,
+              resizeToAvoidBottomInset: false,
+              appBar: _Plc38AppBar(labels: labels, isEditing: isEditing),
+              body: SafeArea(
+                maintainBottomViewPadding: true,
+                child: Stack(
+                  children: [
+                    Padding(
+                      padding: metrics.bodyPadding,
+                      child: Column(
+                        children: [
+                          // ── Alarm banner ────────────────────────────────
+                          const FeedbackAlarmBanner(),
 
-                        // ── E-Stop / Reset ──────────────────────────────
-                        _SafetyPanelSection(
-                          compact: metrics.isCompact,
-                          height: metrics.estopHeight,
-                          width: sizing.resolvedEstopWidthOrFill,
-                          instructionLabel: labels.estopSwipeInstruction,
-                          resetLabel: labels.resetEstopLabel,
-                          isEditing: isEditing,
-                          onEStopTap: _onEStopTap,
-                          onResetActivated: _onResetEStopTap,
-                        ),
-                        SizedBox(height: metrics.itemSpacing),
-
-                        // ── Sensor row ────────────────────────────────
-                        if (metrics.showSensorRow) ...[
-                          const FeedbackSensorSection(),
-                          SizedBox(height: metrics.itemSpacing),
-                        ],
-
-                        // ── PLC38 10-output LED indicators ─────────────
-                        if (metrics.showLEDs) ...[
-                          FeedbackLedSection(
-                            variants: _ledVariants,
-                            mappedVariants: layoutCfg.mappedOutputVariants,
+                          // ── E-Stop / Reset ──────────────────────────────
+                          _SafetyPanelSection(
+                            compact: metrics.isCompact,
+                            height: metrics.estopHeight,
+                            width: sizing.resolvedEstopWidthOrFill,
+                            instructionLabel: labels.estopSwipeInstruction,
+                            resetLabel: labels.resetEstopLabel,
+                            isEditing: isEditing,
+                            onEStopTap: _onEStopTap,
+                            onResetActivated: _onResetEStopTap,
                           ),
                           SizedBox(height: metrics.itemSpacing),
-                        ],
 
-                        // ── Main controls area ─────────────────────────
-                        Expanded(
-                          child: RepaintBoundary(
-                            key: _canvasKey,
-                            child: _CanvasSection(
-                              layoutCfg: layoutCfg,
-                              isEditing: isEditing,
-                              localActive: _localActive,
-                              onLocalActiveChanged: (id, state) =>
-                                  setState(() => _localActive[id] = state),
-                              pageController: _canvasPageController,
+                          // ── Sensor row ────────────────────────────────
+                          if (metrics.showSensorRow) ...[
+                            const FeedbackSensorSection(),
+                            SizedBox(height: metrics.itemSpacing),
+                          ],
+
+                          // ── PLC38 10-output LED indicators ─────────────
+                          if (metrics.showLEDs) ...[
+                            FeedbackLedSection(
+                              variants: _ledVariants,
+                              mappedVariants: layoutCfg.mappedOutputVariants,
+                            ),
+                            SizedBox(height: metrics.itemSpacing),
+                          ],
+
+                          // ── Main controls area ─────────────────────────
+                          Expanded(
+                            child: RepaintBoundary(
+                              key: _canvasKey,
+                              child: _CanvasSection(
+                                layoutCfg: layoutCfg,
+                                isEditing: isEditing,
+                                localActive: _localActive,
+                                onLocalActiveChanged: (id, state) =>
+                                    setState(() => _localActive[id] = state),
+                                pageController: _canvasPageController,
+                              ),
                             ),
                           ),
-                        ),
 
-                        SizedBox(height: metrics.itemSpacing),
+                          SizedBox(height: metrics.itemSpacing),
 
-                        // ── Status bar ────────────────────────────────
-                        BottomActionsRecede(
-                          recede: isEditing,
-                          child: const FeedbackStatusChipSection(),
-                        ),
-                        SizedBox(height: metrics.itemSpacing),
-                      ],
+                          // ── Status bar ────────────────────────────────
+                          BottomActionsRecede(
+                            recede: isEditing,
+                            child: const FeedbackStatusChipSection(),
+                          ),
+                          SizedBox(height: metrics.itemSpacing),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (isEditing)
-                    const Positioned.fill(child: EditModeBackdrop()),
-                ],
+                    if (isEditing)
+                      const Positioned.fill(child: EditModeBackdrop()),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        EditModeToolbarHost(
-          isEditing:
-              isEditing &&
-              interactionMode == CustomizationInteractionMode.editing,
-        ),
-        if (isEditing) CatalogueOverlayHost(interactionMode: interactionMode),
-        if (interactionMode == CustomizationInteractionMode.placingWidget ||
-            interactionMode == CustomizationInteractionMode.movingWidget)
-          const Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: PlacementCancelBar(),
+          EditModeToolbarHost(
+            isEditing:
+                isEditing &&
+                interactionMode == CustomizationInteractionMode.editing,
           ),
-        if (interactionMode == CustomizationInteractionMode.settlingWidget &&
-            pendingCatalogueEntry != null &&
-            settlingStartRect != null &&
-            settlingEndRect != null)
-          SettlingPreviewOverlay(
-            config: pendingCatalogueEntry.buildPreviewConfig(),
-            previewSize: settlingEndRect.size,
-            startRect: settlingStartRect,
-            endRect: settlingEndRect,
-            onSettled: () =>
-                context.read<LayoutEditController>().commitSettledPlacement(),
-          ),
-        if (interactionMode ==
-                CustomizationInteractionMode.settlingMovedWidget &&
-            movingButtonConfig != null &&
-            settlingStartRect != null &&
-            settlingEndRect != null)
-          SettlingPreviewOverlay(
-            config: movingButtonConfig,
-            previewSize: settlingEndRect.size,
-            startRect: settlingStartRect,
-            endRect: settlingEndRect,
-            onSettled: () =>
-                context.read<LayoutEditController>().commitMovedPlacement(),
-          ),
-        const _PlacementErrorListener(),
-      ],
+          if (isEditing) CatalogueOverlayHost(interactionMode: interactionMode),
+          if (interactionMode == CustomizationInteractionMode.placingWidget ||
+              interactionMode == CustomizationInteractionMode.movingWidget)
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: PlacementCancelBar(),
+            ),
+          if (interactionMode == CustomizationInteractionMode.settlingWidget &&
+              pendingCatalogueEntry != null &&
+              settlingStartRect != null &&
+              settlingEndRect != null)
+            SettlingPreviewOverlay(
+              config: pendingCatalogueEntry.buildPreviewConfig(),
+              previewSize: settlingEndRect.size,
+              startRect: settlingStartRect,
+              endRect: settlingEndRect,
+              onSettled: () =>
+                  context.read<LayoutEditController>().commitSettledPlacement(),
+            ),
+          if (interactionMode ==
+                  CustomizationInteractionMode.settlingMovedWidget &&
+              movingButtonConfig != null &&
+              settlingStartRect != null &&
+              settlingEndRect != null)
+            SettlingPreviewOverlay(
+              config: movingButtonConfig,
+              previewSize: settlingEndRect.size,
+              startRect: settlingStartRect,
+              endRect: settlingEndRect,
+              onSettled: () =>
+                  context.read<LayoutEditController>().commitMovedPlacement(),
+            ),
+          const _PlacementErrorListener(),
+          if (_screenAsleep)
+            ScreenSleepOverlay(onWake: _inactivityController.registerActivity),
+        ],
+      ),
     );
   }
 }

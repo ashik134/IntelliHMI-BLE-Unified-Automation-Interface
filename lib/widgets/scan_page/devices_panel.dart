@@ -4,6 +4,10 @@ import 'package:rev_crane_control_ops/utils/constants.dart';
 import 'package:rev_crane_control_ops/widgets/scan_page/device_card.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
+/// Device rows sit in from the sheet's rounded shoulders, and clear the
+/// bottom edge the sheet now runs off so the last card never looks clipped.
+const EdgeInsets _listPadding = EdgeInsets.fromLTRB(14, 14, 14, 24);
+
 class DevicesPanel extends StatefulWidget {
   const DevicesPanel({super.key, required this.controller});
 
@@ -76,18 +80,27 @@ class _DevicesPanelState extends State<DevicesPanel>
         c.isCancellingConnection ||
         c.isConnected;
     final count = c.isConnected ? 1 : c.devices.length;
+    // A bottom-anchored sheet: rounded only at the top, running off the
+    // screen's bottom edge so the device list reads as the page's main
+    // surface rather than a boxed-in panel floating on it.
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
-        border: Border.all(color: AppColors.brandBorder),
-        boxShadow: AppMetrics.shadowSm,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppMetrics.radiusXl),
+        ),
+        border: Border(
+          top: BorderSide(color: AppColors.brandBorder),
+          left: BorderSide(color: AppColors.brandBorder),
+          right: BorderSide(color: AppColors.brandBorder),
+        ),
+        boxShadow: AppMetrics.shadowMd,
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 14, 12),
+            padding: const EdgeInsets.fromLTRB(18, 16, 14, 12),
             child: Row(
               children: [
                 const Text(
@@ -158,10 +171,10 @@ class _DevicesPanelState extends State<DevicesPanel>
               final scanning = widget.controller.isScanning;
               if (!scanning) return const SizedBox.shrink();
               return SizedBox(
-                height: 2,
+                height: 2.5,
                 child: CustomPaint(
                   painter: _ScanSweepPainter(progress: _scanPulseAnim.value),
-                  size: const Size(double.infinity, 2),
+                  size: const Size(double.infinity, 2.5),
                 ),
               );
             },
@@ -190,7 +203,7 @@ class _DevicesPanelState extends State<DevicesPanel>
 
         return ListView.separated(
           key: const ValueKey('guard-devices-list'),
-          padding: const EdgeInsets.all(14),
+          padding: _listPadding,
           itemCount: sorted.length,
           separatorBuilder: (_, _) => const SizedBox(height: 10),
           itemBuilder: (_, i) => AvailableDeviceCard(
@@ -206,7 +219,7 @@ class _DevicesPanelState extends State<DevicesPanel>
 
       return ListView.separated(
         key: const ValueKey('connecting-list'),
-        padding: const EdgeInsets.all(14),
+        padding: _listPadding,
         itemCount: 1 + others.length,
         separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (_, i) {
@@ -401,7 +414,15 @@ class _ScanSweepPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const sweepWidth = 120.0;
+    // A faint full-width track under the moving highlight. Without it the
+    // lone gradient blob read as a rendering smudge rather than a
+    // deliberate activity indicator.
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = AppColors.brandViolet.withAlpha(28),
+    );
+
+    const sweepWidth = 150.0;
     final center = progress * (size.width + sweepWidth) - sweepWidth / 2;
     final left = center - sweepWidth / 2;
 
@@ -410,7 +431,7 @@ class _ScanSweepPainter extends CustomPainter {
       ..shader = LinearGradient(
         colors: [
           AppColors.brandViolet.withAlpha(0),
-          AppColors.brandViolet.withAlpha(200),
+          AppColors.brandViolet,
           AppColors.brandViolet.withAlpha(0),
         ],
       ).createShader(rect);
