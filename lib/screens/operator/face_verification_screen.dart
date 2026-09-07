@@ -1,23 +1,30 @@
 import 'dart:async';
+import 'dart:math' show Random;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
+import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
+import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
 import 'package:rev_crane_control_ops/models/operator_profile.dart';
 import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/repositories/operator_repository.dart';
 import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
+import 'package:rev_crane_control_ops/services/face_liveness_service.dart';
+import 'package:rev_crane_control_ops/services/face_verification_lockout_service.dart';
 import 'package:rev_crane_control_ops/services/face_verification_service.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
+import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
@@ -36,14 +43,15 @@ enum _Phase {
   verified,
   blocked,
   notRecognized,
+  lockedOut,
 }
 
 /// Sub-state of [_Phase.scanning] — the state machine this screen was
-/// flickering without: `waitingForFace → stabilizing → verifying`, ending
-/// in either a match (→ [_Phase.verified]/[_Phase.blocked]) or a *final*
-/// [_Phase.notRecognized], never a per-frame flip back and forth between
-/// "Hold still" and "Face not recognized".
-enum _ScanState { waitingForFace, stabilizing, verifying }
+/// flickering without: `waitingForFace → stabilizing → livenessCheck →
+/// verifying`, ending in either a match (→ [_Phase.verified]/[_Phase.
+/// blocked]) or a *final* [_Phase.notRecognized], never a per-frame flip
+/// back and forth between "Hold still" and "Face not recognized".
+enum _ScanState { waitingForFace, stabilizing, livenessCheck, verifying }
 
 /// Identity gate shown after a BLE connection is established and before the
 /// PLC credential (Authentication) screen — see [CraneController.
@@ -56,7 +64,12 @@ enum _ScanState { waitingForFace, stabilizing, verifying }
 /// Never logs or displays face images, embeddings, or raw similarity
 /// scores — only the resolved operator identity is ever surfaced, via
 /// [CraneController.completeFaceVerification]/[CraneController.
-/// recordFaceVerificationDenied].
+/// recordFaceVerificationDenied]/[CraneController.
+/// recordFaceVerificationFailed]. A failed attempt (no consensus match, or
+/// a failed/timed-out [LivenessSession] challenge) is logged with only a
+/// categorical reason — never a similarity score — and counts toward
+/// [FaceVerificationLockoutService]'s device-level lockout; a correctly
+/// matched-but-disabled operator ([_Phase.blocked]) deliberately does not.
 class FaceVerificationScreen extends StatefulWidget {
   const FaceVerificationScreen({super.key});
 
@@ -108,6 +121,21 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   int _stableGoodFrames = 0;
   int _badFrameStreak = 0;
+
+  /// The active anti-spoof challenge during [_ScanState.livenessCheck], or
+  /// null outside that sub-state. `turnLeft`/`turnRight` are deliberately
+  /// excluded from [_livenessChallengePool] for now: ML Kit's yaw sign
+  /// convention is unverified on-device (see `DetectedFace`'s doc comment
+  /// vs. `LivenessSession`'s), and separately `FaceDetectionService
+  /// .evaluateQuality`'s 20° pose gate leaves only a narrow 15-20° window
+  /// where a turn both clears that gate and registers as valid — revisit
+  /// once confirmed on real hardware.
+  LivenessSession? _livenessSession;
+  double _livenessProgress = 0.0;
+  static const List<LivenessChallengeType> _livenessChallengePool = [
+    LivenessChallengeType.blink,
+    LivenessChallengeType.lookStraight,
+  ];
 
   /// Matched operator id per verification sample collected during
   /// [_ScanState.verifying]; null entries are samples that ran but found
@@ -163,7 +191,32 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     await FrontCameraSession.close(controller);
   }
 
+  /// Shows [_Phase.lockedOut] and returns true if a prior run of failed
+  /// attempts has this device still locked out — checked before either
+  /// entry point that would otherwise start the camera/permission/model-
+  /// load sequence for nothing.
+  Future<bool> _checkLockedOut() async {
+    final remaining =
+        await FaceVerificationLockoutService.remainingLockoutSeconds();
+    if (remaining <= 0) return false;
+    if (!mounted) return true;
+    setState(() {
+      _phase = _Phase.lockedOut;
+      _statusMessage =
+          'Too many attempts. Try again in ${_formatDuration(remaining)}.';
+    });
+    return true;
+  }
+
+  static String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    if (minutes <= 0) return '${secs}s';
+    return '${minutes}m ${secs}s';
+  }
+
   Future<void> _initialize() async {
+    if (await _checkLockedOut()) return;
     final status = await Permission.camera.request();
     if (!mounted) return;
     if (!status.isGranted) {
@@ -208,6 +261,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   }
 
   Future<void> _initializeCamera() async {
+    if (await _checkLockedOut()) return;
     try {
       final controller = await FrontCameraSession.open();
       if (!mounted) {
@@ -228,6 +282,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     _scanState = _ScanState.waitingForFace;
     _stableGoodFrames = 0;
     _badFrameStreak = 0;
+    _livenessSession = null;
+    _livenessProgress = 0.0;
     _verificationSamples.clear();
     _matchedOperator = null;
     _statusMessage = 'Position your face inside the guide';
@@ -265,6 +321,17 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       rotationDegrees: rotation,
     );
 
+    // During an active liveness challenge, a face count other than exactly
+    // one *is* the anti-spoof signal `LivenessSession` exists to catch
+    // (e.g. a second photo held up beside the operator's real face) — it
+    // must hard-fail the challenge immediately, not get absorbed into the
+    // tolerant `_handleBadFrame` streak the way every other bad frame is
+    // below.
+    if (_scanState == _ScanState.livenessCheck && faces.length != 1) {
+      await _handleLivenessFrame(faceCount: faces.length, face: null);
+      return;
+    }
+
     final quality = FaceDetectionService.evaluateQuality(
       faces,
       imageSize,
@@ -273,6 +340,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     String? framingIssueMessage;
     var isGoodFrame = quality.passed;
+    img.Image? decodedFrame;
     if (isGoodFrame) {
       final face = faces.single;
       final uprightImageSize = FaceDetectionService.uprightSize(
@@ -297,6 +365,22 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         isGoodFrame = false;
         framingIssueMessage = 'Keep your whole face inside the frame';
       }
+
+      // Pixel-level quality gate — enrollment already checks brightness/
+      // sharpness on the decoded RGB frame; verification didn't. Decoded
+      // once here and threaded through to whichever sub-state needs it
+      // below, rather than decoded again inside `_collectVerificationSample`.
+      if (isGoodFrame) {
+        decodedFrame = CameraFrameConverter.toRgbImage(image);
+        final pixelIssue = FrameQualityAnalyzer.evaluate(
+          decodedFrame,
+          face.boundingBox,
+        );
+        if (pixelIssue != null) {
+          isGoodFrame = false;
+          framingIssueMessage = pixelIssue.guidance;
+        }
+      }
     }
 
     if (!isGoodFrame) {
@@ -314,8 +398,15 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       case _ScanState.stabilizing:
         await _advanceStabilizing();
         return;
+      case _ScanState.livenessCheck:
+        await _handleLivenessFrame(faceCount: 1, face: faces.single);
+        return;
       case _ScanState.verifying:
-        await _collectVerificationSample(image, faces.single, verificationService);
+        await _collectVerificationSample(
+          decodedFrame!,
+          faces.single,
+          verificationService,
+        );
         return;
     }
   }
@@ -343,6 +434,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     // lost framing. Reset back to the start of the state machine.
     _badFrameStreak = 0;
     _stableGoodFrames = 0;
+    _livenessSession = null;
+    _livenessProgress = 0.0;
     _verificationSamples.clear();
     if (!mounted) return;
     setState(() {
@@ -362,23 +455,125 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       return;
     }
 
-    // Stabilization complete — enter VERIFYING and stay there,
-    // uninterrupted by individual sample outcomes, until a final decision
-    // is reached in `_finalizeVerification`.
-    _verificationSamples.clear();
+    // Stabilization complete — run one randomly-chosen liveness challenge
+    // before VERIFYING starts, so a static photo/screen replay that
+    // cleared framing can't proceed any further.
+    final challenge =
+        _livenessChallengePool[Random().nextInt(_livenessChallengePool.length)];
+    _livenessSession = LivenessSession(challenge, timeout: const Duration(seconds: 10));
+    _livenessProgress = 0.0;
     if (!mounted) return;
     setState(() {
-      _scanState = _ScanState.verifying;
-      _statusMessage = 'Verifying your identity…';
+      _scanState = _ScanState.livenessCheck;
+      _statusMessage = challenge.instruction;
     });
   }
 
+  /// Feeds one frame to the active [_livenessSession] and reacts to its
+  /// result. [faceCount]/[face] mirror [LivenessSession.processFrame]'s own
+  /// params directly — called both for a good single-face frame (from the
+  /// main switch below) and, deliberately bypassing that tolerant path,
+  /// for a zero/multiple-face frame seen during [_ScanState.livenessCheck]
+  /// (see the anti-spoof comment in [_processFrame]).
+  Future<void> _handleLivenessFrame({
+    required int faceCount,
+    DetectedFace? face,
+  }) async {
+    final session = _livenessSession;
+    if (session == null) return;
+
+    final state = session.processFrame(
+      faceCount: faceCount,
+      face: face,
+      now: DateTime.now(),
+    );
+    if (!mounted) return;
+
+    if (state.completed) {
+      _livenessSession = null;
+      _livenessProgress = 0.0;
+      _verificationSamples.clear();
+      setState(() {
+        _scanState = _ScanState.verifying;
+        _statusMessage = 'Verifying your identity…';
+      });
+      return;
+    }
+
+    if (state.failed || state.timedOut) {
+      _livenessSession = null;
+      _livenessProgress = 0.0;
+      await _handleFailedAttempt(
+        detailCode: state.timedOut
+            ? 'face_liveness_timed_out'
+            : 'face_liveness_failed',
+        failureReason: state.failureReason,
+        onNotLockedOut: () {
+          // A missed challenge isn't a hard failure — silently retry
+          // in-session, same as this screen's existing bad-frame-streak
+          // reset, rather than a terminal error screen for one missed
+          // blink. The camera keeps streaming; only `_phase.lockedOut`
+          // (handled inside `_handleFailedAttempt`) disposes it.
+          _stableGoodFrames = 0;
+          _verificationSamples.clear();
+          if (!mounted) return;
+          setState(() {
+            _scanState = _ScanState.waitingForFace;
+            _statusMessage = "Let's try that again";
+          });
+        },
+      );
+      return;
+    }
+
+    setState(() {
+      _statusMessage = state.challenge.instruction;
+      _livenessProgress = state.progress;
+    });
+  }
+
+  /// Records one failed verification attempt against
+  /// [FaceVerificationLockoutService] and audit-logs it via
+  /// [CraneController.recordFaceVerificationFailed] — always a categorical
+  /// [detailCode], never a raw match score (see this class's doc comment).
+  /// If this attempt just tripped the lockout threshold, disposes the
+  /// camera and shows [_Phase.lockedOut]; otherwise calls
+  /// [onNotLockedOut], which owns whatever should happen instead (a
+  /// terminal "not recognized" screen, or a silent in-session retry).
+  Future<void> _handleFailedAttempt({
+    required String detailCode,
+    String? failureReason,
+    required VoidCallback onNotLockedOut,
+  }) async {
+    final trippedLockout =
+        await FaceVerificationLockoutService.recordFailedAttempt();
+    if (!mounted) return;
+    context.read<CraneController>().recordFaceVerificationFailed(
+      detailCode: detailCode,
+      failureReason: failureReason,
+    );
+
+    if (trippedLockout) {
+      unawaited(_disposeCamera());
+      final remaining =
+          await FaceVerificationLockoutService.remainingLockoutSeconds();
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.lockedOut;
+        _statusMessage =
+            'Too many attempts. Try again in ${_formatDuration(remaining)}.';
+      });
+      return;
+    }
+
+    onNotLockedOut();
+  }
+
   Future<void> _collectVerificationSample(
-    CameraImage image,
+    img.Image frame,
     DetectedFace face,
     FaceVerificationService verificationService,
   ) async {
-    final frame = CameraFrameConverter.toRgbImage(image);
     final result = await verificationService.verify(
       frame: frame,
       face: face,
@@ -422,8 +617,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     if (winnerId == null || winnerCount < _consensusSamplesRequired) {
       _stableGoodFrames = 0;
       unawaited(_disposeCamera());
-      if (!mounted) return;
-      setState(() => _phase = _Phase.notRecognized);
+      await _handleFailedAttempt(
+        detailCode: 'face_no_match',
+        failureReason: 'No confident consensus match among verification samples.',
+        onNotLockedOut: () {
+          if (!mounted) return;
+          setState(() => _phase = _Phase.notRecognized);
+        },
+      );
       return;
     }
 
@@ -434,8 +635,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       // recognized", not a retry loop.
       _stableGoodFrames = 0;
       unawaited(_disposeCamera());
-      if (!mounted) return;
-      setState(() => _phase = _Phase.notRecognized);
+      await _handleFailedAttempt(
+        detailCode: 'face_no_match',
+        failureReason: 'Matched template has no corresponding operator profile.',
+        onNotLockedOut: () {
+          if (!mounted) return;
+          setState(() => _phase = _Phase.notRecognized);
+        },
+      );
       return;
     }
     // Full dispose rather than just `stopImageStream()` — matches this
@@ -454,6 +661,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       return;
     }
 
+    await FaceVerificationLockoutService.recordSuccess();
+    if (!mounted) return;
     setState(() {
       _phase = _Phase.verified;
       _matchedOperator = operator;
@@ -546,6 +755,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         return _buildBlocked(context);
       case _Phase.notRecognized:
         return _buildNotRecognized(context);
+      case _Phase.lockedOut:
+        return _buildLockedOut(context);
     }
   }
 
@@ -558,7 +769,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
 
     final isVerifying = _scanState == _ScanState.verifying;
-    final guideColor = isVerifying
+    final isLivenessCheck = _scanState == _ScanState.livenessCheck;
+    final guideColor = (isVerifying || isLivenessCheck)
         ? AppColors.brandViolet
         : Colors.white.withAlpha(210);
 
@@ -583,7 +795,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
               scanProgress: isVerifying
                   ? (_verificationSamples.length / _requiredVerificationSamples)
                         .clamp(0.0, 1.0)
-                  : null,
+                  : isLivenessCheck
+                      ? _livenessProgress.clamp(0.0, 1.0)
+                      : null,
             ),
             const Positioned(
               top: 16,
@@ -719,6 +933,21 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
           ],
         ),
       ),
+    );
+  }
+
+  /// "Try Again" re-enters [_retryScanning] → [_initializeCamera], which
+  /// re-checks [_checkLockedOut] itself — so this just re-renders the same
+  /// message with a freshly recomputed remaining time if still locked out.
+  Widget _buildLockedOut(BuildContext context) {
+    return _MessageState(
+      icon: Icons.lock_clock_rounded,
+      title: 'Too many attempts',
+      message: _statusMessage,
+      primaryLabel: 'Try Again',
+      onPrimary: () => unawaited(_retryScanning()),
+      onCancel: _backToScan,
+      cancelLabel: 'Back to Scan',
     );
   }
 }

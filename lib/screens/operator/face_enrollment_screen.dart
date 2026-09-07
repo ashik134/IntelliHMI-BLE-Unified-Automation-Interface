@@ -503,6 +503,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   bool get _isGoodFrame =>
+      _captureState.status == FaceEnrollmentStatus.livenessChallenge ||
       _captureState.status == FaceEnrollmentStatus.scanning ||
       _captureState.status == FaceEnrollmentStatus.processing ||
       _captureState.status == FaceEnrollmentStatus.complete;
@@ -568,7 +569,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
               guideColor: _guideColor,
               guideDiameter: guideDiameter,
               scanProgress:
-                  _captureState.status == FaceEnrollmentStatus.scanning
+                  (_captureState.status == FaceEnrollmentStatus.scanning ||
+                          _captureState.status ==
+                              FaceEnrollmentStatus.livenessChallenge)
                       ? _captureState.scanProgress
                       : null,
             ),

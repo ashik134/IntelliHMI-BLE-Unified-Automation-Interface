@@ -1,3 +1,4 @@
+import 'dart:math' show Random;
 import 'dart:ui';
 
 import 'package:image/image.dart' as img;
@@ -8,21 +9,26 @@ import 'package:rev_crane_control_ops/models/face_enrollment_result.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_status.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
+import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
 import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/services/face_alignment_service.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
+import 'package:rev_crane_control_ops/services/face_liveness_service.dart';
 import 'package:rev_crane_control_ops/services/face_matching_service.dart';
 import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 
-enum _Phase { stabilizing, scanning }
+enum _Phase { stabilizing, livenessCheck, scanning }
 
 /// Orchestrates one enrollment session as a single continuous biometric
 /// scan: [_Phase.stabilizing] waits for the operator to hold a good frame
-/// for [stabilizeDuration], then [_Phase.scanning] runs for a fixed
-/// [scanDuration] wall-clock window, silently sampling embeddings from
-/// whichever frames clear quality, before [finalizeEnrollment] reduces
-/// whatever was collected to a single representative [FaceTemplate].
+/// for [stabilizeDuration], then [_Phase.livenessCheck] runs one randomly-
+/// chosen [LivenessSession] challenge (anti-photo-spoof — a static image or
+/// screen replay can clear framing but can't blink or hold a pose on cue),
+/// then [_Phase.scanning] runs for a fixed [scanDuration] wall-clock
+/// window, silently sampling embeddings from whichever frames clear
+/// quality, before [finalizeEnrollment] reduces whatever was collected to
+/// a single representative [FaceTemplate].
 ///
 /// The on-screen status during [_Phase.scanning] never leaves
 /// [FaceEnrollmentStatus.scanning] for a merely transient problem — see
@@ -137,8 +143,23 @@ class FaceEnrollmentService {
   /// delays sample collection within the fixed [scanDuration] window.
   static const int _identityLockSeedCount = 3;
 
+  /// Challenge types offered during [_Phase.livenessCheck].
+  /// `turnLeft`/`turnRight` are deliberately excluded for now: ML Kit's
+  /// yaw sign convention is unverified on-device (see `DetectedFace`'s doc
+  /// comment vs. `LivenessSession`'s own), and separately
+  /// `FaceDetectionService.evaluateQuality`'s 20° pose gate leaves only a
+  /// narrow 15-20° window where a turn both clears that gate and registers
+  /// as valid — revisit once confirmed on real hardware.
+  static const List<LivenessChallengeType> _livenessChallengePool = [
+    LivenessChallengeType.blink,
+    LivenessChallengeType.lookStraight,
+  ];
+
+  static const Duration _livenessTimeout = Duration(seconds: 10);
+
   _Phase _phase = _Phase.stabilizing;
   DateTime? _stableSince;
+  LivenessSession? _livenessSession;
   DateTime? _scanStartedAt;
   DateTime? _disruptionStartedAt;
 
@@ -180,6 +201,7 @@ class FaceEnrollmentService {
   void reset() {
     _phase = _Phase.stabilizing;
     _stableSince = null;
+    _livenessSession = null;
     _scanStartedAt = null;
     _disruptionStartedAt = null;
     _seeds.clear();
@@ -225,8 +247,16 @@ class FaceEnrollmentService {
       );
       if (result != null) return result;
       // Stability threshold just cleared this frame — fall through and
-      // spend this same frame as the scan's first frame rather than
-      // discarding it and waiting for the next one.
+      // spend this same frame as the liveness challenge's first frame
+      // rather than discarding it and waiting for the next one.
+    }
+
+    if (_phase == _Phase.livenessCheck) {
+      final result = _evaluateLiveness(now: now, earlyStatus: earlyStatus, faces: faces);
+      if (result != null) return result;
+      // Challenge just completed on this frame — fall through and spend
+      // it as the scan's first frame too, same fallthrough philosophy as
+      // above.
     }
 
     return _evaluateScanning(
@@ -274,10 +304,90 @@ class FaceEnrollmentService {
       return _state(FaceEnrollmentStatus.holdStill);
     }
 
-    _phase = _Phase.scanning;
-    _scanStartedAt = now;
+    // Stability cleared — a liveness challenge runs next, not the scan
+    // itself. `_scanStartedAt` is deliberately NOT set here: it's set only
+    // once the challenge actually completes, in `_evaluateLiveness` —
+    // setting it this early would make `_evaluateScanning`'s `elapsed >=
+    // scanDuration` check true on the very first real scanning frame,
+    // silently completing the scan with zero samples.
+    _phase = _Phase.livenessCheck;
+    _livenessSession = LivenessSession(
+      _livenessChallengePool[Random().nextInt(_livenessChallengePool.length)],
+      timeout: _livenessTimeout,
+    );
     _disruptionStartedAt = null;
     return null;
+  }
+
+  /// Returns a state to render while [_Phase.livenessCheck] is active, or
+  /// null once the challenge has just completed (in which case [_phase]
+  /// has already advanced to [_Phase.scanning] with [_scanStartedAt] just
+  /// set, and the caller should immediately evaluate this same frame as
+  /// the scan's first frame).
+  FaceEnrollmentState? _evaluateLiveness({
+    required DateTime now,
+    required FaceEnrollmentStatus? earlyStatus,
+    required List<DetectedFace> faces,
+  }) {
+    final session = _livenessSession!;
+
+    // A face count other than exactly one *is* the anti-spoof signal
+    // `LivenessSession` exists to catch (e.g. a second photo held up
+    // beside the operator's real face) — feed it straight through so the
+    // session's own hard-fail fires immediately, rather than folding it
+    // into the transient-quality-hiccup tolerance below.
+    if (faces.length != 1) {
+      return _resolveLiveness(
+        session.processFrame(faceCount: faces.length, now: now),
+        now,
+      );
+    }
+
+    if (earlyStatus != null) {
+      // A single real face having a transient quality hiccup (autofocus
+      // hunt, brief motion blur) — tolerated the same way a sustained
+      // scanning-phase disruption is, reusing `_maxScanDisruption` rather
+      // than failing the challenge on one bad frame.
+      _disruptionStartedAt ??= now;
+      if (now.difference(_disruptionStartedAt!) >= _maxScanDisruption) {
+        reset();
+        return _state(earlyStatus);
+      }
+      return _state(
+        FaceEnrollmentStatus.livenessChallenge,
+        livenessInstruction: session.challenge.instruction,
+      );
+    }
+    _disruptionStartedAt = null;
+
+    return _resolveLiveness(
+      session.processFrame(faceCount: 1, face: faces.single, now: now),
+      now,
+    );
+  }
+
+  FaceEnrollmentState? _resolveLiveness(LivenessChallengeState state, DateTime now) {
+    if (state.completed) {
+      _livenessSession = null;
+      _phase = _Phase.scanning;
+      _scanStartedAt = now;
+      _disruptionStartedAt = null;
+      return null;
+    }
+
+    if (state.failed || state.timedOut) {
+      // Not a hard enrollment failure — a missed blink/pose just restarts
+      // the whole flow from stabilizing, same as a sustained scanning-
+      // phase disruption does today.
+      reset();
+      return _state(FaceEnrollmentStatus.holdStill);
+    }
+
+    return _state(
+      FaceEnrollmentStatus.livenessChallenge,
+      livenessInstruction: state.challenge.instruction,
+      scanProgress: state.progress,
+    );
   }
 
   Future<FaceEnrollmentState> _evaluateScanning({
@@ -470,10 +580,12 @@ class FaceEnrollmentService {
     FaceEnrollmentStatus status, {
     FaceOffsetDirection? offsetDirection,
     double? scanProgress,
+    String? livenessInstruction,
   }) => FaceEnrollmentState(
     status: status,
     offsetDirection: offsetDirection,
     scanProgress: scanProgress,
+    livenessInstruction: livenessInstruction,
   );
 
   static FaceEnrollmentStatus? _statusForIssue(FaceQualityIssue? issue) {

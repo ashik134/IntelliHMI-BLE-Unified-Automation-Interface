@@ -1075,6 +1075,30 @@ class CraneController extends ChangeNotifier
     );
   }
 
+  /// Logs a face-verification attempt that never matched any enrolled
+  /// operator — no-match, a failed/timed-out liveness challenge, or a
+  /// lockout being hit. No operator identity is available here (that's the
+  /// point of these outcomes), so unlike [completeFaceVerification]/
+  /// [recordFaceVerificationDenied] there's no operator to attach. Never
+  /// pass a raw match score in [failureReason]/[detailCode] — this screen's
+  /// documented invariant is that a similarity score never leaves the
+  /// matching service; only categorical reasons do.
+  void recordFaceVerificationFailed({
+    required String detailCode,
+    String? failureReason,
+  }) {
+    unawaited(
+      _auditLog.record(
+        result: AuthEventResult.failed,
+        method: AuthEventMethod.face,
+        deviceId: _deviceId,
+        connectionStatus: _transportConnState.status.name,
+        failureReason: failureReason,
+        detailCode: detailCode,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);

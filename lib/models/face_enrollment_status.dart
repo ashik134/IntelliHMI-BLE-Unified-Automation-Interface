@@ -26,6 +26,7 @@ enum FaceEnrollmentStatus {
   lookStraight,
   poorLighting,
   holdStill,
+  livenessChallenge,
   scanning,
   processing,
   duplicateDetected,
@@ -50,6 +51,10 @@ extension FaceEnrollmentStatusCaption on FaceEnrollmentStatus {
     FaceEnrollmentStatus.poorLighting =>
       'Still too dark — move to a brighter location',
     FaceEnrollmentStatus.holdStill => 'Hold still',
+    // Overridden per-frame by `FaceEnrollmentState.livenessInstruction`
+    // while an actual challenge is active — this is only the fallback if
+    // that's somehow unset.
+    FaceEnrollmentStatus.livenessChallenge => 'Follow the on-screen instruction',
     FaceEnrollmentStatus.scanning => 'Scanning your face…',
     FaceEnrollmentStatus.processing => 'Processing…',
     FaceEnrollmentStatus.duplicateDetected =>
@@ -66,12 +71,14 @@ class FaceEnrollmentState {
     required this.status,
     this.offsetDirection,
     this.scanProgress,
+    this.livenessInstruction,
   });
 
   const FaceEnrollmentState.initial()
     : status = FaceEnrollmentStatus.initializing,
       offsetDirection = null,
-      scanProgress = null;
+      scanProgress = null,
+      livenessInstruction = null;
 
   final FaceEnrollmentStatus status;
 
@@ -80,15 +87,25 @@ class FaceEnrollmentState {
   /// generic [FaceEnrollmentStatus.caption].
   final FaceOffsetDirection? offsetDirection;
 
-  /// Fraction (0.0..1.0) of the continuous scan window elapsed — set only
-  /// when [status] is [FaceEnrollmentStatus.scanning], driving the
-  /// rotating/progress ring around the capture guide. Deliberately not a
-  /// sample count: the whole point of the continuous-scan design is that
-  /// the operator never sees "N of M" capture counting (see
+  /// Fraction (0.0..1.0) of progress through whichever timed sub-phase is
+  /// active — the continuous scan window when [status] is
+  /// [FaceEnrollmentStatus.scanning], or the current liveness challenge's
+  /// hold/blink progress when [status] is
+  /// [FaceEnrollmentStatus.livenessChallenge]. The two are never active at
+  /// once, so reusing one field doesn't collide. Deliberately not a sample
+  /// count during scanning: the whole point of the continuous-scan design
+  /// is that the operator never sees "N of M" capture counting (see
   /// `FaceEnrollmentStatus`'s class doc comment).
   final double? scanProgress;
 
+  /// Set only when [status] is [FaceEnrollmentStatus.livenessChallenge] —
+  /// the active challenge's instruction (e.g. "Blink"). Null falls back to
+  /// the generic [FaceEnrollmentStatus.caption].
+  final String? livenessInstruction;
+
   /// User-facing guidance text: directional when available (e.g. "Move
-  /// your face left"), otherwise [status]'s generic [caption].
-  String get caption => offsetDirection?.guidance ?? status.caption;
+  /// your face left"), then the active liveness instruction, otherwise
+  /// [status]'s generic [caption].
+  String get caption =>
+      offsetDirection?.guidance ?? livenessInstruction ?? status.caption;
 }
