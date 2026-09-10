@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -31,6 +33,40 @@ class _RecentEvent {
 
 enum _MetricStatus { ok, warning, error, neutral }
 
+const List<String> _kWeekdayNames = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+const List<String> _kMonthNames = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+String _greeting() {
+  final hour = DateTime.now().hour;
+  if (hour < 5) return 'Working late';
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  if (hour < 21) return 'Good evening';
+  return 'Working late';
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HomeScreen
 // ═══════════════════════════════════════════════════════════════
@@ -44,9 +80,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _commStatsExpanded = false;
+  int _refreshTick = 0;
 
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
+  late final AnimationController _entranceController;
 
   static const List<_RecentEvent> _recentEvents = [
     _RecentEvent(
@@ -93,6 +131,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       curve: Curves.easeOutCubic,
     );
 
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..forward();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<LayoutSettingsController>().load();
@@ -103,6 +146,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _fadeController.dispose();
+    _entranceController.dispose();
     super.dispose();
   }
 
@@ -118,6 +162,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
+  void _navigateToLogs() {
+    HapticFeedback.selectionClick();
+    context.read<NavigationController>().navigateToLogs();
+  }
+
+  Future<void> _onRefresh() async {
+    HapticFeedback.lightImpact();
+    await context.read<CraneController>().refreshPermissions();
+    setState(() => _refreshTick++);
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
@@ -126,47 +182,168 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       backgroundColor: AppColors.brandBg,
       body: FadeTransition(
         opacity: _fadeAnimation,
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
-              child: _HeroHeader(
-                controller: controller,
-                onSettingsTap: _navigateToSettings,
-                onConnect: _navigateToConnect,
+        child: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: AppColors.brandViolet,
+          backgroundColor: AppColors.brandSurface,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _HeroHeader(
+                  controller: controller,
+                  onSettingsTap: _navigateToSettings,
+                  onConnect: _navigateToConnect,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 0,
+                      child: const BrandSectionLabel(label: 'Quick Actions'),
+                    ),
+                    const SizedBox(height: 10),
+                    _QuickActionsGrid(
+                      animation: _entranceController,
+                      onControlPanel: _navigateToConnect,
+                      onDiagnostics: () => context
+                          .read<NavigationController>()
+                          .navigateToDiagnostics(),
+                      onLogs: _navigateToLogs,
+                      onSettings: _navigateToSettings,
+                    ),
+                    const SizedBox(height: 24),
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 4,
+                      child: const BrandSectionLabel(label: 'System Health'),
+                    ),
+                    const SizedBox(height: 10),
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 4,
+                      child: _SystemHealthCard(
+                        controller: controller,
+                        refreshTick: _refreshTick,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 5,
+                      child: _CommStatsPanel(
+                        expanded: _commStatsExpanded,
+                        onToggle: () {
+                          HapticFeedback.selectionClick();
+                          setState(
+                            () => _commStatsExpanded = !_commStatsExpanded,
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 6,
+                      child: BrandSectionLabel(
+                        label: 'Recent Events',
+                        trailing: _ViewAllLink(onTap: _navigateToLogs),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _Reveal(
+                      animation: _entranceController,
+                      slot: 6,
+                      child: const _RecentEventsCard(events: _recentEvents),
+                    ),
+                    const SizedBox(height: 8),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Staggered entrance helper — fades + slides a section in on a shared
+// timeline so the page reads as one choreographed reveal rather than
+// everything popping in at once.
+// ═══════════════════════════════════════════════════════════════
+
+class _Reveal extends StatelessWidget {
+  const _Reveal({
+    required this.animation,
+    required this.slot,
+    this.each = 0.08,
+    this.span = 0.55,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final int slot;
+  final double each;
+  final double span;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = (slot * each).clamp(0.0, 0.99);
+    final end = (start + span).clamp(start + 0.01, 1.0);
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Interval(start, end, curve: Curves.easeOutCubic),
+    );
+    return AnimatedBuilder(
+      animation: curved,
+      builder: (context, child) => Opacity(
+        opacity: curved.value.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, (1 - curved.value) * 20),
+          child: child,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _ViewAllLink extends StatelessWidget {
+  const _ViewAllLink({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'View All',
+              style: TextStyle(
+                color: AppColors.brandViolet,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
               ),
             ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  const BrandSectionLabel(label: 'Quick Actions'),
-                  const SizedBox(height: 10),
-                  _QuickActionsGrid(
-                    onControlPanel: _navigateToConnect,
-                    onDiagnostics: () =>
-                        context.read<NavigationController>().navigateToDiagnostics(),
-                    onLogs: () =>
-                        context.read<NavigationController>().navigateToLogs(),
-                    onSettings: _navigateToSettings,
-                  ),
-                  const SizedBox(height: 24),
-                  const BrandSectionLabel(label: 'System Health'),
-                  const SizedBox(height: 10),
-                  _SystemHealthCard(controller: controller),
-                  const SizedBox(height: 16),
-                  _CommStatsPanel(
-                    expanded: _commStatsExpanded,
-                    onToggle: () =>
-                        setState(() => _commStatsExpanded = !_commStatsExpanded),
-                  ),
-                  const SizedBox(height: 24),
-                  const BrandSectionLabel(label: 'Recent Events'),
-                  const SizedBox(height: 10),
-                  const _RecentEventsCard(events: _recentEvents),
-                  const SizedBox(height: 8),
-                ]),
-              ),
+            SizedBox(width: 2),
+            Icon(
+              Icons.arrow_forward_rounded,
+              size: 13,
+              color: AppColors.brandViolet,
             ),
           ],
         ),
@@ -208,12 +385,21 @@ class _HeroHeader extends StatelessWidget {
           Positioned(
             top: -70,
             right: -60,
-            child: _GlowOrb(size: 220, color: AppColors.brandViolet.withAlpha(46)),
+            child: _FloatingGlowOrb(
+              size: 220,
+              color: AppColors.brandViolet.withAlpha(46),
+              duration: const Duration(seconds: 7),
+            ),
           ),
           Positioned(
             bottom: -90,
             left: -50,
-            child: _GlowOrb(size: 200, color: AppColors.brandViolet.withAlpha(26)),
+            child: _FloatingGlowOrb(
+              size: 200,
+              color: AppColors.brandViolet.withAlpha(26),
+              duration: const Duration(seconds: 9),
+              reversed: true,
+            ),
           ),
           SafeArea(
             bottom: false,
@@ -269,7 +455,9 @@ class _HeroHeader extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 20),
+                  const _GreetingClockLine(),
+                  const SizedBox(height: 14),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -277,12 +465,24 @@ class _HeroHeader extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            BrandBadge(
-                              label: connected ? 'SYSTEM ONLINE' : 'SYSTEM STANDBY',
-                              tone: connected ? BrandTone.success : BrandTone.neutral,
-                              icon: connected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.radio_button_unchecked_rounded,
+                            Row(
+                              children: [
+                                if (connected) ...[
+                                  const _PulseDot(color: AppColors.brandSuccess),
+                                  const SizedBox(width: 8),
+                                ],
+                                BrandBadge(
+                                  label: connected
+                                      ? 'SYSTEM ONLINE'
+                                      : 'SYSTEM STANDBY',
+                                  tone: connected
+                                      ? BrandTone.success
+                                      : BrandTone.neutral,
+                                  icon: connected
+                                      ? Icons.check_circle_rounded
+                                      : Icons.radio_button_unchecked_rounded,
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -325,6 +525,147 @@ class _HeroHeader extends StatelessWidget {
   }
 }
 
+/// Live "Good afternoon · Wed, 10 Sep · 14:32" line under the brand row.
+/// Ticks once a minute — enough to feel alive without redrawing every second.
+class _GreetingClockLine extends StatefulWidget {
+  const _GreetingClockLine();
+
+  @override
+  State<_GreetingClockLine> createState() => _GreetingClockLineState();
+}
+
+class _GreetingClockLineState extends State<_GreetingClockLine> {
+  late Timer _timer;
+  DateTime _now = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String get _formatted {
+    final weekday = _kWeekdayNames[_now.weekday - 1].substring(0, 3);
+    final month = _kMonthNames[_now.month - 1];
+    final hour = _now.hour.toString().padLeft(2, '0');
+    final minute = _now.minute.toString().padLeft(2, '0');
+    return '$weekday, ${_now.day} $month · $hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          _greeting(),
+          style: const TextStyle(
+            color: AppColors.brandOnDark,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+        ),
+        Container(
+          width: 3,
+          height: 3,
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: const BoxDecoration(
+            color: AppColors.brandOnDarkSub,
+            shape: BoxShape.circle,
+          ),
+        ),
+        Text(
+          _formatted,
+          style: const TextStyle(
+            color: AppColors.brandOnDarkSub,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Breathing "live" dot used next to the online status badge.
+class _PulseDot extends StatefulWidget {
+  const _PulseDot({required this.color});
+  final Color color;
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 16,
+      height: 16,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (context, _) {
+          final t = _ctrl.value;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: (1 - t).clamp(0.0, 1.0),
+                child: Transform.scale(
+                  scale: 1 + t * 2.2,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: widget.color,
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.color,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _GlowOrb extends StatelessWidget {
   const _GlowOrb({required this.size, required this.color});
   final double size;
@@ -338,6 +679,59 @@ class _GlowOrb extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       ),
+    );
+  }
+}
+
+/// Slow ambient float applied to the header's decorative glow orbs so the
+/// hero surface never reads as a static screenshot.
+class _FloatingGlowOrb extends StatefulWidget {
+  const _FloatingGlowOrb({
+    required this.size,
+    required this.color,
+    this.duration = const Duration(seconds: 7),
+    this.reversed = false,
+  });
+
+  final double size;
+  final Color color;
+  final Duration duration;
+  final bool reversed;
+
+  @override
+  State<_FloatingGlowOrb> createState() => _FloatingGlowOrbState();
+}
+
+class _FloatingGlowOrbState extends State<_FloatingGlowOrb>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: widget.duration)
+      ..repeat(reverse: true);
+    final dy = widget.reversed ? -12.0 : 12.0;
+    _offset = Tween<Offset>(
+      begin: Offset(0, -dy),
+      end: Offset(0, dy),
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _offset,
+      builder: (context, child) =>
+          Transform.translate(offset: _offset.value, child: child),
+      child: _GlowOrb(size: widget.size, color: widget.color),
     );
   }
 }
@@ -477,17 +871,19 @@ class _HeroConnectCtaState extends State<_HeroConnectCta>
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Quick Actions Grid (2 x 2)
+// Quick Actions Grid (2 x 2) — each tile cascades in on its own delay
 // ═══════════════════════════════════════════════════════════════
 
 class _QuickActionsGrid extends StatelessWidget {
   const _QuickActionsGrid({
+    required this.animation,
     required this.onControlPanel,
     required this.onDiagnostics,
     required this.onLogs,
     required this.onSettings,
   });
 
+  final Animation<double> animation;
   final VoidCallback onControlPanel;
   final VoidCallback onDiagnostics;
   final VoidCallback onLogs;
@@ -498,42 +894,47 @@ class _QuickActionsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isTablet = constraints.maxWidth > 560;
+        final tiles = <Widget>[
+          _QuickActionCard(
+            icon: Icons.dashboard_customize_rounded,
+            label: 'Control Panel',
+            subtitle: 'Machine controls',
+            tone: BrandTone.violet,
+            onTap: onControlPanel,
+          ),
+          _QuickActionCard(
+            icon: Icons.monitor_heart_rounded,
+            label: 'Diagnostics',
+            subtitle: 'System health check',
+            tone: BrandTone.info,
+            onTap: onDiagnostics,
+          ),
+          _QuickActionCard(
+            icon: Icons.receipt_long_rounded,
+            label: 'Event Logs',
+            subtitle: 'Activity history',
+            tone: BrandTone.warning,
+            onTap: onLogs,
+          ),
+          _QuickActionCard(
+            icon: Icons.tune_rounded,
+            label: 'Settings',
+            subtitle: 'App configuration',
+            tone: BrandTone.neutral,
+            onTap: onSettings,
+          ),
+        ];
+
         return GridView.count(
           crossAxisCount: isTablet ? 4 : 2,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 10,
           crossAxisSpacing: 10,
-          childAspectRatio: isTablet ? 1.1 : 1.5,
+          childAspectRatio: isTablet ? 1.1 : 1.3,
           children: [
-            _QuickActionCard(
-              icon: Icons.dashboard_customize_rounded,
-              label: 'Control Panel',
-              subtitle: 'Machine controls',
-              tone: BrandTone.violet,
-              onTap: onControlPanel,
-            ),
-            _QuickActionCard(
-              icon: Icons.monitor_heart_rounded,
-              label: 'Diagnostics',
-              subtitle: 'System health check',
-              tone: BrandTone.info,
-              onTap: onDiagnostics,
-            ),
-            _QuickActionCard(
-              icon: Icons.receipt_long_rounded,
-              label: 'Event Logs',
-              subtitle: 'Activity history',
-              tone: BrandTone.warning,
-              onTap: onLogs,
-            ),
-            _QuickActionCard(
-              icon: Icons.tune_rounded,
-              label: 'Settings',
-              subtitle: 'App configuration',
-              tone: BrandTone.neutral,
-              onTap: onSettings,
-            ),
+            for (var i = 0; i < tiles.length; i++)
+              _Reveal(animation: animation, slot: i, each: 0.07, child: tiles[i]),
           ],
         );
       },
@@ -652,12 +1053,16 @@ class _QuickActionCardState extends State<_QuickActionCard>
 }
 
 // ═══════════════════════════════════════════════════════════════
-// System Health Card (with live battery)
+// System Health Card (with live battery + overall health score ring)
 // ═══════════════════════════════════════════════════════════════
 
 class _SystemHealthCard extends StatefulWidget {
-  const _SystemHealthCard({required this.controller});
+  const _SystemHealthCard({
+    required this.controller,
+    required this.refreshTick,
+  });
   final CraneController controller;
+  final int refreshTick;
 
   @override
   State<_SystemHealthCard> createState() => _SystemHealthCardState();
@@ -672,6 +1077,14 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
   void initState() {
     super.initState();
     _fetchBattery();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SystemHealthCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshTick != oldWidget.refreshTick) {
+      _fetchBattery();
+    }
   }
 
   Future<void> _fetchBattery() async {
@@ -717,10 +1130,62 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
 
   @override
   Widget build(BuildContext context) {
+    final checks = <bool>[
+      true, // app status
+      widget.controller.bluetoothReady,
+      widget.controller.permissionsGranted,
+      true, // memory
+      _batteryStatus != _MetricStatus.error,
+    ];
+    final good = checks.where((c) => c).length;
+    final score = ((good / checks.length) * 100).round();
+    final tierLabel = score >= 90
+        ? 'EXCELLENT'
+        : score >= 60
+        ? 'FAIR'
+        : 'ATTENTION';
+    final tierTone = score >= 90
+        ? BrandTone.success
+        : score >= 60
+        ? BrandTone.warning
+        : BrandTone.danger;
+
     return BrandCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         children: [
+          Row(
+            children: [
+              _HealthScoreRing(score: score),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Overall System Health',
+                      style: TextStyle(
+                        color: AppColors.brandText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '$good of ${checks.length} checks passing',
+                      style: const TextStyle(
+                        color: AppColors.brandTextMuted,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              BrandBadge(label: tierLabel, tone: tierTone, dense: true),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Divider(height: 1, thickness: 0.5, color: AppColors.brandBorder),
           const _HealthMetricRow(
             icon: Icons.check_circle_rounded,
             label: 'App Status',
@@ -761,6 +1226,58 @@ class _SystemHealthCardState extends State<_SystemHealthCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Animated circular summary of the checks below — count-up percentage with
+/// a colour tier so the card reads at a glance before scanning every row.
+class _HealthScoreRing extends StatelessWidget {
+  const _HealthScoreRing({required this.score});
+  final int score;
+
+  Color get _color {
+    if (score >= 90) return AppColors.brandSuccess;
+    if (score >= 60) return AppColors.brandWarning;
+    return AppColors.brandDanger;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: score.toDouble()),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, _) {
+        return SizedBox(
+          width: 56,
+          height: 56,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 56,
+                height: 56,
+                child: CircularProgressIndicator(
+                  value: value / 100,
+                  strokeWidth: 5,
+                  strokeCap: StrokeCap.round,
+                  backgroundColor: AppColors.brandBorder,
+                  valueColor: AlwaysStoppedAnimation<Color>(_color),
+                ),
+              ),
+              Text(
+                '${value.round()}%',
+                style: TextStyle(
+                  color: _color,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
