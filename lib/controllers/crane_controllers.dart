@@ -757,8 +757,12 @@ class CraneController extends ChangeNotifier
         await _sendCommand(PlcOutputCommand.idle());
       } catch (_) {}
     }
+    // No notifyListeners() here: _bleService.disconnect() emits the
+    // disconnected status onto connectionStream, which _connStateSubscription
+    // (see _attachStreamsIfNeeded) already turns into a notifyListeners()
+    // call. Notifying again here duplicated it, so listeners keyed off
+    // isDisconnected (e.g. the "Disconnected from PLC" SnackBar) fired twice.
     await _bleService.disconnect();
-    notifyListeners();
   }
 
   Future<void> stopScan() async {

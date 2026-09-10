@@ -80,25 +80,28 @@ abstract final class FeedbackPalette {
 
   // ── LED indicator row ────────────────────────────────────────────────────
 
-  /// Confirmed-ON colour for [variant]. E-STOP keeps the safety red; every
-  /// other channel uses the app's generic output amber.
+  /// Confirmed-ON colour for [variant]. E-STOP's wire feedback is confirmed
+  /// ON while the safety channel is healthy (fail-safe: the relay is
+  /// energized when NOT tripped), so this is the calm "ready" state and
+  /// uses green; every other channel uses the app's generic output amber.
   static Color ledActive(
     PlcOutputVariant variant,
     LedChannelFeedbackConfig config,
   ) {
     return config.activeColor ??
-        (variant.isEmergencyStop ? AppColors.eStopColor : AppColors.accent);
+        (variant.isEmergencyStop ? AppColors.darkSuccess : AppColors.accent);
   }
 
-  /// Confirmed-OFF "ready" colour, or null to leave the LED dark when off.
-  /// Only E-STOP defaults to a lit ready state — an operator must be able to
-  /// see at a glance that the safety channel is healthy, not merely unlit.
+  /// Confirmed-OFF colour, or null to leave the LED dark when off. E-STOP's
+  /// wire feedback drops to OFF when actually tripped, so this is the
+  /// danger state — lit red (and pulsing, see [ledPulsesWhenInactive]) so an
+  /// operator can see at a glance that the safety channel has tripped.
   static Color? ledInactive(
     PlcOutputVariant variant,
     LedChannelFeedbackConfig config,
   ) {
     if (config.inactiveColor != null) return config.inactiveColor;
-    return variant.isEmergencyStop ? AppColors.darkSuccess : null;
+    return variant.isEmergencyStop ? AppColors.eStopColor : null;
   }
 
   static bool ledPulsesWhenInactive(

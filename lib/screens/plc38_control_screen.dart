@@ -80,6 +80,14 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   bool _isDismissingResetDialog = false;
   BuildContext? _resetDialogContext;
 
+  // isDisconnected is a level (derived from connection status), not an
+  // edge — once true it stays true across every later notifyListeners()
+  // call (e.g. the scan-stream refresh that fires right after a disconnect
+  // completes). Guards the "Disconnected from PLC38" SnackBar to the
+  // false→true transition only, so it shows once per disconnect instead of
+  // once per notify while still disconnected.
+  bool _disconnectedSnackbarShown = false;
+
   // Written only by the onCommand callback below, which fires synchronously
   // from a button's own gesture handler — never from PLC status feedback.
   // See _CanvasSection._activeStateForButton's doc comment.
@@ -331,13 +339,20 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
       unawaited(_wakeScreen());
     }
     if (controller.isDisconnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(controller.errorMessage ?? 'Disconnected from PLC38'),
-          backgroundColor: AppColors.eStopColor,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      if (!_disconnectedSnackbarShown) {
+        _disconnectedSnackbarShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              controller.errorMessage ?? 'Disconnected from PLC38',
+            ),
+            backgroundColor: AppColors.eStopColor,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } else {
+      _disconnectedSnackbarShown = false;
     }
   }
 
