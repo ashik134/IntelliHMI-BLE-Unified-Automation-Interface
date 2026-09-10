@@ -113,25 +113,27 @@ ResolvedButtonCommand resolveButtonCommand({
 }
 
 /// The PLC output variants a user may select in the OUTPUT MAPPING editor
-/// for a layout belonging to [bucket]. PLC38 exposes the full DF2..DF10 range
-/// (DF1/E-STOP is excluded at the call site, never included here). PLC14/
-/// PLC21 only ever emit the first four digital fields (DF1..DF4), so
-/// restricting selection here means a user can never configure a variant
-/// that would be silently dropped at wire-serialization time, on top of the
-/// wire-level truncation that already makes such a config harmless even if
-/// one existed (e.g. from a hand-edited/imported layout — see
-/// plc14_variant_clamping_test.dart).
+/// for a layout belonging to [bucket], per that bucket's
+/// [PlcType.digitalFieldCount] (DF1/E-STOP is excluded at the call site,
+/// never included here). Restricting selection here means a user can never
+/// configure a variant that would be silently dropped at wire-serialization
+/// time, on top of the wire-level truncation that already makes such a
+/// config harmless even if one existed (e.g. from a hand-edited/imported
+/// layout — see plc14_variant_clamping_test.dart).
+///
+///   PLC38 → DF2..DF10 (9 selectable)
+///   PLC14 → DF2..DF5  (4 selectable — 3 digital outputs + relay)
+///   PLC21 → DF2..DF4  (3 selectable)
 List<PlcOutputVariant> selectableVariantsFor(LayoutBucket bucket) {
   final all = PlcOutputVariant.values.where((m) => m.isUserConfigurable);
-  if (bucket == LayoutBucket.plc38) return all.toList();
-  return all
-      .where(
-        (m) =>
-            m == PlcOutputVariant.df2 ||
-            m == PlcOutputVariant.df3 ||
-            m == PlcOutputVariant.df4,
-      )
-      .toList();
+  final fieldCount = switch (bucket) {
+    LayoutBucket.plc14 => PlcType.plc14.digitalFieldCount,
+    LayoutBucket.plc21 => PlcType.plc21.digitalFieldCount,
+    LayoutBucket.plc38 => PlcType.plc38.digitalFieldCount,
+  };
+  // `all` is already DF2..DF10 in wire order with DF1 excluded, so the
+  // selectable count is one less than the bucket's total field count.
+  return all.take(fieldCount - 1).toList();
 }
 
 class GridMutationResult {

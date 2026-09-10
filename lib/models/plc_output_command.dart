@@ -8,9 +8,11 @@ import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 /// [PlcOutputVariant] fields. Wire serialisation is PLC-type-aware via
 /// [wireFormatFor] / [wireBytesFor].
 ///
-/// Field layout (positional, [PlcOutputVariant.values] order — DF1..DF10):
-///   PLC14/PLC21  →  [DF1..DF4]   (4 fields)
-///   PLC38        →  [DF1..DF10]  (10 fields)
+/// Field layout (positional, [PlcOutputVariant.values] order — DF1..DF10),
+/// per [PlcType.digitalFieldCount]:
+///   PLC14  →  [DF1..DF5]   (5 fields — E-STOP + 3 digital outputs + relay)
+///   PLC21  →  [DF1..DF4]   (4 fields)
+///   PLC38  →  [DF1..DF10]  (10 fields)
 class PlcOutputCommand {
   const PlcOutputCommand._(this.activeFields);
 
@@ -31,8 +33,9 @@ class PlcOutputCommand {
   factory PlcOutputCommand.compose(Set<PlcOutputVariant> fields) =>
       PlcOutputCommand._(fields);
 
-  /// Parses a PLC status notification. Auto-detects 4-field (PLC14/PLC21)
-  /// and 10-field (PLC38) formats based on the number of values present.
+  /// Parses a PLC status notification. Auto-detects the 4-field (PLC21),
+  /// 5-field (PLC14), and 10-field (PLC38) formats based on the number of
+  /// values present — see [PlcType.digitalFieldCount].
   ///
   /// Status feedback contains the physical output levels. DF1/E-STOP is
   /// wired active-low, so its status bit has the opposite polarity from the
@@ -52,7 +55,8 @@ class PlcOutputCommand {
       }
 
       final tokens = payload.split(',');
-      if (tokens.length != 4 && tokens.length != 10) return null;
+      const validLengths = {4, 5, 10};
+      if (!validLengths.contains(tokens.length)) return null;
       final parts = <int>[];
       for (final token in tokens) {
         final value = token.trim();
@@ -101,7 +105,7 @@ class PlcOutputCommand {
   /// all 10 variants and reads each one's asserted bit — no per-field name
   /// mapping needed.
   String wireFormatFor(PlcType plcType) {
-    final count = plcType == PlcType.plc38 ? 10 : 4;
+    final count = plcType.digitalFieldCount;
     final bits = PlcOutputVariant.values
         .take(count)
         .map((v) => fieldValue(v) ? '1' : '0');

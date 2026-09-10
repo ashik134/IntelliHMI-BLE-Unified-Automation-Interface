@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
+import 'package:rev_crane_control_ops/models/app_enums.dart' show PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/appearance_tab.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/function_tab.dart';
@@ -73,6 +75,9 @@ class WidgetPropertiesSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final editCtrl = context.watch<LayoutEditController>();
     final config = editCtrl.draft.resolvedButtons[buttonId];
+    final plcType = context.select<CraneController, PlcType>(
+      (c) => c.connectedPlcType,
+    );
 
     if (config == null) {
       // Selection was cleared (e.g. deleted elsewhere) while this sheet was
@@ -207,6 +212,7 @@ class WidgetPropertiesSheet extends StatelessWidget {
                             config: config,
                             allButtons: editCtrl.draft.resolvedButtons,
                             onUpdate: onUpdate,
+                            plcType: plcType,
                           ),
                           SafetyTab(
                             config: config,

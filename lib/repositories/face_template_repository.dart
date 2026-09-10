@@ -128,4 +128,16 @@ class FaceTemplateRepository {
       await _writeAll(updated);
     });
   }
+
+  /// This repository's directory path and raw key bytes — everything
+  /// needed to reconstruct an equivalent [FaceTemplateRepository] on
+  /// another isolate (see `FaceEnrollmentWorker`). This repository
+  /// *instance* is deliberately not sent across an isolate boundary
+  /// itself: [_writeQueue] holds a [Future] bound to this isolate's event
+  /// loop, which isn't sendable, so the receiving isolate must build its
+  /// own instance from these plain values instead.
+  Future<({String directoryPath, List<int> keyBytes})>
+  exportForIsolateTransfer() async {
+    return (directoryPath: _baseDirectory.path, keyBytes: await _key.extractBytes());
+  }
 }

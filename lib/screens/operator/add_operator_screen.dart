@@ -40,6 +40,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _employeeIdController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   late OperatorRole _role;
   bool _saving = false;
 
@@ -55,6 +56,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
   void dispose() {
     _nameController.dispose();
     _employeeIdController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -62,11 +64,13 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final employeeId = _employeeIdController.text.trim();
+    final email = _emailController.text.trim();
     setState(() => _saving = true);
 
     // Fast feedback before even opening the camera — the authoritative
     // check happens again in OperatorRepository.add() below.
     final normalizedId = employeeId.toLowerCase();
+    final normalizedEmail = email.toLowerCase();
     final existing = await widget.repository.getAll();
     final alreadyUsed = existing.any(
       (o) => o.employeeId.trim().toLowerCase() == normalizedId,
@@ -75,6 +79,15 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
       if (!mounted) return;
       setState(() => _saving = false);
       _showError('Employee ID "$employeeId" is already in use.');
+      return;
+    }
+    final emailAlreadyUsed = existing.any(
+      (o) => o.email?.trim().toLowerCase() == normalizedEmail,
+    );
+    if (emailAlreadyUsed) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Email "$email" is already in use.');
       return;
     }
 
@@ -105,6 +118,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
       employeeId: employeeId,
       role: _role,
       faceTemplateId: template.templateId,
+      email: email,
       createdAt: now,
       updatedAt: now,
     );
@@ -122,9 +136,12 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
       if (!mounted) return;
       setState(() => _saving = false);
       _showError(
-        e is DuplicateEmployeeIdException
-            ? 'Employee ID "$employeeId" is already in use.'
-            : 'Could not save the operator. Please try again.',
+        switch (e) {
+          DuplicateEmployeeIdException _ =>
+            'Employee ID "$employeeId" is already in use.',
+          DuplicateEmailException _ => 'Email "$email" is already in use.',
+          _ => 'Could not save the operator. Please try again.',
+        },
       );
       return;
     }
@@ -220,6 +237,30 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
                 if (!RegExp(r'^\d{1,8}$').hasMatch(value)) {
                   return 'Numbers only, up to 8 digits';
                 }
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _emailController,
+              enabled: !_saving,
+              style: const TextStyle(color: AppColors.connText),
+              keyboardType: TextInputType.emailAddress,
+              decoration: brandInputDecoration(
+                label: 'PLC login email',
+                hint: 'operator@company.com',
+                icon: Icons.alternate_email_rounded,
+              ),
+              validator: (v) {
+                final value = v?.trim() ?? '';
+                if (value.isEmpty) {
+                  return 'Required — links this profile to the PLC login so '
+                      'sessions are attributed to this operator and role.';
+                }
+                final validEmail = RegExp(
+                  r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                ).hasMatch(value);
+                if (!validEmail) return 'Enter a valid email format.';
                 return null;
               },
             ),

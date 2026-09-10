@@ -2,6 +2,7 @@ enum AppScreen {
   connection,
   faceVerification,
   authentication,
+  setupMode,
   control,
   plc38Control,
 }
@@ -25,6 +26,24 @@ enum PlcType {
   const PlcType(this.displayName);
 
   final String displayName;
+
+  /// Number of wire-format digital output fields (DF1..DFN, in
+  /// [PlcOutputVariant.values] order) this PLC model exposes. DF1 is always
+  /// E-STOP; DF2..DFN are the type's addressable/configurable outputs.
+  ///
+  ///   PLC14 (IntelliKran MIN) → 5  (E-STOP + 3 digital outputs + 1 relay)
+  ///   PLC21 (IntelliKran MID) → 4  (E-STOP + 3 digital outputs)
+  ///   PLC38 (IntelliKran MAX) → 10 (E-STOP + 9 digital outputs)
+  ///
+  /// [unknown] defaults to PLC14/PLC21's 4-field count — the smallest
+  /// non-empty format — so a not-yet-identified device is never granted
+  /// outputs it may not physically have.
+  int get digitalFieldCount => switch (this) {
+    PlcType.plc14 => 5,
+    PlcType.plc21 => 4,
+    PlcType.plc38 => 10,
+    PlcType.unknown => 4,
+  };
 
   static PlcType fromString(String? value) {
     switch (value?.toUpperCase()) {

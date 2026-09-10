@@ -44,6 +44,20 @@ class DuplicateEmployeeIdException implements Exception {
       'registered to another operator.';
 }
 
+/// Thrown by [OperatorRepository.add]/[update] when [OperatorProfile.email]
+/// is already used by a different operator — email must resolve to exactly
+/// one role for [CraneController]'s post-authentication authorization gate.
+class DuplicateEmailException implements Exception {
+  const DuplicateEmailException(this.email);
+
+  final String email;
+
+  @override
+  String toString() =>
+      'DuplicateEmailException: email "$email" is already registered to '
+      'another operator.';
+}
+
 /// Encrypted local CRUD store for the [OperatorProfile] list.
 ///
 /// Unlike the append-only audit log, this is a small, fully-rewritten-on-
@@ -134,31 +148,72 @@ class OperatorRepository {
     return null;
   }
 
+  /// Resolves an enabled operator by the PLC login email they authenticated
+  /// with (trimmed, case-insensitive) — used by
+  /// [CraneController]'s authorization gate when no Face Verification match
+  /// already identified the operator this session. Returns `null` for a
+  /// disabled operator or no match at all, both of which the gate treats as
+  /// "unknown role, fail closed".
+  Future<OperatorProfile?> getByEmail(String email) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    final all = await _readAll();
+    for (final operator in all) {
+      if (operator.enabled &&
+          operator.email?.trim().toLowerCase() == normalized) {
+        return operator;
+      }
+    }
+    return null;
+  }
+
   /// Throws [DuplicateEmployeeIdException] if [operator.employeeId]
-  /// (trimmed, case-insensitive) already belongs to another operator —
-  /// checked here rather than only in the UI so this holds regardless of
-  /// caller.
+  /// (trimmed, case-insensitive) already belongs to another operator, or
+  /// [DuplicateEmailException] if [operator.email] does — checked here
+  /// rather than only in the UI so this holds regardless of caller.
   Future<void> add(OperatorProfile operator) {
     return _mutate((current) async {
-      final normalized = operator.employeeId.trim().toLowerCase();
-      final duplicate = current.any(
-        (existing) => existing.employeeId.trim().toLowerCase() == normalized,
-      );
-      if (duplicate) {
-        throw DuplicateEmployeeIdException(operator.employeeId);
-      }
+      _checkDuplicates(operator, current);
       await _writeAll([...current, operator]);
     });
   }
 
   Future<void> update(OperatorProfile operator) {
     return _mutate((current) async {
+      _checkDuplicates(
+        operator,
+        current.where((e) => e.operatorId != operator.operatorId),
+      );
       final updated = [
         for (final existing in current)
           existing.operatorId == operator.operatorId ? operator : existing,
       ];
       await _writeAll(updated);
     });
+  }
+
+  void _checkDuplicates(
+    OperatorProfile operator,
+    Iterable<OperatorProfile> againstOthers,
+  ) {
+    final normalizedEmployeeId = operator.employeeId.trim().toLowerCase();
+    final duplicateEmployeeId = againstOthers.any(
+      (existing) =>
+          existing.employeeId.trim().toLowerCase() == normalizedEmployeeId,
+    );
+    if (duplicateEmployeeId) {
+      throw DuplicateEmployeeIdException(operator.employeeId);
+    }
+
+    final email = operator.email?.trim().toLowerCase();
+    if (email != null && email.isNotEmpty) {
+      final duplicateEmail = againstOthers.any(
+        (existing) => existing.email?.trim().toLowerCase() == email,
+      );
+      if (duplicateEmail) {
+        throw DuplicateEmailException(operator.email!);
+      }
+    }
   }
 
   Future<void> setEnabled(String operatorId, bool enabled) {

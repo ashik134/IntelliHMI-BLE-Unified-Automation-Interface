@@ -345,7 +345,10 @@ class _LoginScreenState extends State<LoginScreen>
   }) {
     final authSessionReady = _hasAuthenticationSession(controller);
     final errorState = _resolveErrorState(controller.errorMessage);
-    final authenticated = controller.isAuthenticated;
+    // Access-denied is PLC-authenticated at the transport level but must
+    // never render as a success — it renders the error-banner branch below
+    // instead, same as every other authentication failure in this flow.
+    final authenticated = controller.isAuthenticated && !controller.isAccessDenied;
     final verifiedOperator = controller.verifiedOperator;
 
     return Container(
@@ -418,6 +421,11 @@ class _LoginScreenState extends State<LoginScreen>
                         state: errorState,
                         onRetry: controller.isAuthenticating ? null : _submit,
                         onBackToScan: controller.disconnect,
+                        onVerifyIdentity:
+                            !controller.isDeviceConfigured &&
+                                errorState.title == 'Invalid credentials'
+                            ? controller.requestIdentityVerificationFallback
+                            : null,
                       ),
                     ),
             ),
@@ -704,6 +712,14 @@ class _LoginScreenState extends State<LoginScreen>
       );
     }
 
+    if (raw.startsWith('ACCESS DENIED')) {
+      return _AuthErrorState(
+        title: 'Access denied',
+        message: raw.replaceFirst(RegExp(r'^ACCESS DENIED\n?'), ''),
+        icon: Icons.block_rounded,
+      );
+    }
+
     if (raw == BLEConstants.authTimeout) {
       return const _AuthErrorState(
         title: 'Authentication timeout',
@@ -738,7 +754,7 @@ class _LoginScreenState extends State<LoginScreen>
     });
 
     final controller = context.read<CraneController>();
-    if (controller.isAuthenticated) {
+    if (controller.isAuthenticated && !controller.isAccessDenied) {
       _continueAfterAuthentication(controller);
       return;
     }
@@ -771,7 +787,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _submitBiometric() async {
     final controller = context.read<CraneController>();
-    if (controller.isAuthenticated) {
+    if (controller.isAuthenticated && !controller.isAccessDenied) {
       _continueAfterAuthentication(controller);
       return;
     }
@@ -1422,11 +1438,21 @@ class _AuthErrorState {
 }
 
 class _AuthErrorCard extends StatelessWidget {
-  const _AuthErrorCard({required this.state, this.onRetry, this.onBackToScan});
+  const _AuthErrorCard({
+    required this.state,
+    this.onRetry,
+    this.onBackToScan,
+    this.onVerifyIdentity,
+  });
 
   final _AuthErrorState state;
   final VoidCallback? onRetry;
   final VoidCallback? onBackToScan;
+
+  /// Shown only for the first-time-setup "invalid credentials" case — an
+  /// opt-in detour into Face Verification so an already-enrolled operator
+  /// can confirm who they are before retrying their PLC credentials.
+  final VoidCallback? onVerifyIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -1466,34 +1492,67 @@ class _AuthErrorCard extends StatelessWidget {
               height: 1.3,
             ),
           ),
-          if (onRetry != null) ...[
+          if (onRetry != null || onVerifyIdentity != null) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.icon(
-                  onPressed: onRetry,
-                  icon: const Icon(Icons.refresh_rounded, size: 14),
-                  label: const Text('Retry'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.brandDanger,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
+                if (onRetry != null)
+                  FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded, size: 14),
+                    label: const Text('Retry'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brandDanger,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppMetrics.radiusSm,
+                        ),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      minimumSize: Size.zero,
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    minimumSize: Size.zero,
                   ),
-                ),
+                if (onVerifyIdentity != null)
+                  OutlinedButton.icon(
+                    onPressed: onVerifyIdentity,
+                    icon: const Icon(
+                      Icons.face_retouching_natural_rounded,
+                      size: 14,
+                    ),
+                    label: const Text('Verify your identity'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.brandDanger,
+                      side: BorderSide(
+                        color: AppColors.brandDanger.withAlpha(140),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppMetrics.radiusSm,
+                        ),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      minimumSize: Size.zero,
+                    ),
+                  ),
               ],
             ),
           ],

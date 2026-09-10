@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart' show DeviceOrientation;
 
 import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 
@@ -28,6 +29,19 @@ class FrontCameraSession {
       imageFormatGroup: CameraFrameConverter.preferredFormatGroup,
     );
     await controller.initialize();
+    // The screens that use this session lock the *app UI* to portraitUp
+    // (`SystemChrome.setPreferredOrientations`), but `CameraController`
+    // tracks the device's live physical rotation separately via
+    // `value.deviceOrientation` regardless of that UI lock. Left unlocked,
+    // `CameraPreview` silently flips which way it applies the sensor's
+    // aspect ratio whenever the device is physically rotated, changing the
+    // apparent zoom/crop even though the on-screen layout never rotates.
+    // Locking capture orientation to match the UI lock keeps the preview's
+    // framing/zoom constant regardless of how the device is held — this
+    // only affects preview display, not `value.deviceOrientation` itself,
+    // so ML Kit's rotation compensation (`CameraFrameConverter`) is
+    // unaffected.
+    await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
     return controller;
   }
 

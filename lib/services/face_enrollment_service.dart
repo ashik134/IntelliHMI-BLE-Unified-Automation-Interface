@@ -110,6 +110,21 @@ class FaceEnrollmentService {
   /// — this is the "throttled rate" the continuous scan analyzes at.
   static const Duration _minSampleInterval = Duration(milliseconds: 400);
 
+  /// Minimum time between two *pixel-buffer* quality checks (brightness/
+  /// sharpness), independent of [_minSampleInterval]. `frameProvider()`
+  /// decodes the full camera frame in plain Dart — real, non-trivial CPU
+  /// work (see `CameraFrameConverter.toRgbImage`'s doc comment) — and
+  /// without this throttle it used to run on effectively every accepted
+  /// camera frame (~30/sec) throughout both [_Phase.stabilizing] and
+  /// [_Phase.scanning], which was blocking the UI isolate long enough to
+  /// visibly stall the preview/overlay. A [FaceQualityIssue] rarely
+  /// changes frame-to-frame, so re-decoding faster than this buys nothing
+  /// — [_cachedPixelIssue] is reused on the frames in between. Shorter
+  /// than [_minSampleInterval] so a scanning-phase decode already paid for
+  /// here can always be reused for that interval's embed attempt too (see
+  /// [_evaluateScanning]) rather than decoding twice.
+  static const Duration _pixelCheckInterval = Duration(milliseconds: 200);
+
   /// How long a disruption (no face / multiple faces / bad pose / poor
   /// pixel quality / an embedding that doesn't match the locked identity)
   /// must persist *during* [_Phase.scanning] before the scan aborts and
@@ -163,6 +178,16 @@ class FaceEnrollmentService {
   DateTime? _scanStartedAt;
   DateTime? _disruptionStartedAt;
 
+  /// See [_pixelCheckInterval]. [_cachedPixelIssue] holds whatever the
+  /// most recent actual pixel-buffer check found (null == passed), reused
+  /// as-is on frames that arrive before the next check is due — never
+  /// optimistically assumed to be a pass, so a real, still-unresolved
+  /// lighting/blur problem keeps being reported (and keeps counting
+  /// toward [_maxScanDisruption] during scanning) on every frame, not just
+  /// the ones that happen to re-check it.
+  DateTime? _lastPixelCheckAt;
+  FaceQualityIssue? _cachedPixelIssue;
+
   /// Early scanning-phase embeddings not yet confirmed mutually consistent
   /// enough to lock the enrollment identity — see [_tryAccept]. Promoted
   /// into [_accepted] all at once the moment identity locks, so a sample
@@ -204,6 +229,8 @@ class FaceEnrollmentService {
     _livenessSession = null;
     _scanStartedAt = null;
     _disruptionStartedAt = null;
+    _lastPixelCheckAt = null;
+    _cachedPixelIssue = null;
     _seeds.clear();
     _identityLocked = false;
     _accepted.clear();
@@ -289,11 +316,20 @@ class FaceEnrollmentService {
       );
     }
 
-    final face = faces.single;
-    final frame = frameProvider();
-    final pixelStatus = _statusForIssue(
-      FrameQualityAnalyzer.evaluate(frame, face.boundingBox),
-    );
+    // Throttled — see [_pixelCheckInterval]'s doc comment. Skipped frames
+    // reuse [_cachedPixelIssue] rather than assuming a pass, so a real
+    // problem still surfaces (just up to [_pixelCheckInterval] later than
+    // before, which [stabilizeDuration] easily absorbs).
+    var pixelIssue = _cachedPixelIssue;
+    if (_lastPixelCheckAt == null ||
+        now.difference(_lastPixelCheckAt!) >= _pixelCheckInterval) {
+      final face = faces.single;
+      final frame = frameProvider();
+      pixelIssue = FrameQualityAnalyzer.evaluate(frame, face.boundingBox);
+      _cachedPixelIssue = pixelIssue;
+      _lastPixelCheckAt = now;
+    }
+    final pixelStatus = _statusForIssue(pixelIssue);
     if (pixelStatus != null) {
       _stableSince = null;
       return _state(pixelStatus);
@@ -410,18 +446,30 @@ class FaceEnrollmentService {
     // tells the operator exactly what to fix.
     var disruptionStatus = earlyStatus;
     if (disruptionStatus == null) {
-      final face = faces.single;
-      final frame = frameProvider();
-      final pixelIssue = FrameQualityAnalyzer.evaluate(
-        frame,
-        face.boundingBox,
-      );
+      // Throttled the same way as `_evaluateStabilizing` — see
+      // [_pixelCheckInterval]. `frame` stays null unless this frame
+      // actually decodes (i.e. is due for a pixel recheck); the align+embed
+      // step below only ever runs on a freshly-decoded frame, never a
+      // stale/cached one — only the pass/fail *verdict* is cached and
+      // reused, not the image itself.
+      var pixelIssue = _cachedPixelIssue;
+      img.Image? frame;
+      if (_lastPixelCheckAt == null ||
+          now.difference(_lastPixelCheckAt!) >= _pixelCheckInterval) {
+        frame = frameProvider();
+        pixelIssue = FrameQualityAnalyzer.evaluate(frame, faces.single.boundingBox);
+        _cachedPixelIssue = pixelIssue;
+        _lastPixelCheckAt = now;
+      }
+
       if (pixelIssue != null) {
         disruptionStatus = _statusForIssue(pixelIssue);
       } else if (_lastAcceptedAt == null ||
           now.difference(_lastAcceptedAt!) >= _minSampleInterval) {
+        final face = faces.single;
+        final decoded = frame ?? frameProvider();
         final aligned = FaceAlignmentService.align(
-          sourceImage: frame,
+          sourceImage: decoded,
           face: face,
         );
         final embedding = await embeddingService.embed(aligned);

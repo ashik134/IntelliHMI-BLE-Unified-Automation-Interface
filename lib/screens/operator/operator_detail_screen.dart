@@ -41,7 +41,9 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
 
   late final TextEditingController _nameController;
   late final TextEditingController _employeeIdController;
+  late final TextEditingController _emailController;
   late OperatorRole _role;
+  String? _saveError;
 
   @override
   void initState() {
@@ -49,6 +51,7 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
     _operator = widget.operator;
     _nameController = TextEditingController(text: _operator.name);
     _employeeIdController = TextEditingController(text: _operator.employeeId);
+    _emailController = TextEditingController(text: _operator.email ?? '');
     _role = _operator.role;
   }
 
@@ -56,27 +59,50 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
   void dispose() {
     _nameController.dispose();
     _employeeIdController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
   void _cancelEdit() {
     setState(() {
       _editing = false;
+      _saveError = null;
       _nameController.text = _operator.name;
       _employeeIdController.text = _operator.employeeId;
+      _emailController.text = _operator.email ?? '';
       _role = _operator.role;
     });
   }
 
   Future<void> _saveEdits() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _saveError = null;
+    });
+    final email = _emailController.text.trim();
     final updated = _operator.copyWith(
       name: _nameController.text.trim(),
       employeeId: _employeeIdController.text.trim(),
       role: _role,
+      email: email.isEmpty ? null : email,
+      clearEmail: email.isEmpty,
       updatedAt: DateTime.now(),
     );
-    await widget.repository.update(updated);
+    try {
+      await widget.repository.update(updated);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _saveError = switch (e) {
+          DuplicateEmployeeIdException _ =>
+            'Employee ID "${updated.employeeId}" is already in use.',
+          DuplicateEmailException _ => 'Email "$email" is already in use.',
+          _ => 'Could not save changes. Please try again.',
+        };
+      });
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _operator = updated;
@@ -270,6 +296,12 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       const SizedBox(height: 10),
       _InfoRow(label: 'Employee ID', value: _operator.employeeId),
       const SizedBox(height: 10),
+      _InfoRow(
+        label: 'PLC Login Email',
+        value: _operator.email ?? 'Not set — a credential login for this '
+            'operator won\'t be attributed to this profile or role',
+      ),
+      const SizedBox(height: 10),
       _InfoRow(label: 'Role', value: _operator.role.displayName),
       const SizedBox(height: 10),
       _InfoRow(
@@ -291,6 +323,26 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
 
   List<Widget> _buildEditForm() {
     return [
+      if (_saveError != null) ...[
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.brandDangerSoft,
+            borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+            border: Border.all(color: AppColors.brandDanger.withAlpha(70)),
+          ),
+          child: Text(
+            _saveError!,
+            style: const TextStyle(
+              color: AppColors.brandDanger,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
       TextField(
         controller: _nameController,
         enabled: !_busy,
@@ -311,6 +363,17 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
         decoration: brandInputDecoration(
           label: 'Employee ID',
           icon: Icons.badge_outlined,
+        ),
+      ),
+      const SizedBox(height: 14),
+      TextField(
+        controller: _emailController,
+        enabled: !_busy,
+        keyboardType: TextInputType.emailAddress,
+        decoration: brandInputDecoration(
+          label: 'PLC login email',
+          hint: 'operator@company.com',
+          icon: Icons.alternate_email_rounded,
         ),
       ),
       const SizedBox(height: 14),

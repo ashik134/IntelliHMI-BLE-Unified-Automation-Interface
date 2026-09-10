@@ -1,3 +1,4 @@
+import 'dart:typed_data' show Uint8List;
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
@@ -79,9 +80,38 @@ class CameraFrameConverter {
   /// call it for frames worth the cost (i.e. once detection has already
   /// found exactly one face).
   static img.Image toRgbImage(CameraImage image) {
-    return image.format.group == ImageFormatGroup.bgra8888
-        ? _bgra8888ToImage(image)
-        : _nv21ToImage(image);
+    final plane = image.planes.first;
+    return decodePlane(
+      bytes: plane.bytes,
+      bytesPerRow: plane.bytesPerRow,
+      width: image.width,
+      height: image.height,
+      formatGroup: image.format.group,
+    );
+  }
+
+  /// Same conversion as [toRgbImage], factored out to take one plane's raw
+  /// fields directly instead of a `camera`-package [CameraImage] — needed
+  /// once decoding runs inside `FaceEnrollmentWorker`'s isolate, where only
+  /// the plane bytes/metadata (plain, isolate-sendable data) have crossed
+  /// the boundary, not a [CameraImage] itself ([CameraImage] and [Plane]
+  /// only expose private constructors outside this package, so one can't be
+  /// reconstructed on the other side regardless).
+  static img.Image decodePlane({
+    required Uint8List bytes,
+    required int bytesPerRow,
+    required int width,
+    required int height,
+    required ImageFormatGroup formatGroup,
+  }) {
+    return formatGroup == ImageFormatGroup.bgra8888
+        ? _bgra8888ToImage(
+            bytes: bytes,
+            bytesPerRow: bytesPerRow,
+            width: width,
+            height: height,
+          )
+        : _nv21ToImage(bytes: bytes, width: width, height: height);
   }
 
   /// The same rotation-compensation angle applied to [toInputImage]'s
@@ -117,14 +147,18 @@ class CameraFrameConverter {
     return (camera.sensorOrientation - deviceDegrees + 360) % 360;
   }
 
-  static img.Image _bgra8888ToImage(CameraImage image) {
-    final plane = image.planes.first;
+  static img.Image _bgra8888ToImage({
+    required Uint8List bytes,
+    required int bytesPerRow,
+    required int width,
+    required int height,
+  }) {
     return img.Image.fromBytes(
-      width: image.width,
-      height: image.height,
-      bytes: plane.bytes.buffer,
-      bytesOffset: plane.bytes.offsetInBytes,
-      rowStride: plane.bytesPerRow,
+      width: width,
+      height: height,
+      bytes: bytes.buffer,
+      bytesOffset: bytes.offsetInBytes,
+      rowStride: bytesPerRow,
       order: img.ChannelOrder.bgra,
     );
   }
@@ -134,10 +168,11 @@ class CameraFrameConverter {
   /// interleaved V,U byte pairs (V before U — that ordering is what
   /// distinguishes NV21 from NV12). Standard, fixed layout for this
   /// format — not something specific to this codebase.
-  static img.Image _nv21ToImage(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
-    final bytes = image.planes.first.bytes;
+  static img.Image _nv21ToImage({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+  }) {
     final ySize = width * height;
 
     final out = img.Image(width: width, height: height);

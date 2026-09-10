@@ -26,11 +26,12 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
 // blink; it does not change what is sent, because this row never sends.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Channels each PLC model exposes on the wire. PLC14/PLC21 carry the first
-/// four fields; PLC38 carries all ten.
+/// Channels each PLC model exposes on the wire — see
+/// [PlcType.digitalFieldCount] (PLC14: 5, PLC21: 4, PLC38: 10).
 List<PlcOutputVariant> ledVariantsForPlc(PlcType plcType) {
-  final count = plcType == PlcType.plc38 ? 10 : 4;
-  return PlcOutputVariant.values.take(count).toList(growable: false);
+  return PlcOutputVariant.values
+      .take(plcType.digitalFieldCount)
+      .toList(growable: false);
 }
 
 Future<void> showLedFeedbackPanel(BuildContext context) {

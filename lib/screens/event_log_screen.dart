@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
+import 'package:rev_crane_control_ops/screens/event_detail_screen.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
+import 'package:rev_crane_control_ops/utils/auth_log_presentation.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 /// Filter-chip categories. `ble`/`plc`/`safety` are placeholders per spec
@@ -42,6 +44,46 @@ List<AuthLogEntry> _applyFilter(List<AuthLogEntry> entries, _LogFilter filter) {
   }
 }
 
+/// All events sharing one `plcDeviceId` (MAC ID). Entries with no PLC
+/// attached (operator-management/system events) land in the `null`-keyed
+/// "unassigned" group, which always sorts last.
+class _DeviceGroup {
+  _DeviceGroup(this.macId);
+
+  final String? macId;
+  String? deviceName;
+  final List<AuthLogEntry> entries = [];
+}
+
+List<_DeviceGroup> _groupByPlc(List<AuthLogEntry> entries) {
+  final byKey = <String, _DeviceGroup>{};
+  final order = <String>[];
+  for (final e in entries) {
+    final key = e.plcDeviceId ?? '';
+    var group = byKey[key];
+    if (group == null) {
+      group = _DeviceGroup(e.plcDeviceId);
+      byKey[key] = group;
+      order.add(key);
+    }
+    group.deviceName ??= e.plcDeviceName;
+    group.entries.add(e);
+  }
+
+  final groups = order.map((k) => byKey[k]!).toList();
+  // Entries arrive newest-first (AuthAuditLogService.getEntries reverses
+  // them), so within each group `entries.first` is already that device's
+  // most recent activity — sort groups by that so the busiest/most-recent
+  // PLC surfaces first, with the unassigned bucket always last.
+  groups.sort((a, b) {
+    if (a.macId == null && b.macId == null) return 0;
+    if (a.macId == null) return 1;
+    if (b.macId == null) return -1;
+    return b.entries.first.timestamp.compareTo(a.entries.first.timestamp);
+  });
+  return groups;
+}
+
 class EventLogScreen extends StatefulWidget {
   const EventLogScreen({super.key, this.operatorId, this.titleOverride});
 
@@ -62,6 +104,8 @@ class EventLogScreen extends StatefulWidget {
 
 class _EventLogScreenState extends State<EventLogScreen> {
   _LogFilter _filter = _LogFilter.all;
+  DateTimeRange? _dateRange;
+  String? _operatorFilter;
   late Future<List<AuthLogEntry>> _future;
 
   @override
@@ -74,6 +118,82 @@ class _EventLogScreenState extends State<EventLogScreen> {
     setState(() {
       _future = context.read<AuthAuditLogService>().getEntries();
     });
+  }
+
+  List<AuthLogEntry> _scopedEntries(List<AuthLogEntry> all) {
+    if (widget.operatorId == null) return all;
+    return all.where((e) => e.operatorId == widget.operatorId).toList();
+  }
+
+  List<AuthLogEntry> _filteredEntries(List<AuthLogEntry> scoped) {
+    var entries = _applyFilter(scoped, _filter);
+
+    final range = _dateRange;
+    if (range != null) {
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final end = DateTime(
+        range.end.year,
+        range.end.month,
+        range.end.day,
+      ).add(const Duration(days: 1));
+      entries = entries.where((e) {
+        final t = e.timestamp.toLocal();
+        return !t.isBefore(start) && t.isBefore(end);
+      }).toList();
+    }
+
+    final operator = _operatorFilter;
+    if (operator != null) {
+      entries = entries
+          .where((e) => operatorLabelForLogEntry(e) == operator)
+          .toList();
+    }
+
+    return entries;
+  }
+
+  bool get _hasExtraFilters => _dateRange != null || _operatorFilter != null;
+
+  void _clearAllFilters() {
+    setState(() {
+      _filter = _LogFilter.all;
+      _dateRange = null;
+      _operatorFilter = null;
+    });
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) setState(() => _dateRange = picked);
+  }
+
+  Future<void> _pickOperator(List<String> operators) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _OperatorPickerSheet(
+        operators: operators,
+        selected: _operatorFilter,
+      ),
+    );
+    if (!mounted) return;
+    // A picker result of `''` is the sheet's explicit "All Operators" — a
+    // dismiss without picking (null) must leave the current filter alone.
+    if (selected == null) return;
+    setState(() => _operatorFilter = selected.isEmpty ? null : selected);
+  }
+
+  void _openDetail(AuthLogEntry entry) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => EventDetailScreen(entry: entry)),
+    );
   }
 
   @override
@@ -116,28 +236,49 @@ class _EventLogScreenState extends State<EventLogScreen> {
             );
           }
 
-          var scoped = snapshot.data!;
-          if (widget.operatorId != null) {
-            scoped = scoped
-                .where((e) => e.operatorId == widget.operatorId)
-                .toList();
-          }
-          final entries = _applyFilter(scoped, _filter);
+          final scoped = _scopedEntries(snapshot.data!);
+          final entries = _filteredEntries(scoped);
+          final operators = widget.operatorId != null
+              ? const <String>[]
+              : ({
+                  for (final e in scoped)
+                    if (operatorLabelForLogEntry(e) != null)
+                      operatorLabelForLogEntry(e)!,
+                }.toList()..sort());
+          final groups = _groupByPlc(entries);
+          final isFiltered =
+              _filter != _LogFilter.all || _hasExtraFilters;
+
           return Column(
             children: [
               _FilterChipsRow(
                 selected: _filter,
                 onSelected: (f) => setState(() => _filter = f),
               ),
+              _ExtraFiltersRow(
+                dateRange: _dateRange,
+                onPickDateRange: _pickDateRange,
+                onClearDateRange: () => setState(() => _dateRange = null),
+                operator: _operatorFilter,
+                showOperatorFilter: widget.operatorId == null,
+                onPickOperator: () => _pickOperator(operators),
+                onClearOperator: () => setState(() => _operatorFilter = null),
+              ),
+              if (groups.isNotEmpty) const _TableColumnHeader(),
               Expanded(
-                child: entries.isEmpty
-                    ? const _EmptyState()
+                child: groups.isEmpty
+                    ? _EmptyState(
+                        filtered: isFiltered && scoped.isNotEmpty,
+                        onClearFilters: _clearAllFilters,
+                      )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                        itemCount: entries.length,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        itemCount: groups.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, i) =>
-                            _LogEntryCard(entry: entries[i]),
+                        itemBuilder: (context, i) => _DeviceGroupSection(
+                          group: groups[i],
+                          onTapEntry: _openDetail,
+                        ),
                       ),
               ),
             ],
@@ -191,8 +332,497 @@ class _FilterChipsRow extends StatelessWidget {
   }
 }
 
+/// Second filter row — date range and (when not already operator-scoped)
+/// operator — kept visually distinct from the category chips above so the
+/// two filter axes (what kind of event vs. when/who) don't blur together.
+class _ExtraFiltersRow extends StatelessWidget {
+  const _ExtraFiltersRow({
+    required this.dateRange,
+    required this.onPickDateRange,
+    required this.onClearDateRange,
+    required this.operator,
+    required this.showOperatorFilter,
+    required this.onPickOperator,
+    required this.onClearOperator,
+  });
+
+  final DateTimeRange? dateRange;
+  final VoidCallback onPickDateRange;
+  final VoidCallback onClearDateRange;
+  final String? operator;
+  final bool showOperatorFilter;
+  final VoidCallback onPickOperator;
+  final VoidCallback onClearOperator;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateActive = dateRange != null;
+    final dateLabel = dateActive
+        ? '${formatDateShort(dateRange!.start)} – ${formatDateShort(dateRange!.end)}'
+        : 'Date range';
+
+    final operatorActive = operator != null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _FilterPillButton(
+            icon: Icons.event_rounded,
+            label: dateLabel,
+            active: dateActive,
+            onTap: onPickDateRange,
+          ),
+          if (dateActive) _ClearChipButton(onTap: onClearDateRange),
+          if (showOperatorFilter) ...[
+            _FilterPillButton(
+              icon: Icons.person_outline_rounded,
+              label: operator ?? 'Operator',
+              active: operatorActive,
+              onTap: onPickOperator,
+            ),
+            if (operatorActive) _ClearChipButton(onTap: onClearOperator),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterPillButton extends StatelessWidget {
+  const _FilterPillButton({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusPill),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 190),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? AppColors.brandVioletSoft : AppColors.brandSurface,
+            border: Border.all(
+              color: active ? AppColors.brandViolet : AppColors.brandBorder,
+            ),
+            borderRadius: BorderRadius.circular(AppMetrics.radiusPill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: active
+                    ? AppColors.brandVioletDeep
+                    : AppColors.brandTextSub,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: active
+                        ? AppColors.brandVioletDeep
+                        : AppColors.brandTextSub,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClearChipButton extends StatelessWidget {
+  const _ClearChipButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: const Padding(
+          padding: EdgeInsets.all(4),
+          child: Icon(
+            Icons.close_rounded,
+            size: 16,
+            color: AppColors.brandTextMuted,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OperatorPickerSheet extends StatelessWidget {
+  const _OperatorPickerSheet({required this.operators, required this.selected});
+
+  final List<String> operators;
+  final String? selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.6,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.brandSurface,
+            borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
+            boxShadow: AppMetrics.shadowMd,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBorderStrong,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 14, 18, 6),
+                child: Text(
+                  'Filter by operator',
+                  style: TextStyle(
+                    color: AppColors.brandText,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+                  children: [
+                    _OperatorPickerRow(
+                      label: 'All Operators',
+                      selected: selected == null,
+                      onTap: () => Navigator.of(context).pop(''),
+                    ),
+                    for (final name in operators)
+                      _OperatorPickerRow(
+                        label: name,
+                        selected: name == selected,
+                        onTap: () => Navigator.of(context).pop(name),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OperatorPickerRow extends StatelessWidget {
+  const _OperatorPickerRow({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppMetrics.radiusMd),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                size: 18,
+                color: selected
+                    ? AppColors.brandViolet
+                    : AppColors.brandTextMuted,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: AppColors.brandText,
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Column labels for the compact table — shown once above the grouped
+/// sections so the PLC/MAC ID header (which each section already carries)
+/// isn't repeated on every row.
+class _TableColumnHeader extends StatelessWidget {
+  const _TableColumnHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      color: AppColors.brandTextMuted,
+      fontSize: 10.5,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0.8,
+    );
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Row(
+        children: [
+          SizedBox(width: 22),
+          Expanded(flex: 5, child: Text('EVENT', style: style)),
+          Expanded(flex: 3, child: Text('TIME', style: style)),
+          Expanded(flex: 3, child: Text('OPERATOR', style: style)),
+          SizedBox(width: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceGroupSection extends StatelessWidget {
+  const _DeviceGroupSection({required this.group, required this.onTapEntry});
+
+  final _DeviceGroup group;
+  final ValueChanged<AuthLogEntry> onTapEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    return BrandCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DeviceGroupHeader(group: group),
+          const Divider(height: 1, color: AppColors.brandBorder),
+          for (var i = 0; i < group.entries.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: AppColors.brandBorder),
+            _EventRow(
+              entry: group.entries[i],
+              onTap: () => onTapEntry(group.entries[i]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceGroupHeader extends StatelessWidget {
+  const _DeviceGroupHeader({required this.group});
+
+  final _DeviceGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final macId = group.macId;
+    final hasDevice = macId != null;
+    final title = hasDevice ? (group.deviceName ?? 'PLC') : 'No PLC Connected';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: hasDevice
+                  ? AppColors.brandVioletSoft
+                  : AppColors.brandSurfaceAlt,
+              borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
+            ),
+            child: Icon(
+              hasDevice ? Icons.developer_board_rounded : Icons.link_off_rounded,
+              size: 17,
+              color: hasDevice
+                  ? AppColors.brandVioletDeep
+                  : AppColors.brandTextMuted,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.brandText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  hasDevice ? macId : 'Operator & system events with no PLC attached',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.brandTextMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          BrandBadge(
+            label: '${group.entries.length}',
+            tone: BrandTone.neutral,
+            dense: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventRow extends StatelessWidget {
+  const _EventRow({required this.entry, required this.onTap});
+
+  final AuthLogEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = toneForLogEntry(entry);
+    final toneColor = toneColorFor(tone);
+    final operatorLabel = operatorLabelForLogEntry(entry) ?? '—';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 22,
+                child: Center(
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: toneColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 5,
+                child: Text(
+                  titleForLogEntry(entry),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.brandText,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  formatLogTimestampCompact(entry.timestamp),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.brandTextSub,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  operatorLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.brandTextSub,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+              const SizedBox(
+                width: 16,
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 16,
+                  color: AppColors.brandTextMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.filtered, required this.onClearFilters});
+
+  final bool filtered;
+  final VoidCallback onClearFilters;
 
   @override
   Widget build(BuildContext context) {
@@ -206,252 +836,34 @@ class _EmptyState extends StatelessWidget {
               color: AppColors.brandTextMuted.withAlpha(20),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.receipt_long_outlined,
+            child: Icon(
+              filtered ? Icons.filter_alt_off_outlined : Icons.receipt_long_outlined,
               color: AppColors.brandTextMuted,
               size: 40,
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'No events yet',
-            style: TextStyle(
+          Text(
+            filtered ? 'No events match your filters' : 'No events yet',
+            style: const TextStyle(
               color: AppColors.brandText,
               fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Authentication activity will appear here.',
-            style: TextStyle(color: AppColors.brandTextMuted, fontSize: 12.5),
+          Text(
+            filtered
+                ? 'Try a wider date range or a different operator.'
+                : 'Authentication activity will appear here.',
+            style: const TextStyle(color: AppColors.brandTextMuted, fontSize: 12.5),
           ),
+          if (filtered) ...[
+            const SizedBox(height: 16),
+            TextButton(onPressed: onClearFilters, child: const Text('Clear filters')),
+          ],
         ],
       ),
     );
   }
-}
-
-class _LogEntryCard extends StatelessWidget {
-  const _LogEntryCard({required this.entry});
-
-  final AuthLogEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final tone = _toneFor(entry);
-    final toneColor = _toneColor(tone);
-
-    return BrandCard(
-      padding: EdgeInsets.zero,
-      // ExpansionTile paints its ListTile's ink/highlight on the nearest
-      // Material ancestor — without this, BrandCard's own colored
-      // background sits between it and the Scaffold's Material and hides
-      // the ink entirely. ClipRRect keeps the splash inside the card's
-      // rounded corners.
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppMetrics.radiusLg),
-        child: Material(
-          color: Colors.transparent,
-          child: Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              tilePadding: const EdgeInsets.fromLTRB(14, 2, 10, 2),
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              leading: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: toneColor.withAlpha(28),
-                  borderRadius: BorderRadius.circular(AppMetrics.radiusSm),
-                ),
-                child: Icon(_iconFor(entry), color: toneColor, size: 18),
-              ),
-              title: Text(
-                _titleFor(entry),
-                style: const TextStyle(
-                  color: AppColors.brandText,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  '${_formatTimestamp(entry.timestamp)} · ${_subtitleFor(entry)}',
-                  style: const TextStyle(
-                    color: AppColors.brandTextMuted,
-                    fontSize: 11.5,
-                  ),
-                ),
-              ),
-              trailing: BrandBadge(
-                label: _badgeLabelFor(entry),
-                tone: tone,
-                dense: true,
-              ),
-              children: [_DetailRows(entry: entry)],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailRows extends StatelessWidget {
-  const _DetailRows({required this.entry});
-
-  final AuthLogEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = <MapEntry<String, String>>[
-      if (entry.userIdentifier != null)
-        MapEntry('User', entry.userIdentifier!),
-      if (entry.operatorId != null) MapEntry('Operator ID', entry.operatorId!),
-      if (entry.deviceId != null) MapEntry('Device ID', entry.deviceId!),
-      if (entry.plcDeviceName != null)
-        MapEntry('PLC Device', entry.plcDeviceName!),
-      if (entry.plcType != null) MapEntry('PLC Type', entry.plcType!),
-      if (entry.connectionStatus != null)
-        MapEntry('Connection', entry.connectionStatus!),
-      if (entry.sessionCorrelationId != null)
-        MapEntry('Session', entry.sessionCorrelationId!),
-      if (entry.detailCode != null) MapEntry('Detail Code', entry.detailCode!),
-      if (entry.failureReason != null)
-        MapEntry('Reason', entry.failureReason!),
-    ];
-
-    if (rows.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(height: 16, color: AppColors.brandBorder),
-        for (final row in rows)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 96,
-                  child: Text(
-                    row.key,
-                    style: const TextStyle(
-                      color: AppColors.brandTextMuted,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    row.value,
-                    style: const TextStyle(
-                      color: AppColors.brandText,
-                      fontSize: 11.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-BrandTone _toneFor(AuthLogEntry entry) {
-  switch (entry.category) {
-    case AuthLogCategory.authentication:
-      switch (entry.result) {
-        case AuthEventResult.success:
-          return BrandTone.success;
-        case AuthEventResult.failed:
-        case AuthEventResult.error:
-          return BrandTone.danger;
-        case AuthEventResult.cancelled:
-          return BrandTone.warning;
-        case null:
-          return BrandTone.neutral;
-      }
-    case AuthLogCategory.operatorManagement:
-      return BrandTone.info;
-    case AuthLogCategory.system:
-      return BrandTone.neutral;
-  }
-}
-
-Color _toneColor(BrandTone tone) {
-  switch (tone) {
-    case BrandTone.success:
-      return AppColors.brandSuccess;
-    case BrandTone.danger:
-      return AppColors.brandDanger;
-    case BrandTone.warning:
-      return AppColors.brandWarning;
-    case BrandTone.info:
-      return AppColors.brandInfo;
-    case BrandTone.violet:
-      return AppColors.brandViolet;
-    case BrandTone.neutral:
-      return AppColors.brandTextSub;
-  }
-}
-
-IconData _iconFor(AuthLogEntry entry) {
-  switch (entry.category) {
-    case AuthLogCategory.authentication:
-      switch (entry.method) {
-        case AuthEventMethod.biometric:
-          return Icons.fingerprint_rounded;
-        case AuthEventMethod.face:
-          return Icons.face_retouching_natural_rounded;
-        case AuthEventMethod.pin:
-          return Icons.pin_rounded;
-        case AuthEventMethod.password:
-        case null:
-          return Icons.lock_outline_rounded;
-      }
-    case AuthLogCategory.operatorManagement:
-      return Icons.badge_outlined;
-    case AuthLogCategory.system:
-      return Icons.info_outline_rounded;
-  }
-}
-
-String _titleFor(AuthLogEntry entry) {
-  switch (entry.category) {
-    case AuthLogCategory.authentication:
-      final method = entry.method?.displayName ?? 'Unknown';
-      return '$method Authentication';
-    case AuthLogCategory.operatorManagement:
-      return entry.lifecycleEvent?.displayName ?? 'Operator Management';
-    case AuthLogCategory.system:
-      return 'System Notice';
-  }
-}
-
-String _subtitleFor(AuthLogEntry entry) {
-  final name = entry.operatorNameSnapshot ?? entry.userIdentifier;
-  if (name == null) return entry.category.displayName;
-  if (entry.role == null) return name;
-  return '$name · ${entry.role}';
-}
-
-String _badgeLabelFor(AuthLogEntry entry) {
-  if (entry.result != null) return entry.result!.displayName.toUpperCase();
-  if (entry.lifecycleEvent != null) {
-    return entry.lifecycleEvent!.displayName.toUpperCase();
-  }
-  return entry.category.displayName.toUpperCase();
-}
-
-String _formatTimestamp(DateTime timestamp) {
-  final t = timestamp.toLocal();
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${t.year}-${two(t.month)}-${two(t.day)} '
-      '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }

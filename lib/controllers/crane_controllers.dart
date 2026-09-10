@@ -10,11 +10,15 @@ import 'package:rev_crane_control_ops/models/analog_wire_config.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 import 'package:rev_crane_control_ops/models/auth_log_entry.dart';
 import 'package:rev_crane_control_ops/models/operator_profile.dart';
+import 'package:rev_crane_control_ops/models/permission.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
+import 'package:rev_crane_control_ops/repositories/operator_repository.dart';
 import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
+import 'package:rev_crane_control_ops/services/authorization_service.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/ble_crypto.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
+import 'package:rev_crane_control_ops/services/device_setup_registry.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
 import 'package:rev_crane_control_ops/models/ble_scan_device.dart';
 import 'package:rev_crane_control_ops/models/hoist_notification.dart';
@@ -95,12 +99,41 @@ class CraneController extends ChangeNotifier
 
   bool _pendingEnrollmentOffer = false;
 
-  // Gates AppScreen.authentication behind a fresh face-verification pass on
-  // every connection attempt. Reset to true whenever the transport drops
-  // back to disconnected (see the connectionStream listener below) so a
-  // reconnect always re-verifies rather than reusing a stale identity.
-  bool _pendingFaceVerification = true;
+  // Shows AppScreen.faceVerification instead of AppScreen.authentication
+  // when true. Seeded per-connection from the PLC's own setup record (see
+  // _loadDeviceSetupState) rather than always defaulting to true: a
+  // never-before-configured MAC seeds this false (straight to credentials),
+  // an already-configured MAC with face enabled seeds it true. Also
+  // toggled on demand by requestIdentityVerificationFallback/
+  // skipFaceVerification for the fallback flows.
+  bool _pendingFaceVerification = false;
   OperatorProfile? _faceVerifiedOperator;
+
+  // ── Per-device (PLC MAC ID) setup state ───────────────────────────────────
+  // A device's setup record, which identity methods it enabled, and whether
+  // this session has finished loading it are all keyed to whichever MAC is
+  // currently connected — see _loadDeviceSetupState and currentScreen. Reset
+  // on every disconnect so a different PLC never inherits this state.
+  String? _setupLoadedForMacId;
+  bool _deviceSetupLoaded = false;
+  DeviceSetupRecord? _deviceSetupRecord;
+  bool _pendingSetupMode = false;
+  ({String email, String password})? _pendingSetupCredentials;
+
+  // ── Role-based control-access gate ────────────────────────────────────────
+  // Runs once, lazily, at the single point every success path (Setup
+  // Complete, Face Verification, and the credential/biometric fallback)
+  // converges on: about to enter the PLC-type control screen. See
+  // currentScreen/_resolveControlAccessScreen/_checkControlAccess.
+  bool _controlAccessChecked = false;
+  bool _accessDenied = false;
+  OperatorRepository? _operatorRepository;
+
+  // One-shot signal consumed by the connectionStream listener: set right
+  // before the silent, face-triggered reauth call so that specific
+  // authenticated transition never pops the biometric-enrollment offer in
+  // front of the control screen — see completeFaceVerification.
+  bool _suppressEnrollmentOfferOnce = false;
 
   String? _sessionEmail;
   String? _errorMessage;
@@ -134,6 +167,32 @@ class CraneController extends ChangeNotifier
   bool get hasPendingEnrollmentOffer => _pendingEnrollmentOffer;
   bool get needsFaceVerification => _pendingFaceVerification;
   OperatorProfile? get verifiedOperator => _faceVerifiedOperator;
+
+  /// Whether the currently-connected PLC (by MAC ID) has already completed
+  /// its one-time authentication setup. `false` for a never-before-seen
+  /// device, in which case it goes straight to credentials rather than Face
+  /// Verification (see [currentScreen]).
+  bool get isDeviceConfigured => _deviceSetupRecord != null;
+
+  /// True when Face Verification is being offered as an opt-in identity
+  /// check ahead of first-time credential entry (requested via
+  /// [requestIdentityVerificationFallback]) rather than as the mandatory
+  /// primary gate on an already-configured device. Lets
+  /// [FaceVerificationScreen] show a "back to credentials" affordance only
+  /// when it's genuinely optional.
+  bool get isFaceVerificationOptional => !isDeviceConfigured;
+
+  /// True once a never-before-configured device has just accepted valid
+  /// credentials for the first time — routes [currentScreen] to
+  /// AppScreen.setupMode instead of straight to the control screen.
+  bool get hasPendingSetupMode => _pendingSetupMode;
+
+  /// True once PLC authentication succeeded but the resolved operator's
+  /// role doesn't hold [Permission.controlAccess] (or no local operator
+  /// profile could be resolved for the login at all). Keeps
+  /// [currentScreen] on AppScreen.authentication instead of the control
+  /// screen — see [_checkControlAccess].
+  bool get isAccessDenied => _accessDenied;
   PlcOutputCommand get activeCommand => _activeCommand;
 
   PlcOutputCommand get commandedCommand => _commandedCommand;
@@ -233,24 +292,117 @@ class CraneController extends ChangeNotifier
   String get statusLabel => _activeCommand.statusLabel;
 
   AppScreen get currentScreen => switch (_transportConnState.status) {
-    BleConnectionStatus.authenticated =>
-      _pendingEnrollmentOffer
-          ? AppScreen.authentication
-          : _getControlScreenForPlcType(),
+    BleConnectionStatus.authenticated => _pendingSetupMode
+        ? AppScreen.setupMode
+        : _pendingEnrollmentOffer
+            ? AppScreen.authentication
+            : _resolveControlAccessScreen(),
 
     BleConnectionStatus.awaitingAuthentication ||
     BleConnectionStatus.connected ||
     BleConnectionStatus.authenticating =>
-      _pendingFaceVerification
-          ? AppScreen.faceVerification
-          : AppScreen.authentication,
+      _resolvePreAuthScreen(),
     BleConnectionStatus.error
         when _transportConnState.connectedDevice != null =>
-      _pendingFaceVerification
-          ? AppScreen.faceVerification
-          : AppScreen.authentication,
+      _resolvePreAuthScreen(),
     _ => AppScreen.connection,
   };
+
+  /// Screen shown before PLC credential auth completes: a brief connection
+  /// spinner while this MAC's setup record is still loading, then either
+  /// Face Verification or the credential screen depending on
+  /// [_pendingFaceVerification] (seeded per-device by
+  /// [_loadDeviceSetupState], toggled on demand by
+  /// [requestIdentityVerificationFallback]/[skipFaceVerification]).
+  AppScreen _resolvePreAuthScreen() {
+    if (!_deviceSetupLoaded) return AppScreen.connection;
+    return _pendingFaceVerification
+        ? AppScreen.faceVerification
+        : AppScreen.authentication;
+  }
+
+  /// Screen shown once PLC authentication has fully succeeded (Setup Mode
+  /// and the biometric-enrollment offer, if any, are both already
+  /// resolved) — the single point every success path (first-time Setup
+  /// Complete, Face Verification, and the credential/biometric fallback)
+  /// converges on before the control screen. Kicks off [_checkControlAccess]
+  /// at most once per authenticated session and holds on
+  /// AppScreen.authentication (denial banner, or briefly, the still-checking
+  /// authenticated card) until it resolves — never AppScreen.connection,
+  /// which would pop the already-pushed auth/control sub-shell route.
+  AppScreen _resolveControlAccessScreen() {
+    if (_accessDenied) return AppScreen.authentication;
+    if (!_controlAccessChecked) {
+      unawaited(_checkControlAccess());
+      return AppScreen.authentication;
+    }
+    return _getControlScreenForPlcType();
+  }
+
+  /// Resolves the authenticated operator's role — directly from
+  /// [_faceVerifiedOperator] when Face Verification identified them this
+  /// session, otherwise by looking up the just-used PLC login email in the
+  /// local operator roster — and checks [Permission.controlAccess] via
+  /// [AuthorizationService]. The PLC itself already vouched for these
+  /// credentials (that's what got the session to `authenticated` at all),
+  /// so a login with **no** local operator match is let through — the
+  /// local roster only adds a *stricter* role-based ceiling on top of that
+  /// for operators it actually knows about. Only a resolved operator whose
+  /// role lacks the permission fails closed: [_accessDenied] is set and the
+  /// operator stays on AppScreen.authentication with an error banner, same
+  /// as every other failure in this flow.
+  Future<void> _checkControlAccess() async {
+    if (_controlAccessChecked) return;
+    _controlAccessChecked = true;
+
+    final macId = _transportConnState.connectedDevice?.id;
+    final email = _sessionEmail;
+    final operator =
+        _faceVerifiedOperator ??
+        (email != null ? await _resolveOperatorByEmail(email) : null);
+
+    // A disconnect/reconnect, or a fresh authenticate() call resetting this
+    // check, may have happened while the operator lookup was in flight — a
+    // stale result must never flip access state for a different attempt.
+    if (_transportConnState.connectedDevice?.id != macId ||
+        _transportConnState.status != BleConnectionStatus.authenticated) {
+      return;
+    }
+
+    final authorized =
+        operator == null ||
+        AuthorizationService.can(operator.role, Permission.controlAccess);
+
+    if (!authorized) {
+      _accessDenied = true;
+      _errorMessage =
+          'ACCESS DENIED\n${operator.role.displayName}s do not have '
+          'control-access permission on this device.';
+      final correlationId = await BleCrypto.sessionCorrelationId;
+      unawaited(
+        _auditLog.record(
+          result: AuthEventResult.failed,
+          method: AuthEventMethod.password,
+          userIdentifier: email,
+          operatorId: operator.operatorId,
+          operatorNameSnapshot: operator.name,
+          role: operator.role.name,
+          deviceId: _deviceId,
+          plcDeviceId: macId,
+          connectionStatus: _transportConnState.status.name,
+          sessionCorrelationId: correlationId,
+          failureReason: _errorMessage,
+          detailCode: 'access_denied_role_permission',
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<OperatorProfile?> _resolveOperatorByEmail(String email) async {
+    final repo = _operatorRepository ??= await OperatorRepository.open();
+    return repo.getByEmail(email);
+  }
 
   PlcType? _lastLoggedPlcType;
 
@@ -312,7 +464,7 @@ class CraneController extends ChangeNotifier
       _rememberOperatorEmail = _savedEmail.isNotEmpty;
 
       await _prepareRunTime();
-      await checkBiometricStatus();
+      await checkBiometricStatus(macId: null);
       debugPrint(
         'Initialization complete. Bluetooth ready: $bluetoothReady, Permissions granted: $permissionsGranted',
       );
@@ -335,6 +487,20 @@ class CraneController extends ChangeNotifier
       final previousStatus = _lastConnectionStatus;
       _lastConnectionStatus = snapshot.status;
       _transportConnState = snapshot;
+
+      // Kick off this MAC's setup-record lookup as soon as a new device
+      // appears (connectedDevice is set by BleService before the
+      // `connecting` status even fires) — resolves well before the
+      // credential/face-verification screens can be reached, and is keyed
+      // to the MAC so a different PLC never inherits this device's state.
+      final newDevice = snapshot.connectedDevice;
+      if (newDevice != null && newDevice.id != _setupLoadedForMacId) {
+        _setupLoadedForMacId = newDevice.id;
+        _deviceSetupLoaded = false;
+        _deviceSetupRecord = null;
+        unawaited(_loadDeviceSetupState(newDevice.id));
+      }
+
       if (snapshot.status == BleConnectionStatus.disconnected) {
         _activeCommand = PlcOutputCommand.idle();
         _commandedCommand = PlcOutputCommand.idle();
@@ -344,9 +510,18 @@ class CraneController extends ChangeNotifier
         _sessionEmail = null;
         _startupEmergencyArmedForConnection = false;
         _pendingEnrollmentOffer = false;
-        _pendingFaceVerification = true;
+        _pendingFaceVerification = false;
         _faceVerifiedOperator = null;
         _deviceTrustRejected = false;
+        _setupLoadedForMacId = null;
+        _deviceSetupLoaded = false;
+        _deviceSetupRecord = null;
+        _pendingSetupMode = false;
+        _pendingSetupCredentials = null;
+        _controlAccessChecked = false;
+        _accessDenied = false;
+        _suppressEnrollmentOfferOnce = false;
+        _biometricEnrolled = false;
         _buttonFields.clear();
         _fieldOwners.clear();
         _lastLoggedPlcType = null;
@@ -361,9 +536,16 @@ class CraneController extends ChangeNotifier
       } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
         unawaited(ensureControlEntryEmergencyLock());
-        if (_biometricAvailable && !_biometricEnrolled) {
+        // Never interrupt a silent, face-triggered reauth with the
+        // biometric-enrollment offer — that path is meant to go straight
+        // to the control screen with no screen in between (see
+        // completeFaceVerification/_attemptSilentReauthAfterFaceVerification).
+        if (_biometricAvailable &&
+            !_biometricEnrolled &&
+            !_suppressEnrollmentOfferOnce) {
           _pendingEnrollmentOffer = true;
         }
+        _suppressEnrollmentOfferOnce = false;
       }
       notifyListeners();
     });
@@ -383,6 +565,26 @@ class CraneController extends ChangeNotifier
       _analogValues = values;
       notifyListeners();
     });
+  }
+
+  /// Looks up [macId]'s setup record and seeds this connection's
+  /// pre-auth screen accordingly (Face Verification first for an
+  /// already-configured device with it enabled; straight to credentials
+  /// otherwise). Also refreshes the per-device biometric-enrolled flag,
+  /// since that too is now scoped to this MAC.
+  Future<void> _loadDeviceSetupState(String macId) async {
+    final record = await DeviceSetupRegistry.get(macId);
+    await checkBiometricStatus(macId: macId);
+
+    // A disconnect/reconnect (possibly to a different device) may have
+    // happened while this lookup was in flight — a stale result must never
+    // overwrite state for whichever device is actually connected now.
+    if (_transportConnState.connectedDevice?.id != macId) return;
+
+    _deviceSetupRecord = record;
+    _pendingFaceVerification = record != null && record.faceVerificationEnabled;
+    _deviceSetupLoaded = true;
+    notifyListeners();
   }
 
   @visibleForTesting
@@ -800,6 +1002,12 @@ class CraneController extends ChangeNotifier
   }) async {
     _errorMessage = null;
     _deviceTrustRejected = false;
+    // Every fresh attempt re-derives control-access from scratch rather
+    // than reusing a stale grant/denial from a previous attempt this
+    // session (e.g. retrying with a different email after a denial).
+    _controlAccessChecked = false;
+    _accessDenied = false;
+    final macId = _transportConnState.connectedDevice?.id;
 
     if (_deviceId.isEmpty) {
       _deviceId = await DeviceIdentityService.getOrCreate();
@@ -821,6 +1029,15 @@ class CraneController extends ChangeNotifier
           await _preferences.clearOperatorEmail();
           _savedEmail = '';
         }
+        // A never-before-configured device routes through Setup Mode next
+        // (see currentScreen) rather than straight to the control screen;
+        // stash the just-validated credential in memory only so Setup Mode
+        // can cache it for a future silent Face Verification reauth without
+        // needing the (long-unmounted) login form's password field.
+        if (macId != null && !isDeviceConfigured) {
+          _pendingSetupCredentials = (email: email.trim(), password: password);
+          _pendingSetupMode = true;
+        }
         final correlationId = await BleCrypto.sessionCorrelationId;
         unawaited(
           _auditLog.record(
@@ -829,6 +1046,7 @@ class CraneController extends ChangeNotifier
             userIdentifier: email.trim(),
             deviceId: _deviceId,
             plcDeviceName: connectedDeviceName,
+            plcDeviceId: macId,
             plcType: connectedPlcType.displayName,
             connectionStatus: _transportConnState.status.name,
             sessionCorrelationId: correlationId,
@@ -850,6 +1068,7 @@ class CraneController extends ChangeNotifier
             method: method,
             userIdentifier: email.trim(),
             deviceId: _deviceId,
+            plcDeviceId: macId,
             connectionStatus: _transportConnState.status.name,
             sessionCorrelationId: correlationId,
             failureReason: _errorMessage,
@@ -872,6 +1091,7 @@ class CraneController extends ChangeNotifier
           method: method,
           userIdentifier: email.trim(),
           deviceId: _deviceId,
+          plcDeviceId: macId,
           connectionStatus: _transportConnState.status.name,
           sessionCorrelationId: correlationId,
           failureReason: _errorMessage,
@@ -891,6 +1111,7 @@ class CraneController extends ChangeNotifier
           method: method,
           userIdentifier: email.trim(),
           deviceId: _deviceId,
+          plcDeviceId: macId,
           sessionCorrelationId: correlationId,
           failureReason: _errorMessage,
           detailCode: 'exception',
@@ -903,10 +1124,15 @@ class CraneController extends ChangeNotifier
 
   // ── Biometric authentication ──────────────────────────────────────────────
 
-  Future<void> checkBiometricStatus() async {
+  /// [macId] identifies which PLC's cached credential state to check.
+  /// `null` (only expected at app startup, before any device is connected)
+  /// reports hardware availability only, with `isBiometricEnrolled` false
+  /// since there's no device yet to have enrolled one for.
+  Future<void> checkBiometricStatus({required String? macId}) async {
     _biometricAvailable = await BiometricService.isAvailableAndEnrolled();
-    _biometricEnrolled =
-        _biometricAvailable && await SecureCredentialStore.hasCredentials();
+    _biometricEnrolled = _biometricAvailable &&
+        macId != null &&
+        await SecureCredentialStore.hasCredentials(macId);
     notifyListeners();
   }
 
@@ -914,9 +1140,11 @@ class CraneController extends ChangeNotifier
     required String email,
     required String password,
   }) async {
-    if (!_biometricAvailable) return false;
+    final macId = _transportConnState.connectedDevice?.id;
+    if (!_biometricAvailable || macId == null) return false;
     try {
       await SecureCredentialStore.storeCredentials(
+        macId: macId,
         email: email,
         password: password,
       );
@@ -929,12 +1157,14 @@ class CraneController extends ChangeNotifier
   }
 
   Future<BiometricAuthResult> authenticateWithBiometrics() async {
-    if (!_biometricAvailable || !_biometricEnrolled) {
+    final macId = _transportConnState.connectedDevice?.id;
+    if (!_biometricAvailable || !_biometricEnrolled || macId == null) {
       unawaited(
         _auditLog.record(
           result: AuthEventResult.error,
           method: AuthEventMethod.biometric,
           deviceId: _deviceId,
+          plcDeviceId: macId,
           connectionStatus: _transportConnState.status.name,
           failureReason:
               'Biometric authentication is not configured on this device.',
@@ -957,6 +1187,7 @@ class CraneController extends ChangeNotifier
               : AuthEventResult.failed,
           method: AuthEventMethod.biometric,
           deviceId: _deviceId,
+          plcDeviceId: macId,
           connectionStatus: _transportConnState.status.name,
           failureReason: biometricResult.message,
           detailCode: biometricResult.isCancelled
@@ -969,15 +1200,16 @@ class CraneController extends ChangeNotifier
 
     // Retrieve credentials from hardware-backed secure storage.
 
-    final credentials = await SecureCredentialStore.retrieveCredentials();
+    final credentials = await SecureCredentialStore.retrieveCredentials(macId);
     if (credentials == null) {
-      await SecureCredentialStore.clearCredentials();
+      await SecureCredentialStore.clearCredentials(macId);
       _biometricEnrolled = false;
       unawaited(
         _auditLog.record(
           result: AuthEventResult.error,
           method: AuthEventMethod.biometric,
           deviceId: _deviceId,
+          plcDeviceId: macId,
           connectionStatus: _transportConnState.status.name,
           failureReason:
               'Stored operator credentials not found. Log in manually to re-enable biometric access.',
@@ -1005,7 +1237,7 @@ class CraneController extends ChangeNotifier
     );
 
     if (!plcSuccess) {
-      await SecureCredentialStore.clearCredentials();
+      await SecureCredentialStore.clearCredentials(macId);
       _biometricEnrolled = false;
       notifyListeners();
       return BiometricAuthResult(
@@ -1020,7 +1252,10 @@ class CraneController extends ChangeNotifier
   }
 
   Future<void> clearBiometricEnrollment() async {
-    await SecureCredentialStore.clearCredentials();
+    final macId = _transportConnState.connectedDevice?.id;
+    if (macId != null) {
+      await SecureCredentialStore.clearCredentials(macId);
+    }
     _biometricEnrolled = false;
     notifyListeners();
   }
@@ -1034,12 +1269,15 @@ class CraneController extends ChangeNotifier
   // ── Face verification (identity gate ahead of PLC credential auth) ───────
 
   /// Called by the face-verification screen once a live camera frame has
-  /// matched an enrolled, enabled operator. This only identifies which
-  /// operator is present and unlocks the PLC credential screen — it never
-  /// grants PLC/control access on its own; [authenticate] is still required.
+  /// matched an enrolled, enabled operator, and — for an already-configured
+  /// device — the entry point into a silent reauth that goes straight to
+  /// the control screen with no credential screen shown at all. This only
+  /// identifies which operator is present; it never grants PLC/control
+  /// access on its own — [authenticate] (via the cached credential below,
+  /// or manually on [LoginScreen]) is still what actually does that.
   void completeFaceVerification(OperatorProfile operator) {
+    final macId = _transportConnState.connectedDevice?.id;
     _faceVerifiedOperator = operator;
-    _pendingFaceVerification = false;
     unawaited(
       _auditLog.record(
         result: AuthEventResult.success,
@@ -1049,10 +1287,62 @@ class CraneController extends ChangeNotifier
         role: operator.role.name,
         deviceId: _deviceId,
         plcDeviceName: connectedDeviceName,
+        plcDeviceId: macId,
         plcType: connectedPlcType.displayName,
         connectionStatus: _transportConnState.status.name,
       ),
     );
+
+    if (isDeviceConfigured && macId != null) {
+      // Mandatory primary gate on an already-configured device — leave
+      // _pendingFaceVerification true so currentScreen keeps showing
+      // FaceVerificationScreen (already on its own "Welcome, {name}"
+      // verified state) while the credential cached at Setup Mode is
+      // silently replayed to the PLC in the background. A BLE-level
+      // success is caught by currentScreen's `authenticated` case before
+      // the pre-auth branch is even consulted, so the operator lands on
+      // the control screen directly — no credential screen in between.
+      unawaited(_attemptSilentReauthAfterFaceVerification(macId));
+    } else {
+      // No cached credential to replay (device not yet configured — this
+      // was the opt-in identity-verification fallback) — PLC credentials
+      // still have to be typed, so fall through to the login screen now.
+      _pendingFaceVerification = false;
+    }
+    notifyListeners();
+  }
+
+  /// Silently replays the credential cached at Setup Mode completion so a
+  /// face match on a configured device reaches the control screen without
+  /// retyping a password. Fails safely either way: no cached credential, or
+  /// a PLC rejection (e.g. a rotated password), falls through to
+  /// AppScreen.authentication with the identified-operator card already
+  /// shown and the biometric/manual-credential fallback still available —
+  /// the same outcome [completeFaceVerification] would have produced by
+  /// falling through immediately, just deferred until this attempt
+  /// actually fails instead of assumed upfront.
+  Future<void> _attemptSilentReauthAfterFaceVerification(String macId) async {
+    final credentials = await SecureCredentialStore.retrieveCredentials(macId);
+    if (credentials == null) {
+      _pendingFaceVerification = false;
+      notifyListeners();
+      return;
+    }
+    _suppressEnrollmentOfferOnce = true;
+    final success = await authenticate(
+      email: credentials.email,
+      password: credentials.password,
+      method: AuthEventMethod.face,
+    );
+    if (success) {
+      // Resolved (and awaited) here so the notifyListeners() below already
+      // carries the final answer — otherwise currentScreen's lazy "not yet
+      // checked" placeholder would hold on AppScreen.authentication for a
+      // frame before the check catches up, putting the credential screen
+      // back in front of the operator however briefly.
+      await _checkControlAccess();
+    }
+    _pendingFaceVerification = false;
     notifyListeners();
   }
 
@@ -1068,6 +1358,7 @@ class CraneController extends ChangeNotifier
         operatorNameSnapshot: operator.name,
         role: operator.role.name,
         deviceId: _deviceId,
+        plcDeviceId: _transportConnState.connectedDevice?.id,
         connectionStatus: _transportConnState.status.name,
         failureReason: 'Operator account is disabled.',
         detailCode: 'operator_disabled',
@@ -1092,11 +1383,77 @@ class CraneController extends ChangeNotifier
         result: AuthEventResult.failed,
         method: AuthEventMethod.face,
         deviceId: _deviceId,
+        plcDeviceId: _transportConnState.connectedDevice?.id,
         connectionStatus: _transportConnState.status.name,
         failureReason: failureReason,
         detailCode: detailCode,
       ),
     );
+  }
+
+  /// Opts into an identity check (Face Verification) as a fallback after
+  /// invalid credentials on a device that hasn't completed setup yet. A
+  /// match here only identifies the operator as usual via
+  /// [completeFaceVerification] — it does not skip PLC credential entry,
+  /// since there is no cached credential yet for an unconfigured device.
+  void requestIdentityVerificationFallback() {
+    if (isDeviceConfigured) return;
+    _pendingFaceVerification = true;
+    notifyListeners();
+  }
+
+  /// Bails out of Face Verification back to the credential screen without
+  /// disconnecting — used both to cancel the optional fallback above, and
+  /// to jump straight to the biometric/credentials alternatives after Face
+  /// Verification fails on an already-configured device.
+  void skipFaceVerification() {
+    _pendingFaceVerification = false;
+    notifyListeners();
+  }
+
+  // ── Setup Mode (first-time device configuration) ──────────────────────────
+
+  /// Finishes a never-before-configured device's one-time setup, persisting
+  /// which identity methods it will use on every future connection to this
+  /// MAC ID. [faceVerificationEnabled] reflects the Setup Mode screen's
+  /// toggle; biometric's enabled state was already resolved by the
+  /// preceding enrollment-offer step (see [_pendingEnrollmentOffer]/
+  /// [enrollBiometrics]).
+  Future<void> completeSetupMode({required bool faceVerificationEnabled}) async {
+    final macId = _transportConnState.connectedDevice?.id;
+    if (macId == null || !_pendingSetupMode) return;
+
+    final biometricEnabled = _biometricEnrolled;
+    final credentials = _pendingSetupCredentials;
+    if (credentials != null && (faceVerificationEnabled || biometricEnabled)) {
+      // No-op if the biometric-enrollment step already wrote this same
+      // pair — both mechanisms replay one cached credential per MAC.
+      await SecureCredentialStore.storeCredentials(
+        macId: macId,
+        email: credentials.email,
+        password: credentials.password,
+      );
+    }
+
+    await DeviceSetupRegistry.markSetupComplete(
+      macId,
+      faceVerificationEnabled: faceVerificationEnabled,
+      biometricEnabled: biometricEnabled,
+    );
+
+    _deviceSetupRecord = DeviceSetupRecord(
+      faceVerificationEnabled: faceVerificationEnabled,
+      biometricEnabled: biometricEnabled,
+      setupAt: DateTime.now(),
+    );
+    _pendingSetupCredentials = null;
+    _pendingSetupMode = false;
+    // Resolved here (and awaited) rather than left to currentScreen's lazy
+    // trigger, so the control-access result is already known the instant
+    // this Future completes — otherwise SetupModeScreen's caller would
+    // briefly flash AppScreen.authentication before the check catches up.
+    await _checkControlAccess();
+    notifyListeners();
   }
 
   @override

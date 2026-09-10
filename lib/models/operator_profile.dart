@@ -11,6 +11,15 @@ import 'package:rev_crane_control_ops/models/operator_role.dart';
 /// store yet (that arrives with the camera pipeline), so a profile must be
 /// valid with no template at all — hence it, and [lastAuthenticatedAt],
 /// are nullable.
+///
+/// [email] links this local profile to the PLC-side login credential (the
+/// email typed on [LoginScreen]/cached for biometric login) so
+/// [CraneController]'s post-authentication role/authorization gate can
+/// resolve a role even when no Face Verification match identified the
+/// operator this session. Nullable for backward compatibility with
+/// profiles created before that gate existed — such a profile simply can
+/// never be resolved by email and fails that gate closed until an admin
+/// backfills it via Operator Management.
 class OperatorProfile {
   const OperatorProfile({
     required this.operatorId,
@@ -20,6 +29,7 @@ class OperatorProfile {
     required this.createdAt,
     required this.updatedAt,
     this.faceTemplateId,
+    this.email,
     this.enabled = true,
     this.lastAuthenticatedAt,
     this.schemaVersion = 1,
@@ -30,6 +40,7 @@ class OperatorProfile {
   final String employeeId;
   final OperatorRole role;
   final String? faceTemplateId;
+  final String? email;
   final DateTime createdAt;
   final DateTime updatedAt;
   final bool enabled;
@@ -42,6 +53,8 @@ class OperatorProfile {
     OperatorRole? role,
     String? faceTemplateId,
     bool clearFaceTemplateId = false,
+    String? email,
+    bool clearEmail = false,
     DateTime? updatedAt,
     bool? enabled,
     DateTime? lastAuthenticatedAt,
@@ -56,6 +69,7 @@ class OperatorProfile {
       faceTemplateId: clearFaceTemplateId
           ? null
           : (faceTemplateId ?? this.faceTemplateId),
+      email: clearEmail ? null : (email ?? this.email),
       enabled: enabled ?? this.enabled,
       lastAuthenticatedAt: lastAuthenticatedAt ?? this.lastAuthenticatedAt,
       schemaVersion: schemaVersion,
@@ -68,6 +82,7 @@ class OperatorProfile {
     'employeeId': employeeId,
     'role': role.name,
     if (faceTemplateId != null) 'faceTemplateId': faceTemplateId,
+    if (email != null) 'email': email,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'enabled': enabled,
@@ -84,6 +99,7 @@ class OperatorProfile {
       role: OperatorRole.tryParse(json['role'] as String?) ??
           OperatorRole.operator,
       faceTemplateId: json['faceTemplateId'] as String?,
+      email: json['email'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
       enabled: json['enabled'] as bool? ?? true,

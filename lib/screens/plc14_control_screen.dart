@@ -37,6 +37,8 @@ import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_alarm_banner.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_appbar_indicators.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback/feedback_sections.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/feedback_settings/led_feedback_panel.dart'
+    show ledVariantsForPlc;
 import 'package:rev_crane_control_ops/widgets/control_screen/placement_cancel_bar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/safety_action_panel.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/screen_activity_detector.dart';
@@ -464,6 +466,7 @@ class _ControlScreenState extends State<ControlScreen>
           ),
           builder: (context, shape, _) => _buildScaffold(
             context,
+            plcType,
             shape.isEditing,
             shape.interactionMode,
             shape.layoutCfg,
@@ -479,6 +482,7 @@ class _ControlScreenState extends State<ControlScreen>
 
   Widget _buildScaffold(
     BuildContext context,
+    PlcType plcType,
     bool isEditing,
     CustomizationInteractionMode interactionMode,
     ControlLayoutConfig layoutCfg,
@@ -542,7 +546,7 @@ class _ControlScreenState extends State<ControlScreen>
                           ],
                           if (metrics.showLEDs) ...[
                             FeedbackLedSection(
-                              variants: _ledVariants,
+                              variants: ledVariantsForPlc(plcType),
                               mappedVariants: layoutCfg.mappedOutputVariants,
                             ),
                             SizedBox(height: metrics.itemSpacing),
@@ -846,15 +850,9 @@ class _SafetyPanelSection extends StatelessWidget {
   }
 }
 
-/// PLC14/PLC21 expose the first 4 wire fields (DF1/E-STOP..DF4). Which of
-/// them actually renders, and how, is resolved by FeedbackManager from the
-/// layout's LED feedback config — see FeedbackLedSection.
-const List<PlcOutputVariant> _ledVariants = [
-  PlcOutputVariant.df1,
-  PlcOutputVariant.df2,
-  PlcOutputVariant.df3,
-  PlcOutputVariant.df4,
-];
+// PLC14/PLC21 wire-field variants are now resolved dynamically per the
+// connected device's actual type via ledVariantsForPlc(plcType) — see its
+// call site above and PlcType.digitalFieldCount (PLC14: 5, PLC21: 4).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _CanvasSection

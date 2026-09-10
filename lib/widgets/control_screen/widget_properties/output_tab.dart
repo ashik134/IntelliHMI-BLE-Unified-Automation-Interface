@@ -4,6 +4,8 @@ import 'package:rev_crane_control_ops/models/analog_joystick_config.dart';
 import 'package:rev_crane_control_ops/models/analog_slider_config.dart';
 import 'package:rev_crane_control_ops/models/analog_wire_config.dart'
     show AnalogOutputChannel, analogOutputChannelOf;
+import 'package:rev_crane_control_ops/models/app_enums.dart'
+    show LayoutBucket, PlcType;
 import 'package:rev_crane_control_ops/models/button_config.dart';
 import 'package:rev_crane_control_ops/models/button_logical_state.dart';
 import 'package:rev_crane_control_ops/models/button_state_output_mapping.dart';
@@ -12,6 +14,8 @@ import 'package:rev_crane_control_ops/models/detented_selector_config.dart';
 import 'package:rev_crane_control_ops/models/joystick_config.dart';
 import 'package:rev_crane_control_ops/models/plc_output_variant.dart';
 import 'package:rev_crane_control_ops/models/potentiometer_config.dart';
+import 'package:rev_crane_control_ops/utils/control_grid_utils.dart'
+    show selectableVariantsFor;
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/general_tab.dart'
     show ButtonUpdater;
 import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/property_field_widgets.dart';
@@ -35,20 +39,13 @@ import 'package:rev_crane_control_ops/widgets/control_screen/widget_properties/p
 // read by anything that talks to the PLC.
 // ─────────────────────────────────────────────────────────────────────────────
 
-final List<PlcOutputVariant> _kConfigurableVariants = PlcOutputVariant.values
-    .where((v) => v.isUserConfigurable)
-    .toList();
-
-List<(String, String)> get _variantOptions => [
-  for (final v in _kConfigurableVariants) (v.storageKey, v.genericLabel),
-];
-
 class OutputTab extends StatelessWidget {
   const OutputTab({
     super.key,
     required this.config,
     required this.allButtons,
     required this.onUpdate,
+    required this.plcType,
   });
 
   final ButtonConfig config;
@@ -57,6 +54,21 @@ class OutputTab extends StatelessWidget {
   /// channels already claimed by widgets other than [config].
   final Map<String, ButtonConfig> allButtons;
   final ButtonUpdater onUpdate;
+
+  /// The connected device's PLC model — determines which digital output
+  /// variants are offered below. PLC14 exposes DF2..DF5 (3 digital outputs +
+  /// relay), PLC21 DF2..DF4, PLC38 the full DF2..DF10 — see
+  /// [PlcType.digitalFieldCount] / [selectableVariantsFor]. Never lets an
+  /// operator configure an output the connected PLC cannot physically drive.
+  final PlcType plcType;
+
+  /// The digital output variants selectable for the connected PLC type.
+  List<PlcOutputVariant> get _configurableVariants =>
+      selectableVariantsFor(LayoutBucket.forPlcType(plcType));
+
+  List<(String, String)> get _variantOptions => [
+    for (final v in _configurableVariants) (v.storageKey, v.genericLabel),
+  ];
 
   /// Channels assigned to some other analog widget on this layout — never
   /// includes [config]'s own current channel, so the picker never blocks the

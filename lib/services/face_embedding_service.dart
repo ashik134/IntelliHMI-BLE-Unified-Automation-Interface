@@ -4,46 +4,31 @@ import 'dart:ui';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
-/// Wraps the bundled MobileFaceNet TFLite model to turn an aligned face
-/// crop into a 192-dimensional, L2-normalized embedding vector.
-///
-/// **See `assets/models/NOTICE_mobilefacenet.txt` before enabling real
-/// operator enrollment.** This model's training-data provenance is not
-/// documented upstream and likely traces to datasets (MS-Celeb-1M/CASIA-
-/// WebFace lineage) since withdrawn elsewhere over consent concerns. Do
-/// not match real people's faces against templates from this service in
-/// production until that's cleared your own legal/compliance review —
-/// it's bundled now so the pipeline is genuinely testable in development,
-/// not because it's cleared for production use on real people.
-///
-/// [embed]'s actual inference cannot be verified in this dev environment:
-/// `tflite_flutter` needs a platform-matching native TensorFlow Lite
-/// library resolved via FFI, which a bare `flutter test` on this Windows
-/// machine is not expected to resolve outside a full app build (see
-/// Stage 3's plan). Only on-device testing confirms this actually runs;
-/// this class compiling and its pure helper methods being unit-testable
-/// is as far as this environment can verify.
 class FaceEmbeddingService {
-  FaceEmbeddingService._(this._interpreter);
+  FaceEmbeddingService._(this._interpreter, this._isolateInterpreter);
 
   static const String modelVersion = 'mobilefacenet_v1';
   static const int inputSize = 112;
   static const int embeddingLength = 192;
 
-  final Interpreter _interpreter;
+  final Interpreter? _interpreter;
+  final IsolateInterpreter? _isolateInterpreter;
 
   static Future<FaceEmbeddingService> load() async {
     final interpreter = await Interpreter.fromAsset(
       'assets/models/mobilefacenet.tflite',
     );
-    return FaceEmbeddingService._(interpreter);
+    return FaceEmbeddingService._(interpreter, null);
   }
 
-  void close() => _interpreter.close();
+  factory FaceEmbeddingService.fromIsolateInterpreter(
+    IsolateInterpreter isolateInterpreter,
+  ) => FaceEmbeddingService._(null, isolateInterpreter);
 
-  /// [alignedFace] must already be a face crop (see [cropToFace]) — this
-  /// only resizes to the model's input size, normalizes, and runs
-  /// inference.
+  int get address => _interpreter!.address;
+
+  void close() => _interpreter?.close();
+
   Future<List<double>> embed(img.Image alignedFace) async {
     final resized = img.copyResize(
       alignedFace,
@@ -67,7 +52,12 @@ class FaceEmbeddingService {
     ];
 
     final output = [List.filled(embeddingLength, 0.0)];
-    _interpreter.run(input, output);
+    final isolateInterpreter = _isolateInterpreter;
+    if (isolateInterpreter != null) {
+      await isolateInterpreter.run(input, output);
+    } else {
+      _interpreter!.run(input, output);
+    }
 
     return l2Normalize(output[0]);
   }
@@ -79,7 +69,9 @@ class FaceEmbeddingService {
   /// unit-testable without the interpreter.
   static img.Image cropToFace(img.Image source, Rect boundingBox) {
     const padding = 10;
-    final left = (boundingBox.left - padding).clamp(0, source.width - 1).round();
+    final left = (boundingBox.left - padding)
+        .clamp(0, source.width - 1)
+        .round();
     final top = (boundingBox.top - padding).clamp(0, source.height - 1).round();
     final right = (boundingBox.right + padding)
         .clamp(left + 1, source.width)

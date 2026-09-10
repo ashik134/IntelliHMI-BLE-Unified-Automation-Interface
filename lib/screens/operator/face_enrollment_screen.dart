@@ -4,23 +4,19 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
-import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_capture_diagnostics.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_result.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_status.dart';
-import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
 import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
-import 'package:rev_crane_control_ops/services/face_enrollment_service.dart';
-import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
+import 'package:rev_crane_control_ops/services/face_enrollment_worker.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_diagnostics_panel.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
@@ -73,13 +69,24 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   CameraController? _cameraController;
   FaceDetectionService? _detectionService;
   FaceEmbeddingService? _embeddingService;
-  FaceEnrollmentService? _enrollmentService;
+  FaceEnrollmentWorker? _worker;
+  StreamSubscription<FaceEnrollmentUpdate>? _workerSubscription;
 
   _ScreenPhase _phase = _ScreenPhase.initializing;
   FaceEnrollmentState _captureState = const FaceEnrollmentState.initial();
   FaceCaptureDiagnostics _diagnostics = const FaceCaptureDiagnostics.empty();
   bool _busyFrame = false;
   bool _finalizing = false;
+
+  /// Throttles the image-stream callback to roughly 5-8 FPS — detection
+  /// and the worker handoff only run on frames that clear this, rather
+  /// than on every frame the camera plugin delivers (30-60/sec). Replaces
+  /// the old single-flight [_busyFrame] guard's incidental throttling
+  /// effect: that guard only ever protected against *overlapping* work
+  /// (see [_onFrame]), it never bounded the rate on its own.
+  DateTime? _lastFrameSampledAt;
+
+  static const Duration _frameSampleInterval = Duration(milliseconds: 150);
 
   /// The device's application-level brightness exactly as
   /// [_activateIllumination] found it, saved once per illuminated session
@@ -113,7 +120,19 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     unawaited(_disposeCamera());
     unawaited(_restoreBrightness());
     unawaited(_detectionService?.close());
-    _embeddingService?.close();
+    unawaited(_workerSubscription?.cancel());
+    // The worker's IsolateInterpreter must finish closing its own nested
+    // isolate before the main-isolate interpreter it's attached to is
+    // deleted — see FaceEnrollmentWorker.dispose's doc comment — so
+    // _embeddingService is only closed once (or if) worker teardown
+    // completes, never in parallel with it.
+    final worker = _worker;
+    final embeddingService = _embeddingService;
+    if (worker != null) {
+      unawaited(worker.dispose().whenComplete(() => embeddingService?.close()));
+    } else {
+      embeddingService?.close();
+    }
     super.dispose();
   }
 
@@ -203,12 +222,22 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         return;
       }
 
-      _detectionService = detectionService;
-      _embeddingService = embeddingService;
-      _enrollmentService = FaceEnrollmentService(
-        embeddingService: embeddingService,
+      final worker = await FaceEnrollmentWorker.spawn(
+        interpreterAddress: embeddingService.address,
+        operatorId: widget.operatorId,
         templateRepository: widget.templateRepository,
       );
+      if (!mounted) {
+        await detectionService.close();
+        await worker.dispose();
+        embeddingService.close();
+        return;
+      }
+
+      _detectionService = detectionService;
+      _embeddingService = embeddingService;
+      _worker = worker;
+      _workerSubscription = worker.updates.listen(_onWorkerUpdate);
 
       await _initializeCamera();
     } catch (_) {
@@ -235,19 +264,36 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     }
   }
 
+  /// Frame sampler: throttles the raw ~30-60 FPS image-stream callback
+  /// down to [_frameSampleInterval] before detection even runs, then
+  /// [_busyFrame] guards against overlapping detect-and-dispatch calls in
+  /// case one takes longer than the sample interval. This is deliberately
+  /// separate from the worker's own "latest wins" mailbox
+  /// (`FaceEnrollmentWorker.submitFrame`) — this throttle bounds how often
+  /// this isolate even attempts detection; that mailbox separately bounds
+  /// how far the worker can fall behind once a frame is handed to it.
   void _onFrame(CameraImage image) {
     if (_busyFrame || _finalizing) return;
+    final now = DateTime.now();
+    if (_lastFrameSampledAt != null &&
+        now.difference(_lastFrameSampledAt!) < _frameSampleInterval) {
+      return;
+    }
+    _lastFrameSampledAt = now;
     _busyFrame = true;
-    unawaited(_processFrame(image).whenComplete(() => _busyFrame = false));
+    unawaited(_detectAndDispatch(image).whenComplete(() => _busyFrame = false));
   }
 
-  Future<void> _processFrame(CameraImage image) async {
+  /// Runs face detection (ML Kit stays on this isolate — see
+  /// `FaceDetectionService`'s class doc comment) and hands the raw plane
+  /// bytes plus the detected faces off to [_worker]. Everything expensive
+  /// (decode, quality/liveness gates, alignment, embedding) happens inside
+  /// the worker isolate from here on — see [_onWorkerUpdate].
+  Future<void> _detectAndDispatch(CameraImage image) async {
     final controller = _cameraController;
     final detectionService = _detectionService;
-    final enrollmentService = _enrollmentService;
-    if (controller == null ||
-        detectionService == null ||
-        enrollmentService == null) {
+    final worker = _worker;
+    if (controller == null || detectionService == null || worker == null) {
       return;
     }
 
@@ -268,115 +314,44 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       rotationDegrees: rotation,
     );
 
-    // Debug-only: precompute the RGB frame once here (reused below by
-    // evaluateAndCapture's frameProvider instead of decoding it a second
-    // time) so the live diagnostics panel has real numbers to show. In a
-    // release build this block never runs, so release behavior is
-    // unchanged from before diagnostics existed — evaluateAndCapture's
-    // frameProvider still decodes lazily, only if actually needed.
-    img.Image? precomputedFrame;
-    if (kDebugMode && faces.length == 1) {
-      precomputedFrame = CameraFrameConverter.toRgbImage(image);
-    }
-
-    final state = await enrollmentService.evaluateAndCapture(
-      frameProvider: () =>
-          precomputedFrame ?? CameraFrameConverter.toRgbImage(image),
+    final plane = image.planes.first;
+    worker.submitFrame(
+      bytes: plane.bytes,
+      bytesPerRow: plane.bytesPerRow,
+      width: image.width,
+      height: image.height,
+      formatGroup: image.format.group,
+      rotationDegrees: rotation,
       faces: faces,
       imageSize: imageSize,
-      rotationDegrees: rotation,
     );
+  }
 
-    // Built after evaluateAndCapture so the stability counter reflects
-    // this frame's just-updated count, not last frame's.
-    if (kDebugMode) {
-      _diagnostics = precomputedFrame != null
-          ? _buildDiagnostics(
-              faces.single,
-              imageSize,
-              rotation,
-              precomputedFrame,
-              enrollmentService,
-              state,
-            )
-          : FaceCaptureDiagnostics(faceCount: faces.length);
-    }
-
+  /// Renders whatever the worker reports for one processed frame, and
+  /// reacts once to the scan actually completing — mirrors what used to be
+  /// the tail of `_processFrame`/`_finalize`, just split across the two
+  /// separate updates [FaceEnrollmentWorker] sends for that moment (see
+  /// `FaceEnrollmentUpdate.result`'s doc comment).
+  void _onWorkerUpdate(FaceEnrollmentUpdate update) {
     if (!mounted) return;
-    setState(() => _captureState = state);
+    setState(() {
+      _captureState = update.state;
+      final diagnostics = update.diagnostics;
+      if (diagnostics != null) _diagnostics = diagnostics;
+    });
 
-    if (state.status == FaceEnrollmentStatus.processing && !_finalizing) {
-      await _finalize();
+    if (update.state.status == FaceEnrollmentStatus.processing && !_finalizing) {
+      _finalizing = true;
+      unawaited(_stopImageStream());
+    }
+
+    final result = update.result;
+    if (result != null) {
+      unawaited(_handleFinalizeResult(result));
     }
   }
 
-  /// Debug-only (see [kDebugMode] guard at the call site). Uses
-  /// `FrameQualityAnalyzer.diagnose` on the *exact* region
-  /// (`face.boundingBox`, no extra padding) `FrameQualityAnalyzer.evaluate`
-  /// itself crops — the real pixel-quality gate `evaluateAndCapture` calls
-  /// — so brightness/sharpness here can never disagree with what actually
-  /// gated the frame. `faceWidthFraction`/`centerOffsetFraction`/the
-  /// per-condition booleans are pulled from `FaceDetectionService
-  /// .evaluateQuality` (same call `evaluateAndCapture` makes internally)
-  /// rather than a separately-tuned approximation, for the same reason.
-  static FaceCaptureDiagnostics _buildDiagnostics(
-    DetectedFace face,
-    Size imageSize,
-    int rotationDegrees,
-    img.Image frame,
-    FaceEnrollmentService enrollmentService,
-    FaceEnrollmentState state,
-  ) {
-    final quality = FaceDetectionService.evaluateQuality(
-      [face],
-      imageSize,
-      rotationDegrees: rotationDegrees,
-    );
-    final pixel = FrameQualityAnalyzer.diagnose(frame, face.boundingBox);
-    final readyForCapture =
-        quality.sizePassed &&
-        quality.centerPassed &&
-        quality.posePassed &&
-        quality.eyesPassed &&
-        pixel.brightnessPassed &&
-        pixel.sharpnessPassed;
-    final failedReason = !quality.passed
-        ? quality.primaryMessage
-        : (!pixel.brightnessPassed
-              ? FaceQualityIssue.poorLighting.guidance
-              : (!pixel.sharpnessPassed
-                    ? FaceQualityIssue.tooBlurry.guidance
-                    : null));
-
-    return FaceCaptureDiagnostics(
-      faceCount: 1,
-      yawDegrees: face.headEulerAngleY,
-      pitchDegrees: face.headEulerAngleX,
-      faceWidthFraction: quality.widthFraction,
-      centerOffsetFraction: quality.centerOffsetFraction,
-      brightness: pixel.brightness,
-      sharpness: pixel.sharpness,
-      sizePassed: quality.sizePassed,
-      centerPassed: quality.centerPassed,
-      posePassed: quality.posePassed,
-      eyesPassed: quality.eyesPassed,
-      brightnessPassed: pixel.brightnessPassed,
-      sharpnessPassed: pixel.sharpnessPassed,
-      stableProgress: enrollmentService.stableProgress,
-      scanning: enrollmentService.isScanning,
-      scanProgress: enrollmentService.isScanning ? state.scanProgress : null,
-      identityLocked: enrollmentService.identityLocked,
-      samplesAccepted: enrollmentService.samplesCaptured,
-      readyForCapture: readyForCapture,
-      failedReason: failedReason,
-    );
-  }
-
-  Future<void> _finalize() async {
-    final enrollmentService = _enrollmentService;
-    if (enrollmentService == null || _finalizing) return;
-    _finalizing = true;
-
+  Future<void> _stopImageStream() async {
     final controller = _cameraController;
     if (controller != null && controller.value.isStreamingImages) {
       try {
@@ -385,10 +360,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         // Ignore — screen is about to show an outcome regardless.
       }
     }
+  }
 
-    final result = await enrollmentService.finalizeEnrollment(
-      operatorId: widget.operatorId,
-    );
+  Future<void> _handleFinalizeResult(FaceEnrollmentResult result) async {
     unawaited(_restoreBrightness());
     if (!mounted) return;
 
@@ -408,7 +382,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   Future<void> _retry() async {
-    _enrollmentService?.reset();
+    _worker?.reset();
     _finalizing = false;
     setState(() {
       _phase = _ScreenPhase.capturing;
