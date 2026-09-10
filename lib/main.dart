@@ -36,22 +36,8 @@ Future<void> main() async {
     debugPaintBaselinesEnabled = false;
     return true;
   }());
-  await _applyOrientationPolicy();
+  await DeviceType.restoreDefaultOrientations();
   runApp(const IntelliHMIApp());
-}
-
-/// Locks phones to portrait; tablets are left free to follow the sensor.
-Future<void> _applyOrientationPolicy() async {
-  final orientations = DeviceType.isTablet
-      ? [
-          DeviceOrientation.portraitUp,
-          DeviceOrientation.portraitDown,
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]
-      : [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
-
-  await SystemChrome.setPreferredOrientations(orientations);
 }
 
 class IntelliHMIApp extends StatelessWidget {

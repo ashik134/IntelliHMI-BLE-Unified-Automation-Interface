@@ -18,6 +18,7 @@ import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
 import 'package:rev_crane_control_ops/services/face_enrollment_worker.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
+import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_diagnostics_panel.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_illumination_overlay.dart';
@@ -116,7 +117,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    unawaited(DeviceType.restoreDefaultOrientations());
     unawaited(_disposeCamera());
     unawaited(_restoreBrightness());
     unawaited(_detectionService?.close());

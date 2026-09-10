@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// Utility for detecting the physical device form factor at runtime.
@@ -19,4 +20,18 @@ abstract final class DeviceType {
 
   /// Convenience inverse of [isTablet].
   static bool get isPhone => !isTablet;
+
+  /// Orientations the app's baseline policy allows: phones are locked to
+  /// portrait, tablets are left free to follow the sensor.
+  static List<DeviceOrientation> get allowedOrientations => isTablet
+      ? DeviceOrientation.values
+      : const [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
+
+  /// Restores [allowedOrientations]. Screens that temporarily narrow the
+  /// allowed orientations (e.g. locking to portrait for a camera capture
+  /// flow) must call this on exit instead of re-enabling every orientation
+  /// outright, or a phone would stay unlocked into landscape everywhere
+  /// else in the app for the rest of the session.
+  static Future<void> restoreDefaultOrientations() =>
+      SystemChrome.setPreferredOrientations(allowedOrientations);
 }

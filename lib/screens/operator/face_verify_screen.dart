@@ -15,6 +15,7 @@ import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
 import 'package:rev_crane_control_ops/services/face_verification_service.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
+import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
@@ -85,7 +86,7 @@ class _FaceVerifyScreenState extends State<FaceVerifyScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    unawaited(DeviceType.restoreDefaultOrientations());
     unawaited(_disposeCamera());
     unawaited(_detectionService?.close());
     _embeddingService?.close();
