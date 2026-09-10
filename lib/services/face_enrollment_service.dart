@@ -1,12 +1,13 @@
-import 'dart:math' show Random;
 import 'dart:ui';
 
 import 'package:image/image.dart' as img;
 import 'package:uuid/uuid.dart';
 
+import 'package:rev_crane_control_ops/config/face_enrollment_config.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_result.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_status.dart';
+import 'package:rev_crane_control_ops/models/face_pose.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
@@ -14,215 +15,147 @@ import 'package:rev_crane_control_ops/repositories/face_template_repository.dart
 import 'package:rev_crane_control_ops/services/face_alignment_service.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
+import 'package:rev_crane_control_ops/services/face_geometry_validator.dart';
 import 'package:rev_crane_control_ops/services/face_liveness_service.dart';
 import 'package:rev_crane_control_ops/services/face_matching_service.dart';
 import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 
-enum _Phase { stabilizing, livenessCheck, scanning }
-
-/// Orchestrates one enrollment session as a single continuous biometric
-/// scan: [_Phase.stabilizing] waits for the operator to hold a good frame
-/// for [stabilizeDuration], then [_Phase.livenessCheck] runs one randomly-
-/// chosen [LivenessSession] challenge (anti-photo-spoof — a static image or
-/// screen replay can clear framing but can't blink or hold a pose on cue),
-/// then [_Phase.scanning] runs for a fixed [scanDuration] wall-clock
-/// window, silently sampling embeddings from whichever frames clear
-/// quality, before [finalizeEnrollment] reduces whatever was collected to
-/// a single representative [FaceTemplate].
+/// Orchestrates one enrollment session as a discrete guided-pose state
+/// machine (spec section 14):
 ///
-/// The on-screen status during [_Phase.scanning] never leaves
-/// [FaceEnrollmentStatus.scanning] for a merely transient problem — see
-/// [_maxScanDisruption] — which is what turns the old per-frame
-/// capturing/holdStill/invalid flicker into one locked "Scanning your
-/// face…" state with a smoothly advancing [FaceEnrollmentState.scanProgress].
+/// ```
+/// acquiringFace -> waitingForStability -> [livenessCheck, frontal only]
+///   -> capturingPose -> (next pose) waitingForStability -> ...
+///   -> generatingTemplate -> success | duplicate | insufficientSamples
+/// ```
+///
+/// [poseSequence] (default: Front, Left, Right, Up) is walked one pose at
+/// a time. Each pose independently requires: the shared quality gate
+/// (`FaceDetectionService.evaluateQuality`), landmark safe-region
+/// containment (`FaceGeometryValidator`), pixel quality
+/// (`FrameQualityAnalyzer`), and — for non-frontal poses — a matching
+/// head angle (`matchesPoseTarget`), all held continuously for
+/// [FaceEnrollmentConfig.stabilizeDuration] before a short best-frame
+/// capture window opens (spec section 8/9): every good frame in that
+/// window is scored, and only the single best-scoring frame is aligned
+/// and embedded — one sample per pose, not an accumulating pile of
+/// near-duplicates.
+///
+/// Liveness (spec section 11) is integrated, not bolted on: a single
+/// `blink` challenge runs once, before the frontal pose's capture window,
+/// as an anti-static-photo gate; the Left/Right/Up poses' own angle-hold
+/// requirement doubles as an ongoing liveness signal (a static photo
+/// can't turn on cue), so there's no second redundant challenge per pose.
+///
+/// A disruption during a pose (face lost, second face, pose lost, poor
+/// pixel quality) that persists past [FaceEnrollmentConfig.maxPoseDisruption]
+/// retries *that pose only* — earlier accepted poses are never discarded
+/// (spec section 14's "failure conditions should return to the
+/// appropriate state instead of restarting the entire enrollment").
 ///
 /// Deliberately has no dependency on `camera` or
 /// `google_mlkit_face_detection` — only on [DetectedFace]/`img.Image` and
-/// the other face services — so it's unit-testable with fakes, and the
-/// MobileFaceNet implementation underneath stays swappable later without
-/// touching this class (see `FaceEmbeddingService`'s own doc comment on
-/// why that matters).
+/// the other face services — so it's unit-testable with fakes.
 ///
-/// Never logs or prints a frame or an embedding — matches the discipline
-/// already established in `AuthAuditLogService`/`AuthLogEntry`, which
-/// never carry biometric payloads either. Only the accepted embeddings
-/// (never a raw frame, and never the camera stream itself) are ever held
-/// in memory, and even those are discarded once [finalizeEnrollment]
-/// returns — nothing from a scan is ever written to disk except the
-/// single final template the caller chooses to persist.
+/// Never logs or prints a frame or an embedding. Only the accepted
+/// embeddings (never a raw frame) are ever held in memory, discarded once
+/// [finalizeEnrollment] returns.
 ///
 /// Persistence is deliberately NOT this class's job: [finalizeEnrollment]
-/// returns a [FaceTemplate] but never writes it. The caller
+/// returns a [FaceTemplate] but never writes it — the caller
 /// (`AddOperatorScreen`/`OperatorDetailScreen`) owns the atomic
-/// template-then-operator write, so "don't create a partial operator
-/// record" stays enforced in one place.
+/// template-then-operator write.
 class FaceEnrollmentService {
   FaceEnrollmentService({
     required this.embeddingService,
     required this.templateRepository,
-    this.requiredSamples = 6,
-    this.minSurvivingSamples = 5,
-  });
+    this.config = FaceEnrollmentConfig.defaults,
+    this.poseSequence = const [
+      FacePose.frontal,
+      FacePose.left,
+      FacePose.right,
+      FacePose.up,
+    ],
+  }) : assert(poseSequence.isNotEmpty);
 
   final FaceEmbeddingService embeddingService;
   final FaceTemplateRepository templateRepository;
-
-  /// Minimum total accepted samples (pre-outlier-trim) [finalizeEnrollment]
-  /// will even attempt to build a template from. Since samples now
-  /// accumulate throughout [scanDuration] rather than being the scan's
-  /// stopping condition, this is a floor on scan quality, not a target the
-  /// scan runs until it hits — a scan can end with fewer than this if the
-  /// operator moved too much or lighting was too unstable, and
-  /// [finalizeEnrollment] then correctly fails instead of building a weak
-  /// template from too little evidence.
-  final int requiredSamples;
-
-  /// Minimum accepted samples that must survive outlier-trimming in
-  /// [finalizeEnrollment] for the resulting template to be trusted. Kept
-  /// as a ratio of [requiredSamples] (~83%), not a fixed absolute floor,
-  /// so raising [requiredSamples] doesn't quietly loosen how many samples
-  /// are allowed to be trimmed as outliers.
-  final int minSurvivingSamples;
-
-  /// How long a frame must continuously clear every quality gate before
-  /// the scan begins — long enough that a single lucky frame out of a
-  /// resting/positioning state can't trigger it (the old
-  /// "waits, then suddenly captures" problem), short enough to still read
-  /// as "hold still" rather than a stall. Matches
-  /// `LivenessSession._requiredHoldDuration`'s pose-hold duration, the
-  /// existing precedent elsewhere in this codebase for "how long counts as
-  /// deliberately held, not incidental."
-  static const Duration stabilizeDuration = Duration(milliseconds: 600);
-
-  /// Total continuous scan window. Originally the spec's "about 4-5
-  /// seconds"; extended after on-device profiling showed mid-range
-  /// hardware spending 600ms-1.2s per detect+embed cycle (`accurate`
-  /// ML Kit mode plus on-device TFLite inference), which made
-  /// [requiredSamples] unreachable in a 4.5s window on that hardware even
-  /// with a perfectly still, well-lit face — see `FaceDetectorMode.fast`
-  /// in `FaceDetectionService` for the other half of that fix.
-  static const Duration scanDuration = Duration(milliseconds: 6500);
-
-  /// Minimum time between two accepted samples, so samples collected
-  /// across [scanDuration] reflect natural micro-movement rather than
-  /// near-identical consecutive frames, and so the (comparatively
-  /// expensive) embedding model isn't run on every single processed frame
-  /// — this is the "throttled rate" the continuous scan analyzes at.
-  static const Duration _minSampleInterval = Duration(milliseconds: 400);
-
-  /// How long a disruption (no face / multiple faces / bad pose / poor
-  /// pixel quality / an embedding that doesn't match the locked identity)
-  /// must persist *during* [_Phase.scanning] before the scan aborts and
-  /// restarts from [_Phase.stabilizing]. A single bad frame — a blink, a
-  /// momentary autofocus hunt, one blurry frame — is silently skipped and
-  /// never reaches this; only a genuinely sustained problem (face actually
-  /// lost, a second person actually stepped in, someone else actually
-  /// replacing the enrolling operator) restarts the scan. Deliberately
-  /// longer than [stabilizeDuration]: aborting a scan already in progress
-  /// should take more convincing than starting one, or a scan that's 90%
-  /// done would restart on the same kind of noise stabilizing already
-  /// tolerates.
-  static const Duration _maxScanDisruption = Duration(milliseconds: 900);
+  final FaceEnrollmentConfig config;
+  final List<FacePose> poseSequence;
 
   /// A candidate sample must be at least this cosine-similar to the
-  /// relevant running centroid to be accepted — used both to decide
-  /// whether an early sample is mutually consistent enough to join the
-  /// identity-locking seed pool (see [_seeds]), and, once locked, whether
-  /// a later sample still matches the locked identity. Deliberately looser
-  /// than `FaceMatchingService.defaultThreshold` (0.87): these are same-
-  /// session, same-person samples, which should already cluster tightly,
-  /// so this only needs to catch genuine outliers/impostors, not add
-  /// pose-tolerance margin on top of the tolerance the quality gates
-  /// already allow.
+  /// running identity centroid to be accepted — mirrors
+  /// [FaceEnrollmentConfig.outlierSimilarityFloor]; kept as a named
+  /// static constant (rather than threaded through [config]) because
+  /// [buildTemplate] is a static method with its own existing signature
+  /// that callers/tests already depend on.
   static const double outlierSimilarityFloor = 0.75;
 
-  /// Number of mutually-consistent early embeddings required to lock the
-  /// enrollment identity (see [_seeds]/[_identityLocked]) — chosen so a
-  /// single early outlier embedding can't lock onto the wrong identity by
-  /// itself, without requiring so many that identity lock meaningfully
-  /// delays sample collection within the fixed [scanDuration] window.
-  static const int _identityLockSeedCount = 3;
-
-  /// Challenge types offered during [_Phase.livenessCheck].
-  /// `turnLeft`/`turnRight` are deliberately excluded for now: ML Kit's
-  /// yaw sign convention is unverified on-device (see `DetectedFace`'s doc
-  /// comment vs. `LivenessSession`'s own), and separately
-  /// `FaceDetectionService.evaluateQuality`'s 20° pose gate leaves only a
-  /// narrow 15-20° window where a turn both clears that gate and registers
-  /// as valid — revisit once confirmed on real hardware.
-  static const List<LivenessChallengeType> _livenessChallengePool = [
-    LivenessChallengeType.blink,
-    LivenessChallengeType.lookStraight,
-  ];
-
-  static const Duration _livenessTimeout = Duration(seconds: 10);
-
-  _Phase _phase = _Phase.stabilizing;
+  FaceEnrollmentPhase _phase = FaceEnrollmentPhase.acquiringFace;
+  int _poseIndex = 0;
   DateTime? _stableSince;
+  bool _blinkDone = false;
   LivenessSession? _livenessSession;
-  DateTime? _scanStartedAt;
   DateTime? _disruptionStartedAt;
 
-  /// Early scanning-phase embeddings not yet confirmed mutually consistent
-  /// enough to lock the enrollment identity — see [_tryAccept]. Promoted
-  /// into [_accepted] all at once the moment identity locks, so a sample
-  /// collected before lock is held to exactly the same consistency bar as
-  /// one collected after (it must already have matched the other seeds),
-  /// not silently grandfathered in.
-  final List<List<double>> _seeds = [];
-  bool _identityLocked = false;
+  DateTime? _captureWindowStartedAt;
+  DateTime? _lastCandidateAt;
+  double? _bestScore;
+  DetectedFace? _bestFace;
+  img.Image? _bestFrame;
 
   final List<List<double>> _accepted = [];
-  DateTime? _lastAcceptedAt;
+
+  FacePose get _currentPose => poseSequence[_poseIndex];
+
+  /// The pose currently being targeted, regardless of which sub-phase is
+  /// active — unlike [FaceEnrollmentState.currentPose] (which is only set
+  /// while actively waiting/capturing), this is always defined until
+  /// every pose has been accepted. Debug-diagnostics-only.
+  FacePose? get debugCurrentPose =>
+      _poseIndex < poseSequence.length ? poseSequence[_poseIndex] : null;
 
   int get samplesCaptured => _accepted.length;
 
-  /// Debug-diagnostics-only: whether the scan phase has been entered.
-  bool get isScanning => _phase == _Phase.scanning;
+  /// Debug-diagnostics-only: whether the capture window for the current
+  /// pose is open.
+  bool get isCapturingPose => _phase == FaceEnrollmentPhase.capturingPose;
 
-  /// Debug-diagnostics-only: fraction (0.0..1.0) of [stabilizeDuration]
-  /// elapsed so far, or 0 if no continuous good frame is currently being
-  /// held. Meaningless once [isScanning] is true.
+  /// Debug-diagnostics-only: fraction (0.0..1.0) of
+  /// [FaceEnrollmentConfig.stabilizeDuration] elapsed so far, or 0 if no
+  /// continuous good/pose-matched frame is currently being held.
   double get stableProgress {
     final since = _stableSince;
     if (since == null) return 0;
     final elapsed = DateTime.now().difference(since).inMilliseconds;
-    return (elapsed / stabilizeDuration.inMilliseconds).clamp(0.0, 1.0);
+    return (elapsed / config.stabilizeDuration.inMilliseconds).clamp(0.0, 1.0);
   }
 
-  /// Debug-diagnostics-only: whether enough mutually-consistent early
-  /// samples have been seen to lock the enrollment identity for this scan.
-  bool get identityLocked => _identityLocked;
+  /// Debug-diagnostics-only: whether at least one pose sample has been
+  /// accepted yet, i.e. later poses now have an identity centroid to be
+  /// checked against.
+  bool get hasIdentityAnchor => _accepted.isNotEmpty;
 
-  /// Clears all in-memory samples and returns to [_Phase.stabilizing] —
-  /// used on cancel/retry and whenever a sustained scan disruption forces
-  /// a restart. Nothing was ever written to disk, so there's nothing else
-  /// to undo.
+  /// Clears all in-memory samples and returns to the first pose — used on
+  /// cancel/retry.
   void reset() {
-    _phase = _Phase.stabilizing;
+    _phase = FaceEnrollmentPhase.acquiringFace;
+    _poseIndex = 0;
     _stableSince = null;
+    _blinkDone = false;
     _livenessSession = null;
-    _scanStartedAt = null;
     _disruptionStartedAt = null;
-    _seeds.clear();
-    _identityLocked = false;
+    _captureWindowStartedAt = null;
+    _lastCandidateAt = null;
+    _bestScore = null;
+    _bestFace = null;
+    _bestFrame = null;
     _accepted.clear();
-    _lastAcceptedAt = null;
   }
 
   /// Evaluates one already-detected frame and advances the enrollment
-  /// state machine by exactly one step. Always returns a state to render —
-  /// never throws for an ordinary "this frame isn't good enough" outcome.
-  ///
-  /// [frameProvider] is only invoked once this frame has already passed
-  /// the ML-Kit-only checks (face count/size/center/pose/eyes) — i.e.
-  /// never for the common "no face" / "multiple faces" frames while the
-  /// operator is still positioning themselves. Decoding a camera frame
-  /// into an RGB `img.Image` is real, non-trivial work (see
-  /// `CameraFrameConverter.toRgbImage`'s own doc comment); this keeps the
-  /// caller from paying that cost on frames that were never going to be
-  /// used anyway. The (more expensive still) embedding model is throttled
-  /// further still by [_minSampleInterval], regardless of phase.
+  /// state machine by at most one step, returning the state to render.
+  /// Never throws for an ordinary "this frame isn't good enough" outcome.
   Future<FaceEnrollmentState> evaluateAndCapture({
     required img.Image Function() frameProvider,
     required List<DetectedFace> faces,
@@ -230,112 +163,117 @@ class FaceEnrollmentService {
     int rotationDegrees = 0,
   }) async {
     final now = DateTime.now();
-    final quality = FaceDetectionService.evaluateQuality(
-      faces,
-      imageSize,
-      rotationDegrees: rotationDegrees,
-    );
-    final earlyStatus = _statusForIssue(quality.primaryIssue);
 
-    if (_phase == _Phase.stabilizing) {
-      final result = await _evaluateStabilizing(
+    // Memoize the (real, non-trivial) decode so a single incoming frame
+    // is decoded at most once per call, however many sub-checks need it.
+    img.Image? cachedFrame;
+    img.Image frame() => cachedFrame ??= frameProvider();
+
+    if (_phase == FaceEnrollmentPhase.acquiringFace ||
+        _phase == FaceEnrollmentPhase.waitingForStability) {
+      final result = await _evaluateAcquiringOrWaiting(
         now: now,
-        earlyStatus: earlyStatus,
-        offsetDirection: quality.offsetDirection,
-        frameProvider: frameProvider,
         faces: faces,
+        imageSize: imageSize,
+        rotationDegrees: rotationDegrees,
+        frame: frame,
       );
       if (result != null) return result;
-      // Stability threshold just cleared this frame — fall through and
-      // spend this same frame as the liveness challenge's first frame
-      // rather than discarding it and waiting for the next one.
+      // Stability just cleared on this frame — fall through and spend it
+      // as the next phase's first frame too, rather than discarding it.
     }
 
-    if (_phase == _Phase.livenessCheck) {
-      final result = _evaluateLiveness(now: now, earlyStatus: earlyStatus, faces: faces);
+    if (_phase == FaceEnrollmentPhase.livenessCheck) {
+      final result = _evaluateLiveness(
+        now: now,
+        faces: faces,
+        imageSize: imageSize,
+        rotationDegrees: rotationDegrees,
+      );
       if (result != null) return result;
-      // Challenge just completed on this frame — fall through and spend
-      // it as the scan's first frame too, same fallthrough philosophy as
-      // above.
     }
 
-    return _evaluateScanning(
-      now: now,
-      earlyStatus: earlyStatus,
-      frameProvider: frameProvider,
-      faces: faces,
-    );
+    if (_phase == FaceEnrollmentPhase.capturingPose) {
+      return _evaluateCapturing(
+        now: now,
+        faces: faces,
+        imageSize: imageSize,
+        rotationDegrees: rotationDegrees,
+        frame: frame,
+      );
+    }
+
+    // Terminal phases (generatingTemplate/complete/failed/duplicate) —
+    // the screen stops streaming frames once one of these is reached, so
+    // this is only reached by a stray already-in-flight frame.
+    return _state();
   }
 
-  /// Returns a state to render if the operator isn't ready to start
-  /// scanning yet, or null once [stabilizeDuration] has just been cleared
-  /// (in which case [_phase] has already been advanced to
-  /// [_Phase.scanning] and the caller should immediately evaluate this
-  /// same frame as a scanning frame).
-  Future<FaceEnrollmentState?> _evaluateStabilizing({
+  // ── Acquiring / waiting for stability ────────────────────────────────
+
+  Future<FaceEnrollmentState?> _evaluateAcquiringOrWaiting({
     required DateTime now,
-    required FaceEnrollmentStatus? earlyStatus,
-    required FaceOffsetDirection? offsetDirection,
-    required img.Image Function() frameProvider,
     required List<DetectedFace> faces,
+    required Size imageSize,
+    required int rotationDegrees,
+    required img.Image Function() frame,
   }) async {
-    if (earlyStatus != null) {
+    final pose = _currentPose;
+    final readiness = await _evaluateReadiness(
+      faces: faces,
+      imageSize: imageSize,
+      rotationDegrees: rotationDegrees,
+      pose: pose,
+      frame: frame,
+    );
+
+    if (readiness.issue != null) {
       _stableSince = null;
+      _phase = FaceEnrollmentPhase.acquiringFace;
       return _state(
-        earlyStatus,
-        offsetDirection: earlyStatus == FaceEnrollmentStatus.offCenter
-            ? offsetDirection
-            : null,
+        blockingIssue: readiness.issue,
+        offsetDirection: readiness.offsetDirection,
       );
     }
 
-    final face = faces.single;
-    final frame = frameProvider();
-    final pixelStatus = _statusForIssue(
-      FrameQualityAnalyzer.evaluate(frame, face.boundingBox),
-    );
-    if (pixelStatus != null) {
+    if (!readiness.poseMatched) {
       _stableSince = null;
-      return _state(pixelStatus);
+      _phase = FaceEnrollmentPhase.waitingForStability;
+      return _state(currentPose: pose);
     }
 
+    _phase = FaceEnrollmentPhase.waitingForStability;
     _stableSince ??= now;
-    if (now.difference(_stableSince!) < stabilizeDuration) {
-      return _state(FaceEnrollmentStatus.holdStill);
+    if (now.difference(_stableSince!) < config.stabilizeDuration) {
+      return _state(currentPose: pose);
+    }
+    _stableSince = null;
+
+    if (pose == FacePose.frontal && !_blinkDone) {
+      _phase = FaceEnrollmentPhase.livenessCheck;
+      _livenessSession = LivenessSession(
+        LivenessChallengeType.blink,
+        timeout: config.livenessTimeout,
+        config: config,
+      );
+      _disruptionStartedAt = null;
+      return null;
     }
 
-    // Stability cleared — a liveness challenge runs next, not the scan
-    // itself. `_scanStartedAt` is deliberately NOT set here: it's set only
-    // once the challenge actually completes, in `_evaluateLiveness` —
-    // setting it this early would make `_evaluateScanning`'s `elapsed >=
-    // scanDuration` check true on the very first real scanning frame,
-    // silently completing the scan with zero samples.
-    _phase = _Phase.livenessCheck;
-    _livenessSession = LivenessSession(
-      _livenessChallengePool[Random().nextInt(_livenessChallengePool.length)],
-      timeout: _livenessTimeout,
-    );
-    _disruptionStartedAt = null;
+    _beginCaptureWindow(now);
     return null;
   }
 
-  /// Returns a state to render while [_Phase.livenessCheck] is active, or
-  /// null once the challenge has just completed (in which case [_phase]
-  /// has already advanced to [_Phase.scanning] with [_scanStartedAt] just
-  /// set, and the caller should immediately evaluate this same frame as
-  /// the scan's first frame).
+  // ── Liveness (frontal pose only, once per session) ───────────────────
+
   FaceEnrollmentState? _evaluateLiveness({
     required DateTime now,
-    required FaceEnrollmentStatus? earlyStatus,
     required List<DetectedFace> faces,
+    required Size imageSize,
+    required int rotationDegrees,
   }) {
     final session = _livenessSession!;
 
-    // A face count other than exactly one *is* the anti-spoof signal
-    // `LivenessSession` exists to catch (e.g. a second photo held up
-    // beside the operator's real face) — feed it straight through so the
-    // session's own hard-fail fires immediately, rather than folding it
-    // into the transient-quality-hiccup tolerance below.
     if (faces.length != 1) {
       return _resolveLiveness(
         session.processFrame(faceCount: faces.length, now: now),
@@ -343,19 +281,25 @@ class FaceEnrollmentService {
       );
     }
 
-    if (earlyStatus != null) {
-      // A single real face having a transient quality hiccup (autofocus
-      // hunt, brief motion blur) — tolerated the same way a sustained
-      // scanning-phase disruption is, reusing `_maxScanDisruption` rather
-      // than failing the challenge on one bad frame.
+    final quality = FaceDetectionService.evaluateQuality(
+      faces,
+      imageSize,
+      rotationDegrees: rotationDegrees,
+      config: config,
+    );
+    if (quality.primaryIssue != null) {
       _disruptionStartedAt ??= now;
-      if (now.difference(_disruptionStartedAt!) >= _maxScanDisruption) {
-        reset();
-        return _state(earlyStatus);
+      if (now.difference(_disruptionStartedAt!) >= config.maxPoseDisruption) {
+        _livenessSession = null;
+        _phase = FaceEnrollmentPhase.waitingForStability;
+        return _state(
+          blockingIssue: quality.primaryIssue,
+          offsetDirection: quality.offsetDirection,
+        );
       }
       return _state(
-        FaceEnrollmentStatus.livenessChallenge,
         livenessInstruction: session.challenge.instruction,
+        progress: 0,
       );
     }
     _disruptionStartedAt = null;
@@ -366,138 +310,216 @@ class FaceEnrollmentService {
     );
   }
 
-  FaceEnrollmentState? _resolveLiveness(LivenessChallengeState state, DateTime now) {
+  FaceEnrollmentState? _resolveLiveness(
+    LivenessChallengeState state,
+    DateTime now,
+  ) {
     if (state.completed) {
       _livenessSession = null;
-      _phase = _Phase.scanning;
-      _scanStartedAt = now;
-      _disruptionStartedAt = null;
+      _blinkDone = true;
+      _beginCaptureWindow(now);
       return null;
     }
 
     if (state.failed || state.timedOut) {
-      // Not a hard enrollment failure — a missed blink/pose just restarts
-      // the whole flow from stabilizing, same as a sustained scanning-
-      // phase disruption does today.
-      reset();
-      return _state(FaceEnrollmentStatus.holdStill);
+      // Not a full-session failure — just retry this (frontal) pose's
+      // stability hold, same as a sustained capture-window disruption
+      // does elsewhere.
+      _livenessSession = null;
+      _phase = FaceEnrollmentPhase.waitingForStability;
+      return _state(currentPose: _currentPose);
     }
 
     return _state(
-      FaceEnrollmentStatus.livenessChallenge,
       livenessInstruction: state.challenge.instruction,
-      scanProgress: state.progress,
+      progress: state.progress,
     );
   }
 
-  Future<FaceEnrollmentState> _evaluateScanning({
-    required DateTime now,
-    required FaceEnrollmentStatus? earlyStatus,
-    required img.Image Function() frameProvider,
-    required List<DetectedFace> faces,
-  }) async {
-    final elapsed = now.difference(_scanStartedAt!);
-    if (elapsed >= scanDuration) {
-      return _state(FaceEnrollmentStatus.processing, scanProgress: 1.0);
-    }
-    final progress =
-        elapsed.inMilliseconds / scanDuration.inMilliseconds;
+  // ── Capturing (best-frame selection window) ──────────────────────────
 
-    // Null once this frame is set below, this is the specific guidance to
-    // fall back to if disruption ends up sustained enough to restart the
-    // scan (see below) — kept specific (e.g. "Improve lighting") rather
-    // than collapsed to one generic "disrupted" flag, so a restart still
-    // tells the operator exactly what to fix.
-    var disruptionStatus = earlyStatus;
-    if (disruptionStatus == null) {
-      final face = faces.single;
-      final frame = frameProvider();
-      final pixelIssue = FrameQualityAnalyzer.evaluate(
-        frame,
-        face.boundingBox,
-      );
-      if (pixelIssue != null) {
-        disruptionStatus = _statusForIssue(pixelIssue);
-      } else if (_lastAcceptedAt == null ||
-          now.difference(_lastAcceptedAt!) >= _minSampleInterval) {
-        final aligned = FaceAlignmentService.align(
-          sourceImage: frame,
-          face: face,
-        );
-        final embedding = await embeddingService.embed(aligned);
-        final consistent = _tryAccept(embedding, now);
-        if (_identityLocked && !consistent) {
-          disruptionStatus = FaceEnrollmentStatus.holdStill;
-        }
-      }
-    }
-
-    if (disruptionStatus != null) {
-      _disruptionStartedAt ??= now;
-      if (now.difference(_disruptionStartedAt!) >= _maxScanDisruption) {
-        reset();
-        return _state(disruptionStatus);
-      }
-    } else {
-      _disruptionStartedAt = null;
-    }
-
-    return _state(FaceEnrollmentStatus.scanning, scanProgress: progress);
+  void _beginCaptureWindow(DateTime now) {
+    _phase = FaceEnrollmentPhase.capturingPose;
+    _captureWindowStartedAt = now;
+    _lastCandidateAt = null;
+    _bestScore = null;
+    _bestFace = null;
+    _bestFrame = null;
+    _disruptionStartedAt = null;
   }
 
-  /// Folds one good-quality, already-embedded sample into the running
-  /// identity, or rejects it. Returns false only when [embedding] fails to
-  /// match an *already-locked* identity (a genuine mismatch worth counting
-  /// toward [_maxScanDisruption]); an inconsistent pre-lock seed candidate
-  /// is silently dropped and reported as consistent, since before lock
-  /// there's no established identity yet for it to be inconsistent
-  /// *with* — see [_seeds]'s doc comment.
-  bool _tryAccept(List<double> embedding, DateTime now) {
-    _lastAcceptedAt = now;
+  Future<FaceEnrollmentState> _evaluateCapturing({
+    required DateTime now,
+    required List<DetectedFace> faces,
+    required Size imageSize,
+    required int rotationDegrees,
+    required img.Image Function() frame,
+  }) async {
+    final pose = _currentPose;
+    final elapsed = now.difference(_captureWindowStartedAt!);
 
-    if (!_identityLocked) {
-      if (_seeds.isEmpty ||
-          FaceMatchingService.cosineSimilarity(
-                embedding,
-                FaceEmbeddingService.l2Normalize(_mean(_seeds)),
-              ) >=
-              outlierSimilarityFloor) {
-        _seeds.add(embedding);
+    final readiness = await _evaluateReadiness(
+      faces: faces,
+      imageSize: imageSize,
+      rotationDegrees: rotationDegrees,
+      pose: pose,
+      frame: frame,
+    );
+
+    if (readiness.issue == null && readiness.poseMatched) {
+      _disruptionStartedAt = null;
+      if (_lastCandidateAt == null ||
+          now.difference(_lastCandidateAt!) >= config.minSampleInterval) {
+        _lastCandidateAt = now;
+        final score = FrameQualityAnalyzer.qualityScore(
+          frame(),
+          readiness.face!.boundingBox,
+        );
+        if (_bestScore == null || score > _bestScore!) {
+          _bestScore = score;
+          _bestFace = readiness.face;
+          _bestFrame = frame();
+        }
       }
-      if (_seeds.length >= _identityLockSeedCount) {
-        _identityLocked = true;
-        _accepted.addAll(_seeds);
+    } else {
+      _disruptionStartedAt ??= now;
+      if (now.difference(_disruptionStartedAt!) >= config.maxPoseDisruption) {
+        // Sustained disruption mid-window — abandon this window and
+        // retry the same pose's stability hold, not the whole session.
+        _phase = FaceEnrollmentPhase.waitingForStability;
+        _captureWindowStartedAt = null;
+        return _state(
+          blockingIssue: readiness.issue,
+          offsetDirection: readiness.offsetDirection,
+          currentPose: pose,
+        );
       }
-      return true;
     }
 
-    final centroid = FaceEmbeddingService.l2Normalize(_mean(_accepted));
-    if (FaceMatchingService.cosineSimilarity(embedding, centroid) <
-        outlierSimilarityFloor) {
-      return false;
+    if (elapsed < config.poseCaptureWindow) {
+      return _state(
+        currentPose: pose,
+        progress:
+            elapsed.inMilliseconds / config.poseCaptureWindow.inMilliseconds,
+      );
+    }
+
+    return _closeCaptureWindow(pose);
+  }
+
+  Future<FaceEnrollmentState> _closeCaptureWindow(FacePose pose) async {
+    final bestFace = _bestFace;
+    final bestFrame = _bestFrame;
+    _captureWindowStartedAt = null;
+
+    if (bestFace == null || bestFrame == null) {
+      // Never got a single good, sampled frame in the window — retry the
+      // pose's stability hold rather than failing the whole session.
+      _phase = FaceEnrollmentPhase.waitingForStability;
+      return _state(currentPose: pose);
+    }
+
+    final aligned = FaceAlignmentService.align(
+      sourceImage: bestFrame,
+      face: bestFace,
+    );
+    final embedding = await embeddingService.embed(aligned);
+
+    if (_accepted.isNotEmpty) {
+      final centroid = FaceEmbeddingService.l2Normalize(_mean(_accepted));
+      if (FaceMatchingService.cosineSimilarity(embedding, centroid) <
+          outlierSimilarityFloor) {
+        // Doesn't look consistent with earlier accepted poses (a person
+        // swap mid-session, or a genuinely bad sample) — retry this pose
+        // rather than silently accepting a mismatched sample.
+        _phase = FaceEnrollmentPhase.waitingForStability;
+        return _state(currentPose: pose);
+      }
     }
 
     _accepted.add(embedding);
-    return true;
+    _poseIndex++;
+
+    if (_poseIndex >= poseSequence.length) {
+      _phase = FaceEnrollmentPhase.generatingTemplate;
+      return _state();
+    }
+
+    _phase = FaceEnrollmentPhase.waitingForStability;
+    return _state(currentPose: _currentPose);
   }
 
+  // ── Shared per-frame readiness check ─────────────────────────────────
+
+  Future<_Readiness> _evaluateReadiness({
+    required List<DetectedFace> faces,
+    required Size imageSize,
+    required int rotationDegrees,
+    required FacePose pose,
+    required img.Image Function() frame,
+  }) async {
+    final quality = FaceDetectionService.evaluateQuality(
+      faces,
+      imageSize,
+      rotationDegrees: rotationDegrees,
+      config: config,
+    );
+    if (quality.primaryIssue != null) {
+      return _Readiness(
+        issue: quality.primaryIssue,
+        offsetDirection: quality.offsetDirection,
+      );
+    }
+
+    final face = faces.single;
+    final geometry = FaceGeometryValidator.evaluate(
+      face: face,
+      imageSize: imageSize,
+      rotationDegrees: rotationDegrees,
+      pose: pose,
+      config: config,
+    );
+    if (!geometry.landmarksPresent) {
+      return _Readiness(issue: FaceQualityIssue.missingLandmarks, face: face);
+    }
+    if (!geometry.landmarksContained) {
+      return _Readiness(
+        issue: FaceQualityIssue.landmarksOutsideSafeRegion,
+        face: face,
+      );
+    }
+
+    final pixelIssue = FrameQualityAnalyzer.evaluate(
+      frame(),
+      face.boundingBox,
+      config: config,
+    );
+    if (pixelIssue != null) {
+      return _Readiness(issue: pixelIssue, face: face);
+    }
+
+    return _Readiness(
+      poseMatched: matchesPoseTarget(pose, face, config),
+      face: face,
+    );
+  }
+
+  // ── Finalization ──────────────────────────────────────────────────────
+
   /// Builds the final representative template from accepted samples and
-  /// checks it for duplicates. Thin wrapper around [buildTemplate] — see
-  /// that method's doc comment for the actual logic. Split out mainly so
-  /// [buildTemplate] can be unit-tested directly with synthetic
-  /// embeddings: `FaceEmbeddingService` needs a real on-device TFLite
-  /// interpreter (see its own doc comment on why that can't run in this
-  /// dev environment), so nothing that depends on live [embed] calls —
-  /// i.e. [_accepted] itself — can be exercised outside a real device.
+  /// checks it for duplicates — thin wrapper around [buildTemplate].
   Future<FaceEnrollmentResult> finalizeEnrollment({
     required String operatorId,
   }) {
+    final minSurviving = (poseSequence.length * config.minSurvivingPoseFraction)
+        .ceil()
+        .clamp(1, poseSequence.length);
     return buildTemplate(
       operatorId: operatorId,
       samples: _accepted,
       templateRepository: templateRepository,
-      requiredSamples: requiredSamples,
-      minSurvivingSamples: minSurvivingSamples,
+      requiredSamples: poseSequence.length,
+      minSurvivingSamples: minSurviving,
     );
   }
 
@@ -515,8 +537,8 @@ class FaceEnrollmentService {
     required String operatorId,
     required List<List<double>> samples,
     required FaceTemplateRepository templateRepository,
-    int requiredSamples = 6,
-    int minSurvivingSamples = 5,
+    int requiredSamples = 4,
+    int minSurvivingSamples = 3,
   }) async {
     if (samples.length < requiredSamples) {
       return const FaceEnrollmentResult.failure(
@@ -576,31 +598,40 @@ class FaceEnrollmentService {
     return [for (final s in sums) s / vectors.length];
   }
 
-  FaceEnrollmentState _state(
-    FaceEnrollmentStatus status, {
+  FaceEnrollmentState _state({
+    FaceQualityIssue? blockingIssue,
     FaceOffsetDirection? offsetDirection,
-    double? scanProgress,
     String? livenessInstruction,
+    FacePose? currentPose,
+    double? progress,
   }) => FaceEnrollmentState(
-    status: status,
+    phase: _phase,
+    blockingIssue: blockingIssue,
     offsetDirection: offsetDirection,
-    scanProgress: scanProgress,
     livenessInstruction: livenessInstruction,
+    currentPose: currentPose,
+    progress: progress,
+    poses: [
+      for (var i = 0; i < poseSequence.length; i++)
+        PoseProgress(
+          pose: poseSequence[i],
+          accepted: i < _poseIndex,
+          isCurrent: i == _poseIndex && i < poseSequence.length,
+        ),
+    ],
   );
+}
 
-  static FaceEnrollmentStatus? _statusForIssue(FaceQualityIssue? issue) {
-    return switch (issue) {
-      null => null,
-      FaceQualityIssue.noFaceDetected => FaceEnrollmentStatus.positioning,
-      FaceQualityIssue.multipleFacesDetected =>
-        FaceEnrollmentStatus.multipleFaces,
-      FaceQualityIssue.faceTooSmall => FaceEnrollmentStatus.tooFar,
-      FaceQualityIssue.faceTooLarge => FaceEnrollmentStatus.tooClose,
-      FaceQualityIssue.offCenter => FaceEnrollmentStatus.offCenter,
-      FaceQualityIssue.extremePose => FaceEnrollmentStatus.lookStraight,
-      FaceQualityIssue.eyesNotVisible => FaceEnrollmentStatus.lookStraight,
-      FaceQualityIssue.poorLighting => FaceEnrollmentStatus.poorLighting,
-      FaceQualityIssue.tooBlurry => FaceEnrollmentStatus.holdStill,
-    };
-  }
+class _Readiness {
+  const _Readiness({
+    this.issue,
+    this.offsetDirection,
+    this.poseMatched = false,
+    this.face,
+  });
+
+  final FaceQualityIssue? issue;
+  final FaceOffsetDirection? offsetDirection;
+  final bool poseMatched;
+  final DetectedFace? face;
 }

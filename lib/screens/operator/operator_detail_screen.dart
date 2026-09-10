@@ -41,7 +41,12 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
 
   late final TextEditingController _nameController;
   late final TextEditingController _employeeIdController;
+  late final TextEditingController _plcEmailController;
   late OperatorRole _role;
+
+  // Identical pattern to `login_screen.dart`'s own email validator, so
+  // "valid PLC login email" means the same thing in both places.
+  static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void initState() {
@@ -49,6 +54,7 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
     _operator = widget.operator;
     _nameController = TextEditingController(text: _operator.name);
     _employeeIdController = TextEditingController(text: _operator.employeeId);
+    _plcEmailController = TextEditingController(text: _operator.plcLoginEmail);
     _role = _operator.role;
   }
 
@@ -56,6 +62,7 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
   void dispose() {
     _nameController.dispose();
     _employeeIdController.dispose();
+    _plcEmailController.dispose();
     super.dispose();
   }
 
@@ -64,15 +71,27 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       _editing = false;
       _nameController.text = _operator.name;
       _employeeIdController.text = _operator.employeeId;
+      _plcEmailController.text = _operator.plcLoginEmail;
       _role = _operator.role;
     });
   }
 
   Future<void> _saveEdits() async {
+    final email = _plcEmailController.text.trim();
+    if (email.isNotEmpty && !_emailPattern.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a valid PLC login email format (example: user@domain.com).'),
+          backgroundColor: AppColors.brandDanger,
+        ),
+      );
+      return;
+    }
     setState(() => _busy = true);
     final updated = _operator.copyWith(
       name: _nameController.text.trim(),
       employeeId: _employeeIdController.text.trim(),
+      plcLoginEmail: email,
       role: _role,
       updatedAt: DateTime.now(),
     );
@@ -270,6 +289,13 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
       const SizedBox(height: 10),
       _InfoRow(label: 'Employee ID', value: _operator.employeeId),
       const SizedBox(height: 10),
+      _InfoRow(
+        label: 'PLC login email',
+        value: _operator.plcLoginEmail.isEmpty
+            ? 'Not set'
+            : _operator.plcLoginEmail,
+      ),
+      const SizedBox(height: 10),
       _InfoRow(label: 'Role', value: _operator.role.displayName),
       const SizedBox(height: 10),
       _InfoRow(
@@ -311,6 +337,17 @@ class _OperatorDetailScreenState extends State<OperatorDetailScreen> {
         decoration: brandInputDecoration(
           label: 'Employee ID',
           icon: Icons.badge_outlined,
+        ),
+      ),
+      const SizedBox(height: 14),
+      TextField(
+        controller: _plcEmailController,
+        enabled: !_busy,
+        keyboardType: TextInputType.emailAddress,
+        autocorrect: false,
+        decoration: brandInputDecoration(
+          label: 'PLC login email',
+          icon: Icons.alternate_email_rounded,
         ),
       ),
       const SizedBox(height: 14),

@@ -27,6 +27,10 @@ class FaceCaptureDiagnostics {
     this.samplesAccepted,
     this.readyForCapture = false,
     this.failedReason,
+    this.currentPoseLabel,
+    this.poseMatched,
+    this.landmarksPresent,
+    this.landmarksContained,
   });
 
   const FaceCaptureDiagnostics.empty()
@@ -49,7 +53,11 @@ class FaceCaptureDiagnostics {
       identityLocked = false,
       samplesAccepted = null,
       readyForCapture = false,
-      failedReason = null;
+      failedReason = null,
+      currentPoseLabel = null,
+      poseMatched = null,
+      landmarksPresent = null,
+      landmarksContained = null;
 
   final int faceCount;
 
@@ -127,4 +135,18 @@ class FaceCaptureDiagnostics {
   /// breakdown so it's clear which failing condition, if several are
   /// failing at once, is the one actually producing the caption.
   final String? failedReason;
+
+  /// Which pose is currently targeted (`FacePose.label`), and whether
+  /// this exact frame's head angle matches its target window — the
+  /// on-screen readout you check on first device run to confirm
+  /// left/right/up register in the expected physical direction (see
+  /// `FaceEnrollmentConfig.yawLeftIsPositive`/`pitchUpIsPositive`).
+  final String? currentPoseLabel;
+  final bool? poseMatched;
+
+  /// From `FaceGeometryValidator` — whether the current pose's required
+  /// landmarks were reported, and whether they sit inside the safe
+  /// region. Null when not evaluated (e.g. no single face detected).
+  final bool? landmarksPresent;
+  final bool? landmarksContained;
 }

@@ -5,6 +5,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 
+import 'package:rev_crane_control_ops/config/face_enrollment_config.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 
@@ -49,17 +50,17 @@ class FaceDetectionService {
     int rotationDegrees,
   ) {
     var boundingBox = face.boundingBox;
-    var leftEye = face.landmarks[FaceLandmarkType.leftEye]?.position;
-    var rightEye = face.landmarks[FaceLandmarkType.rightEye]?.position;
-
-    if (_detectorPreRotatesResults && rotationDegrees != 0) {
+    final needsCorrection = _detectorPreRotatesResults && rotationDegrees != 0;
+    if (needsCorrection) {
       boundingBox = downrightRect(boundingBox, imageSize, rotationDegrees);
-      if (leftEye != null) {
-        leftEye = _downrightPoint(leftEye, imageSize, rotationDegrees);
-      }
-      if (rightEye != null) {
-        rightEye = _downrightPoint(rightEye, imageSize, rotationDegrees);
-      }
+    }
+
+    math.Point<int>? landmark(FaceLandmarkType type) {
+      final position = face.landmarks[type]?.position;
+      if (position == null) return null;
+      return needsCorrection
+          ? _downrightPoint(position, imageSize, rotationDegrees)
+          : position;
     }
 
     return DetectedFace(
@@ -71,12 +72,23 @@ class FaceDetectionService {
       leftEyeOpenProbability: face.leftEyeOpenProbability,
       rightEyeOpenProbability: face.rightEyeOpenProbability,
       smilingProbability: face.smilingProbability,
-      leftEyePosition: leftEye,
-      rightEyePosition: rightEye,
+      leftEyePosition: landmark(FaceLandmarkType.leftEye),
+      rightEyePosition: landmark(FaceLandmarkType.rightEye),
+      noseBasePosition: landmark(FaceLandmarkType.noseBase),
+      leftCheekPosition: landmark(FaceLandmarkType.leftCheek),
+      rightCheekPosition: landmark(FaceLandmarkType.rightCheek),
+      leftMouthPosition: landmark(FaceLandmarkType.leftMouth),
+      rightMouthPosition: landmark(FaceLandmarkType.rightMouth),
     );
   }
 
   // ── Quality evaluation — pure function, see class doc ───────────────────
+  //
+  // These mirror `FaceEnrollmentConfig.defaults`' values — kept as named
+  // static constants (rather than removed) because the debug diagnostics
+  // panel and existing tests reference them directly for display/
+  // assertions. [evaluateQuality] itself sources its actual thresholds
+  // from [config], not these.
 
   static const double minFaceWidthFraction = 0.25;
   static const double maxFaceWidthFraction = 0.85;
@@ -88,6 +100,7 @@ class FaceDetectionService {
     List<DetectedFace> faces,
     Size imageSize, {
     int rotationDegrees = 0,
+    FaceEnrollmentConfig config = FaceEnrollmentConfig.defaults,
   }) {
     if (faces.isEmpty) {
       return const FaceQualityResult(
@@ -114,9 +127,9 @@ class FaceDetectionService {
     );
 
     final widthFraction = uprightBox.width / uprightImageSize.width;
-    if (widthFraction < minFaceWidthFraction) {
+    if (widthFraction < config.minFaceWidthFraction) {
       issues.add(FaceQualityIssue.faceTooSmall);
-    } else if (widthFraction > maxFaceWidthFraction) {
+    } else if (widthFraction > config.maxFaceWidthFraction) {
       issues.add(FaceQualityIssue.faceTooLarge);
     }
 
@@ -130,7 +143,7 @@ class FaceDetectionService {
         : uprightImageSize.shortestSide;
     final centerDelta = faceCenter - imageCenter;
     final offsetFraction = centerDelta.distance / shortestSide;
-    if (offsetFraction > maxCenterOffsetFraction) {
+    if (offsetFraction > config.maxCenterOffsetFraction) {
       issues.add(FaceQualityIssue.offCenter);
       offsetDirection = centerDelta.dx.abs() >= centerDelta.dy.abs()
           ? (centerDelta.dx > 0
@@ -143,8 +156,8 @@ class FaceDetectionService {
 
     final yaw = face.headEulerAngleY;
     final pitch = face.headEulerAngleX;
-    if ((yaw != null && yaw.abs() > maxPoseAngle) ||
-        (pitch != null && pitch.abs() > maxPoseAngle)) {
+    if ((yaw != null && yaw.abs() > config.maxFrontalPoseAngle) ||
+        (pitch != null && pitch.abs() > config.maxFrontalPoseAngle)) {
       issues.add(FaceQualityIssue.extremePose);
     }
 

@@ -1,3 +1,4 @@
+import 'package:rev_crane_control_ops/config/face_enrollment_config.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
 
@@ -6,34 +7,36 @@ import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
 /// [DetectedFace], no ML Kit/camera dependency of its own, so it's fully
 /// unit-testable with hand-built frame sequences.
 ///
-/// The caller (Stage 4) calls [processFrame] once per detection result,
-/// including when zero or multiple faces were found — treated as an
-/// anti-spoof signal (a second photo held up, or the subject stepping out
-/// of frame) rather than silently ignored. This is deliberately strict;
-/// if on-device testing shows normal head turns transiently drop
-/// detection for a single frame, tolerating one bad frame before failing
-/// is the first knob to turn — noted here rather than guessed at now,
-/// since it needs real usage to tune.
+/// The caller calls [processFrame] once per detection result, including
+/// when zero or multiple faces were found — treated as an anti-spoof
+/// signal (a second photo held up, or the subject stepping out of frame)
+/// rather than silently ignored. This is deliberately strict; if
+/// on-device testing shows normal head turns transiently drop detection
+/// for a single frame, tolerating one bad frame before failing is the
+/// first knob to turn.
 ///
-/// NOTE on `headEulerAngleY` sign convention: ML Kit's exact left/right
-/// sign has not been verified against a real device in this environment.
-/// [_isTurnedLeft]/[_isTurnedRight] use a consistent, symmetric
-/// convention that may need flipping once verified on-device — see
-/// Stage 3's plan "what can and can't be verified here" section.
+/// `headEulerAngleY` sign convention: [_isTurnedLeft]/[_isTurnedRight] now
+/// follow [DetectedFace.headEulerAngleY]'s own documented convention
+/// (positive = turned toward the subject's left) via [config] — this file
+/// previously used the opposite sign, contradicting that doc comment,
+/// which is why turn challenges were disabled elsewhere in this codebase.
+/// [config]`.yawLeftIsPositive` is a one-flag override if on-device
+/// testing shows the real ML Kit build disagrees.
 class LivenessSession {
   LivenessSession(
     this.challenge, {
     DateTime? startedAt,
     this.timeout = const Duration(seconds: 8),
+    this.config = FaceEnrollmentConfig.defaults,
   }) : _startedAt = startedAt ?? DateTime.now();
 
   final LivenessChallengeType challenge;
   final Duration timeout;
+  final FaceEnrollmentConfig config;
   final DateTime _startedAt;
 
   static const double _eyeClosedThreshold = 0.35;
   static const double _eyeOpenThreshold = 0.6;
-  static const double _turnAngleThreshold = 15.0; // degrees
   static const double _straightAngleTolerance = 10.0; // degrees
   static const Duration _requiredHoldDuration = Duration(milliseconds: 600);
 
@@ -134,12 +137,16 @@ class LivenessSession {
 
   bool _isTurnedLeft(DetectedFace face) {
     final angle = face.headEulerAngleY;
-    return angle != null && angle < -_turnAngleThreshold;
+    if (angle == null) return false;
+    final threshold = config.leftTurnYawThreshold;
+    return config.yawLeftIsPositive ? angle > threshold : angle < threshold;
   }
 
   bool _isTurnedRight(DetectedFace face) {
     final angle = face.headEulerAngleY;
-    return angle != null && angle > _turnAngleThreshold;
+    if (angle == null) return false;
+    final threshold = config.rightTurnYawThreshold;
+    return config.yawLeftIsPositive ? angle < threshold : angle > threshold;
   }
 
   bool _isLookingStraight(DetectedFace face) {

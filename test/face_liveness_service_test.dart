@@ -59,20 +59,23 @@ void main() {
   });
 
   group('turn challenges', () {
+    // Positive yaw = turned toward the subject's left, matching
+    // `DetectedFace.headEulerAngleY`'s documented convention and the
+    // default `FaceEnrollmentConfig.yawLeftIsPositive = true`.
     test('turnLeft completes after holding the pose long enough', () {
       final session = LivenessSession(LivenessChallengeType.turnLeft);
       final now = DateTime.now();
 
       final first = session.processFrame(
         faceCount: 1,
-        face: _face(yaw: -20),
+        face: _face(yaw: 20),
         now: now,
       );
       expect(first.completed, isFalse);
 
       final state = session.processFrame(
         faceCount: 1,
-        face: _face(yaw: -20),
+        face: _face(yaw: 20),
         now: now.add(const Duration(milliseconds: 700)),
       );
       expect(state.completed, isTrue);
@@ -82,7 +85,7 @@ void main() {
       final session = LivenessSession(LivenessChallengeType.turnLeft);
       final now = DateTime.now();
 
-      session.processFrame(faceCount: 1, face: _face(yaw: -20), now: now);
+      session.processFrame(faceCount: 1, face: _face(yaw: 20), now: now);
       final lost = session.processFrame(
         faceCount: 1,
         face: _face(yaw: 0),
@@ -94,12 +97,12 @@ void main() {
       // resuming from where it left off.
       session.processFrame(
         faceCount: 1,
-        face: _face(yaw: -20),
+        face: _face(yaw: 20),
         now: now.add(const Duration(milliseconds: 400)),
       );
       final state = session.processFrame(
         faceCount: 1,
-        face: _face(yaw: -20),
+        face: _face(yaw: 20),
         now: now.add(const Duration(milliseconds: 600)),
       );
       expect(state.completed, isFalse);
@@ -110,10 +113,22 @@ void main() {
       final now = DateTime.now();
       final state = session.processFrame(
         faceCount: 1,
-        face: _face(yaw: 20),
+        face: _face(yaw: -20),
         now: now.add(const Duration(milliseconds: 700)),
       );
       expect(state.progress, 0.0);
+    });
+
+    test('turnRight completes on a negative yaw hold', () {
+      final session = LivenessSession(LivenessChallengeType.turnRight);
+      final now = DateTime.now();
+      session.processFrame(faceCount: 1, face: _face(yaw: -20), now: now);
+      final state = session.processFrame(
+        faceCount: 1,
+        face: _face(yaw: -20),
+        now: now.add(const Duration(milliseconds: 700)),
+      );
+      expect(state.completed, isTrue);
     });
   });
 

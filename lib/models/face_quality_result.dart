@@ -15,6 +15,14 @@ enum FaceQualityIssue {
   eyesNotVisible,
   poorLighting,
   tooBlurry,
+  /// A required facial landmark (per `PoseLandmarkRequirements` for the
+  /// current pose) sits outside `FaceGeometryValidator`'s safe region —
+  /// distinct from [offCenter], which only looks at the bounding box.
+  landmarksOutsideSafeRegion,
+  /// A required landmark wasn't reported by ML Kit at all for this frame
+  /// (e.g. eyes not resolved) — distinct from
+  /// [landmarksOutsideSafeRegion], which is about position, not presence.
+  missingLandmarks,
 }
 
 extension FaceQualityIssueMessage on FaceQualityIssue {
@@ -30,6 +38,9 @@ extension FaceQualityIssueMessage on FaceQualityIssue {
     FaceQualityIssue.eyesNotVisible => 'Keep your eyes visible',
     FaceQualityIssue.poorLighting => 'Improve lighting',
     FaceQualityIssue.tooBlurry => 'Hold still',
+    FaceQualityIssue.landmarksOutsideSafeRegion =>
+      'Center your face fully inside the oval',
+    FaceQualityIssue.missingLandmarks => 'Face partially out of frame',
   };
 }
 

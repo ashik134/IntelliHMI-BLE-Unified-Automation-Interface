@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:image/image.dart' as img;
 
+import 'package:rev_crane_control_ops/config/face_enrollment_config.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 
 /// Raw-pixel-buffer quality checks that `FaceDetectionService.evaluateQuality`
@@ -13,6 +14,9 @@ import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 class FrameQualityAnalyzer {
   FrameQualityAnalyzer._();
 
+  // Mirror `FaceEnrollmentConfig.defaults`' values — see
+  // `FaceDetectionService`'s equivalent static-const comment for why
+  // these stay as named constants rather than being removed.
   static const double minBrightness = 60;
   static const double maxBrightness = 235;
   static const double minSharpness = 30;
@@ -20,16 +24,20 @@ class FrameQualityAnalyzer {
   /// Returns the first issue found (lighting checked before sharpness), or
   /// null if the region inside [faceRegion] (in [frame]'s own pixel
   /// coordinates) passes both checks.
-  static FaceQualityIssue? evaluate(img.Image frame, Rect faceRegion) {
+  static FaceQualityIssue? evaluate(
+    img.Image frame,
+    Rect faceRegion, {
+    FaceEnrollmentConfig config = FaceEnrollmentConfig.defaults,
+  }) {
     final region = _cropRegion(frame, faceRegion);
 
     final brightness = estimateBrightness(region);
-    if (brightness < minBrightness || brightness > maxBrightness) {
+    if (brightness < config.minBrightness || brightness > config.maxBrightness) {
       return FaceQualityIssue.poorLighting;
     }
 
     final sharpness = estimateSharpness(region);
-    if (sharpness < minSharpness) {
+    if (sharpness < config.minSharpness) {
       return FaceQualityIssue.tooBlurry;
     }
 
@@ -60,6 +68,32 @@ class FrameQualityAnalyzer {
           brightness >= minBrightness && brightness <= maxBrightness,
       sharpnessPassed: sharpness >= minSharpness,
     );
+  }
+
+  /// A composite 0..1 score for best-frame selection among several frames
+  /// that already independently passed [evaluate] (see
+  /// `FaceEnrollmentService`'s per-pose capture window) — higher is
+  /// better. Combines sharpness (uncapped upside, since "sharper" is
+  /// never bad once past [minSharpness]) with how close brightness sits
+  /// to the middle of the acceptable range (a borderline-dark or
+  /// borderline-blown-out frame still passes [evaluate] but is worse than
+  /// a well-exposed one). Not used as a pass/fail gate — only to rank
+  /// already-accepted frames against each other.
+  static double qualityScore(img.Image frame, Rect faceRegion) {
+    final region = _cropRegion(frame, faceRegion);
+    final brightness = estimateBrightness(region);
+    final sharpness = estimateSharpness(region);
+
+    const midBrightness = (minBrightness + maxBrightness) / 2;
+    const halfRange = (maxBrightness - minBrightness) / 2;
+    final brightnessScore =
+        1.0 - ((brightness - midBrightness).abs() / halfRange).clamp(0.0, 1.0);
+
+    // Sharpness has no natural upper bound, so compress it into 0..1 with
+    // a soft knee well above `minSharpness` rather than a hard cap.
+    final sharpnessScore = (sharpness / (minSharpness * 4)).clamp(0.0, 1.0);
+
+    return 0.4 * brightnessScore + 0.6 * sharpnessScore;
   }
 
   /// Mean luma (ITU-R BT.601 weights) over [region], 0..255.

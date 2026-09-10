@@ -37,10 +37,13 @@ class FaceCaptureOverlay extends StatelessWidget {
 
   /// Fraction (0.0..1.0) of the continuous face scan elapsed. Non-null
   /// only while actively scanning — draws a rotating/filling ring around
-  /// the guide instead of the plain static circle, so the operator sees
-  /// one continuous "Scanning your face…" motion rather than a
-  /// sample-by-sample counter (see `FaceEnrollmentStatus`'s doc comment
-  /// on why there's deliberately no "N of M" label here).
+  /// the guide instead of the plain static circle, giving continuous
+  /// motion feedback for whichever timed sub-phase is active (a liveness
+  /// challenge hold, or a pose's best-frame capture window). The overall
+  /// "N of M poses" counter is a separate concern, rendered by
+  /// `FacePoseChecklist` alongside this overlay rather than baked into
+  /// it, so `FaceVerificationScreen`/`FaceVerifyScreen` — which reuse this
+  /// widget but have no pose sequence — are unaffected.
   final double? scanProgress;
 
   @override

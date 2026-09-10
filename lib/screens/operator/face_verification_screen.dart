@@ -123,13 +123,16 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   int _badFrameStreak = 0;
 
   /// The active anti-spoof challenge during [_ScanState.livenessCheck], or
-  /// null outside that sub-state. `turnLeft`/`turnRight` are deliberately
-  /// excluded from [_livenessChallengePool] for now: ML Kit's yaw sign
-  /// convention is unverified on-device (see `DetectedFace`'s doc comment
-  /// vs. `LivenessSession`'s), and separately `FaceDetectionService
-  /// .evaluateQuality`'s 20° pose gate leaves only a narrow 15-20° window
-  /// where a turn both clears that gate and registers as valid — revisit
-  /// once confirmed on real hardware.
+  /// null outside that sub-state. `turnLeft`/`turnRight` remain excluded
+  /// from [_livenessChallengePool] here: the sign-convention contradiction
+  /// between `DetectedFace`'s doc comment and `LivenessSession` has since
+  /// been fixed (see `FaceEnrollmentConfig.yawLeftIsPositive`, now used by
+  /// the guided-pose enrollment flow's Left/Right poses), but gating a
+  /// *login* attempt on an unverified-on-real-hardware direction risks
+  /// locking out a real operator, which is a worse failure mode than a
+  /// slower enrollment retry — left as a deliberate choice to revisit once
+  /// the enrollment flow has confirmed the sign on real devices, not
+  /// re-enabled here as a side effect of that fix.
   LivenessSession? _livenessSession;
   double _livenessProgress = 0.0;
   static const List<LivenessChallengeType> _livenessChallengePool = [

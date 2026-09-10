@@ -19,16 +19,28 @@ class OperatorProfile {
     required this.role,
     required this.createdAt,
     required this.updatedAt,
+    this.plcLoginEmail = '',
     this.faceTemplateId,
     this.enabled = true,
     this.lastAuthenticatedAt,
-    this.schemaVersion = 1,
+    this.schemaVersion = 2,
   });
 
   final String operatorId;
   final String name;
   final String employeeId;
   final OperatorRole role;
+
+  /// The operator's PLC login email, captured at enrollment time for
+  /// record-keeping — record-keeping only: it does not feed or prefill
+  /// `login_screen.dart`'s actual PLC authentication flow, which remains
+  /// its own separate, unlinked credential entry.
+  ///
+  /// Empty for any profile created before schema version 2 (see
+  /// [fromJson]'s default) — never null, so callers don't need a
+  /// separate "was this ever set" branch.
+  final String plcLoginEmail;
+
   final String? faceTemplateId;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -39,6 +51,7 @@ class OperatorProfile {
   OperatorProfile copyWith({
     String? name,
     String? employeeId,
+    String? plcLoginEmail,
     OperatorRole? role,
     String? faceTemplateId,
     bool clearFaceTemplateId = false,
@@ -50,6 +63,7 @@ class OperatorProfile {
       operatorId: operatorId,
       name: name ?? this.name,
       employeeId: employeeId ?? this.employeeId,
+      plcLoginEmail: plcLoginEmail ?? this.plcLoginEmail,
       role: role ?? this.role,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -66,6 +80,7 @@ class OperatorProfile {
     'operatorId': operatorId,
     'name': name,
     'employeeId': employeeId,
+    'plcLoginEmail': plcLoginEmail,
     'role': role.name,
     if (faceTemplateId != null) 'faceTemplateId': faceTemplateId,
     'createdAt': createdAt.toIso8601String(),
@@ -81,6 +96,7 @@ class OperatorProfile {
       operatorId: json['operatorId'] as String,
       name: json['name'] as String,
       employeeId: json['employeeId'] as String,
+      plcLoginEmail: json['plcLoginEmail'] as String? ?? '',
       role: OperatorRole.tryParse(json['role'] as String?) ??
           OperatorRole.operator,
       faceTemplateId: json['faceTemplateId'] as String?,

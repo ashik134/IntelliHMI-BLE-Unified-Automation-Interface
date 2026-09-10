@@ -17,6 +17,11 @@ class DetectedFace {
     this.smilingProbability,
     this.leftEyePosition,
     this.rightEyePosition,
+    this.noseBasePosition,
+    this.leftCheekPosition,
+    this.rightCheekPosition,
+    this.leftMouthPosition,
+    this.rightMouthPosition,
   });
 
   /// Face bounding box in image pixel coordinates.
@@ -48,4 +53,17 @@ class DetectedFace {
   /// [rightEyeOpenProbability].
   final Point<int>? leftEyePosition;
   final Point<int>? rightEyePosition;
+
+  /// Additional landmark positions (image pixel coordinates, same space
+  /// as [boundingBox]) used by `FaceGeometryValidator` for safe-region
+  /// containment checks. Each is null if landmarks weren't enabled or
+  /// ML Kit didn't report that particular one for this frame — which is
+  /// expected/normal for a landmark on the far side of a turned face, not
+  /// necessarily a bad frame. ML Kit has no forehead or chin landmark, so
+  /// those from the spec's suggested landmark list aren't available here.
+  final Point<int>? noseBasePosition;
+  final Point<int>? leftCheekPosition;
+  final Point<int>? rightCheekPosition;
+  final Point<int>? leftMouthPosition;
+  final Point<int>? rightMouthPosition;
 }

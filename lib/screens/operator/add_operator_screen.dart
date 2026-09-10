@@ -40,8 +40,13 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _employeeIdController = TextEditingController();
+  final TextEditingController _plcEmailController = TextEditingController();
   late OperatorRole _role;
   bool _saving = false;
+
+  // Identical pattern to `login_screen.dart`'s own email validator, so
+  // "valid PLC login email" means the same thing in both places.
+  static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void initState() {
@@ -55,6 +60,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
   void dispose() {
     _nameController.dispose();
     _employeeIdController.dispose();
+    _plcEmailController.dispose();
     super.dispose();
   }
 
@@ -103,6 +109,7 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
       operatorId: operatorId,
       name: _nameController.text.trim(),
       employeeId: employeeId,
+      plcLoginEmail: _plcEmailController.text.trim(),
       role: _role,
       faceTemplateId: template.templateId,
       createdAt: now,
@@ -219,6 +226,26 @@ class _AddOperatorScreenState extends State<AddOperatorScreen> {
                 if (value.isEmpty) return 'Required';
                 if (!RegExp(r'^\d{1,8}$').hasMatch(value)) {
                   return 'Numbers only, up to 8 digits';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _plcEmailController,
+              enabled: !_saving,
+              style: const TextStyle(color: AppColors.connText),
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              decoration: brandInputDecoration(
+                label: 'PLC login email',
+                icon: Icons.alternate_email_rounded,
+              ),
+              validator: (v) {
+                final value = v?.trim() ?? '';
+                if (value.isEmpty) return 'Required';
+                if (!_emailPattern.hasMatch(value)) {
+                  return 'Enter a valid email format (example: user@domain.com).';
                 }
                 return null;
               },

@@ -8,11 +8,13 @@ import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
+import 'package:rev_crane_control_ops/config/face_enrollment_config.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
 import 'package:rev_crane_control_ops/models/face_capture_diagnostics.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_result.dart';
 import 'package:rev_crane_control_ops/models/face_enrollment_status.dart';
+import 'package:rev_crane_control_ops/models/face_pose.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/repositories/face_template_repository.dart';
@@ -20,11 +22,13 @@ import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
 import 'package:rev_crane_control_ops/services/face_enrollment_service.dart';
+import 'package:rev_crane_control_ops/services/face_geometry_validator.dart';
 import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_diagnostics_panel.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_illumination_overlay.dart';
+import 'package:rev_crane_control_ops/widgets/operator/face_pose_checklist.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
 enum _ScreenPhase {
@@ -37,23 +41,23 @@ enum _ScreenPhase {
   success,
 }
 
-/// Live front-camera face-enrollment capture flow.
+/// Live front-camera guided-pose face-enrollment capture flow (spec
+/// sections 2-17): automatically walks the operator through
+/// `FaceEnrollmentService.poseSequence` (Front/Left/Right/Up by default),
+/// showing live checklist progress, and pops with a [FaceTemplate] once
+/// every pose has a high-quality, mutually-consistent sample and the
+/// resulting template clears the duplicate-face check — or `null` on
+/// cancel/permission-denied/unrecoverable failure.
 ///
-/// Pops with a [FaceTemplate] once enough good samples are captured and
-/// the representative embedding clears the duplicate-face check, or
-/// `null` on cancel/permission-denied/unrecoverable failure. Nothing is
-/// ever written to disk by this screen or by `FaceEnrollmentService` —
-/// persistence is the caller's job (`AddOperatorScreen`/
-/// `OperatorDetailScreen`), so there is never a partial operator/template
-/// left behind regardless of how this screen exits.
+/// Nothing is ever written to disk by this screen or by
+/// [FaceEnrollmentService] — persistence is the caller's job
+/// (`AddOperatorScreen`/`OperatorDetailScreen`).
 ///
-/// Camera-display concerns (preview aspect/rotation) are handled only in
-/// [build] below (via `_CoverCameraPreview`), entirely separate from
-/// ML-processing coordinates (`CameraFrameConverter`, `FaceDetectionService`,
-/// `FaceEnrollmentService`). The preview is shown in the camera's true,
-/// non-mirrored orientation — matching exactly what the raw buffer handed
-/// to the ML pipeline sees — so the on-screen guide oval and the
-/// acceptance region it represents never disagree.
+/// Camera-display concerns (preview aspect/rotation) stay entirely
+/// separate from ML-processing coordinates, same as before: the preview
+/// shows the camera's true, non-mirrored orientation, matching exactly
+/// what's fed to the detection/embedding pipeline, so the on-screen guide
+/// oval and the acceptance region it represents never disagree.
 class FaceEnrollmentScreen extends StatefulWidget {
   const FaceEnrollmentScreen({
     super.key,
@@ -144,8 +148,8 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   /// value), then raises it to maximum and fades in
   /// [FaceIlluminationOverlay]'s white ring around the guide oval. Only
   /// ever called while entering/re-entering [_ScreenPhase.capturing] —
-  /// verification (`FaceVerifyScreen`) never calls this, matching the
-  /// "enrollment only" requirement for screen illumination.
+  /// verification screens never call this, matching the "enrollment only"
+  /// requirement for screen illumination.
   ///
   /// Silently gives up on any platform error (brightness control can be
   /// unsupported or permission-gated) — illumination is a UX enhancement,
@@ -164,16 +168,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   /// Restores exactly the brightness [_activateIllumination] found in
   /// place before it ran, and clears [_illuminationActive] so
   /// [FaceIlluminationOverlay] fades back out. Safe to call any number of
-  /// times, including when illumination was never activated (a no-op past
-  /// the first two lines) — every exit from the capture phase (finalize,
-  /// cancel, backgrounding, dispose) calls this so the device is never left
-  /// brighter than the operator had it, matching the "never permanently
-  /// modify brightness" requirement.
-  ///
-  /// Deliberately does not call `setState` itself: [_illuminationActive]
-  /// flips synchronously (before the first `await` below), so every
-  /// existing `setState` at each call site already picks up the new value
-  /// on its next rebuild without this needing its own.
+  /// times, including when illumination was never activated.
   Future<void> _restoreBrightness() async {
     final original = _originalBrightness;
     _originalBrightness = null;
@@ -272,8 +267,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     // evaluateAndCapture's frameProvider instead of decoding it a second
     // time) so the live diagnostics panel has real numbers to show. In a
     // release build this block never runs, so release behavior is
-    // unchanged from before diagnostics existed — evaluateAndCapture's
-    // frameProvider still decodes lazily, only if actually needed.
+    // unchanged from before diagnostics existed.
     img.Image? precomputedFrame;
     if (kDebugMode && faces.length == 1) {
       precomputedFrame = CameraFrameConverter.toRgbImage(image);
@@ -287,8 +281,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       rotationDegrees: rotation,
     );
 
-    // Built after evaluateAndCapture so the stability counter reflects
-    // this frame's just-updated count, not last frame's.
     if (kDebugMode) {
       _diagnostics = precomputedFrame != null
           ? _buildDiagnostics(
@@ -305,20 +297,21 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (!mounted) return;
     setState(() => _captureState = state);
 
-    if (state.status == FaceEnrollmentStatus.processing && !_finalizing) {
+    if (state.phase == FaceEnrollmentPhase.generatingTemplate &&
+        !_finalizing) {
       await _finalize();
     }
   }
 
-  /// Debug-only (see [kDebugMode] guard at the call site). Uses
-  /// `FrameQualityAnalyzer.diagnose` on the *exact* region
-  /// (`face.boundingBox`, no extra padding) `FrameQualityAnalyzer.evaluate`
-  /// itself crops — the real pixel-quality gate `evaluateAndCapture` calls
-  /// — so brightness/sharpness here can never disagree with what actually
-  /// gated the frame. `faceWidthFraction`/`centerOffsetFraction`/the
-  /// per-condition booleans are pulled from `FaceDetectionService
-  /// .evaluateQuality` (same call `evaluateAndCapture` makes internally)
-  /// rather than a separately-tuned approximation, for the same reason.
+  /// Debug-only (see [kDebugMode] guard at the call site). Reuses the
+  /// exact same checks the real capture gate runs
+  /// (`FaceDetectionService.evaluateQuality`, `FaceGeometryValidator`,
+  /// `FrameQualityAnalyzer`, `matchesPoseTarget`) so this readout can
+  /// never disagree with what actually gated the frame — in particular,
+  /// the raw yaw/pitch numbers here are what you check on first device
+  /// run to confirm left/right/up register in the expected physical
+  /// direction (see `FaceEnrollmentConfig.yawLeftIsPositive`/
+  /// `pitchUpIsPositive`).
   static FaceCaptureDiagnostics _buildDiagnostics(
     DetectedFace face,
     Size imageSize,
@@ -333,13 +326,23 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       rotationDegrees: rotationDegrees,
     );
     final pixel = FrameQualityAnalyzer.diagnose(frame, face.boundingBox);
+    final pose = enrollmentService.debugCurrentPose;
+    final geometry = pose == null
+        ? null
+        : FaceGeometryValidator.evaluate(
+            face: face,
+            imageSize: imageSize,
+            rotationDegrees: rotationDegrees,
+            pose: pose,
+          );
     final readyForCapture =
         quality.sizePassed &&
         quality.centerPassed &&
         quality.posePassed &&
         quality.eyesPassed &&
         pixel.brightnessPassed &&
-        pixel.sharpnessPassed;
+        pixel.sharpnessPassed &&
+        (geometry?.passed ?? false);
     final failedReason = !quality.passed
         ? quality.primaryMessage
         : (!pixel.brightnessPassed
@@ -363,12 +366,18 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       brightnessPassed: pixel.brightnessPassed,
       sharpnessPassed: pixel.sharpnessPassed,
       stableProgress: enrollmentService.stableProgress,
-      scanning: enrollmentService.isScanning,
-      scanProgress: enrollmentService.isScanning ? state.scanProgress : null,
-      identityLocked: enrollmentService.identityLocked,
+      scanning: enrollmentService.isCapturingPose,
+      scanProgress: enrollmentService.isCapturingPose ? state.progress : null,
+      identityLocked: enrollmentService.hasIdentityAnchor,
       samplesAccepted: enrollmentService.samplesCaptured,
       readyForCapture: readyForCapture,
       failedReason: failedReason,
+      currentPoseLabel: pose?.label,
+      poseMatched: pose == null
+          ? null
+          : matchesPoseTarget(pose, face, FaceEnrollmentConfig.defaults),
+      landmarksPresent: geometry?.landmarksPresent,
+      landmarksContained: geometry?.landmarksContained,
     );
   }
 
@@ -472,7 +481,8 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         return _MessageState(
           icon: Icons.person_search_rounded,
           title: 'Already registered',
-          message: FaceEnrollmentStatus.duplicateDetected.caption,
+          message:
+              'This face is already registered to another operator.',
           tone: BrandTone.danger,
           primaryLabel: 'Try Again',
           onPrimary: () => unawaited(_retry()),
@@ -503,17 +513,17 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   bool get _isGoodFrame =>
-      _captureState.status == FaceEnrollmentStatus.livenessChallenge ||
-      _captureState.status == FaceEnrollmentStatus.scanning ||
-      _captureState.status == FaceEnrollmentStatus.processing ||
-      _captureState.status == FaceEnrollmentStatus.complete;
+      _captureState.phase == FaceEnrollmentPhase.livenessCheck ||
+      _captureState.phase == FaceEnrollmentPhase.capturingPose ||
+      _captureState.phase == FaceEnrollmentPhase.generatingTemplate ||
+      _captureState.phase == FaceEnrollmentPhase.complete;
 
   bool get _isProblem =>
-      _captureState.status == FaceEnrollmentStatus.multipleFaces ||
-      _captureState.status == FaceEnrollmentStatus.duplicateDetected ||
-      _captureState.status == FaceEnrollmentStatus.failed ||
-      _captureState.status == FaceEnrollmentStatus.cameraError ||
-      _captureState.status == FaceEnrollmentStatus.permissionDenied;
+      _captureState.blockingIssue == FaceQualityIssue.multipleFacesDetected ||
+      _captureState.phase == FaceEnrollmentPhase.duplicateDetected ||
+      _captureState.phase == FaceEnrollmentPhase.failed ||
+      _captureState.phase == FaceEnrollmentPhase.cameraError ||
+      _captureState.phase == FaceEnrollmentPhase.permissionDenied;
 
   Color get _guideColor {
     if (_isProblem) return AppColors.brandDanger;
@@ -550,16 +560,11 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
             // captures it, matching the frames fed to ML Kit/the embedding
             // pipeline, which are never mirrored either (see class doc
             // comment). Scaled to cover the full screen without distorting
-            // the camera's native aspect ratio — `CameraPreview` sizes itself
-            // via an internal `AspectRatio`, which a bare `Stack.expand`
-            // parent would force to stretch non-uniformly instead of
-            // respecting it.
+            // the camera's native aspect ratio.
             _CoverCameraPreview(controller: controller),
             Container(color: Colors.black.withAlpha(60)),
             // Screen-as-light-source: opaque white outside the guide oval,
-            // fully transparent inside it (see the widget's own doc
-            // comment). Sits below the guide ring so the ring reads as the
-            // seam between "illuminated surround" and "live preview."
+            // fully transparent inside it.
             FaceIlluminationOverlay(
               active: _illuminationActive,
               ovalDiameter: guideDiameter,
@@ -569,12 +574,21 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
               guideColor: _guideColor,
               guideDiameter: guideDiameter,
               scanProgress:
-                  (_captureState.status == FaceEnrollmentStatus.scanning ||
-                          _captureState.status ==
-                              FaceEnrollmentStatus.livenessChallenge)
-                      ? _captureState.scanProgress
+                  (_captureState.phase == FaceEnrollmentPhase.capturingPose ||
+                          _captureState.phase ==
+                              FaceEnrollmentPhase.livenessCheck)
+                      ? _captureState.progress
                       : null,
             ),
+            if (_captureState.poses.isNotEmpty)
+              Positioned(
+                top: 8,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: FacePoseChecklist(poses: _captureState.poses),
+                ),
+              ),
             if (kDebugMode)
               FaceCaptureDiagnosticsPanel(diagnostics: _diagnostics),
             Positioned(
@@ -596,14 +610,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
 /// Renders [CameraPreview] scaled to cover its parent's full bounds while
 /// preserving the camera's true aspect ratio — cropping overflow instead
-/// of stretching it, and never mirroring. `CameraPreview` sizes itself via
-/// an internal `AspectRatio`, but a tight-constraining parent (a plain
-/// `Stack.expand` child) forces that `AspectRatio` to just fill the given
-/// box, silently ignoring the ratio and stretching the image unevenly.
-/// Giving it loose constraints (via [Center]) first lets it size itself
-/// correctly, then [Transform.scale] enlarges that correctly-proportioned
-/// image just enough to cover the available space, centered, clipped by
-/// the parent [Stack]'s default hard-edge clip.
+/// of stretching it, and never mirroring.
 class _CoverCameraPreview extends StatelessWidget {
   const _CoverCameraPreview({required this.controller});
 
