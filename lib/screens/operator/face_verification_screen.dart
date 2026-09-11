@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' show Random;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -11,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
+import 'package:rev_crane_control_ops/models/face_match_result.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
@@ -21,6 +23,7 @@ import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
 import 'package:rev_crane_control_ops/services/face_liveness_service.dart';
+import 'package:rev_crane_control_ops/services/face_matching_service.dart';
 import 'package:rev_crane_control_ops/services/face_verification_service.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
 import 'package:rev_crane_control_ops/services/frame_quality_analyzer.dart';
@@ -563,6 +566,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     );
     if (!mounted) return;
 
+    _logVerificationSample(result);
+
     _verificationSamples.add(result.matchedOperatorId);
 
     if (_verificationSamples.length < _requiredVerificationSamples) {
@@ -572,6 +577,35 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
 
     await _finalizeVerification();
+  }
+
+  /// Debug-console-only visibility into what each sample actually scored
+  /// against the enrolled population — never surfaced in the UI and never
+  /// written to the audit log (see this class's doc comment on that
+  /// invariant): `debugPrint` output is stripped from release builds and
+  /// isn't the persistent record `CraneController.
+  /// recordFaceVerificationFailed`/`completeFaceVerification` write, so
+  /// this doesn't weaken it. Deliberately reports the best score as a raw
+  /// cosine similarity, never as a formatted "accuracy" percentage — see
+  /// this method's guard below.
+  void _logVerificationSample(FaceMatchResult result) {
+    if (!kDebugMode) return;
+    final bestName = result.bestCandidateOperatorId != null
+        ? (_operatorsById[result.bestCandidateOperatorId]?.name ??
+              result.bestCandidateOperatorId)
+        : 'none';
+    final outcome = result.isMatch
+        ? 'MATCH'
+        : result.ambiguous
+        ? 'REJECT (ambiguous)'
+        : 'REJECT (below threshold)';
+    debugPrint(
+      '[FaceVerify] sample ${_verificationSamples.length + 1}/'
+      '$_requiredVerificationSamples — best=$bestName '
+      'score=${result.bestScore.toStringAsFixed(4)} '
+      'threshold=${FaceMatchingService.defaultThreshold.toStringAsFixed(4)} '
+      'result=$outcome',
+    );
   }
 
   /// Combines every collected sample into one final decision — the actual
@@ -593,6 +627,20 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         winnerCount = count;
       }
     });
+
+    if (kDebugMode) {
+      final winnerName = winnerId != null
+          ? (_operatorsById[winnerId]?.name ?? winnerId)
+          : 'none';
+      final consensusMet =
+          winnerId != null && winnerCount >= _consensusSamplesRequired;
+      debugPrint(
+        '[FaceVerify] consensus — best=$winnerName '
+        'agreement=$winnerCount/$_requiredVerificationSamples '
+        'required=$_consensusSamplesRequired '
+        'result=${consensusMet ? 'VERIFIED' : 'REJECTED'}',
+      );
+    }
 
     _verificationSamples.clear();
 

@@ -13,6 +13,7 @@ import 'package:rev_crane_control_ops/repositories/operator_repository.dart';
 import 'package:rev_crane_control_ops/services/camera_frame_converter.dart';
 import 'package:rev_crane_control_ops/services/face_detection_service.dart';
 import 'package:rev_crane_control_ops/services/face_embedding_service.dart';
+import 'package:rev_crane_control_ops/services/face_matching_service.dart';
 import 'package:rev_crane_control_ops/services/face_verification_service.dart';
 import 'package:rev_crane_control_ops/services/front_camera_session.dart';
 import 'package:rev_crane_control_ops/utils/device_type.dart';
@@ -441,12 +442,19 @@ class _ResultBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = result;
+    // Similarity is a raw cosine score in [-1, 1] compared against a
+    // calibrated threshold — never presented as an "accuracy" percentage,
+    // since it isn't one (see `FaceMatchingService`'s doc comment).
+    final thresholdLabel =
+        'threshold ${FaceMatchingService.defaultThreshold.toStringAsFixed(3)}';
+
     if (r.isMatch) {
       return _panel(
         icon: Icons.check_circle_rounded,
         color: AppColors.brandSuccess,
         title: 'MATCHED: ${nameFor(r.matchedOperatorId)}',
-        subtitle: 'score ${r.bestScore.toStringAsFixed(3)}',
+        subtitle:
+            'similarity ${r.bestScore.toStringAsFixed(3)}   ·   $thresholdLabel',
       );
     }
 
@@ -457,6 +465,7 @@ class _ResultBanner extends StatelessWidget {
         'best: $bestName (${r.bestScore.toStringAsFixed(3)})',
       if (secondName != null && r.secondBestScore != null)
         'second: $secondName (${r.secondBestScore!.toStringAsFixed(3)})',
+      thresholdLabel,
     ];
 
     return _panel(

@@ -56,9 +56,16 @@ abstract interface class FeedbackSource implements Listenable {
   bool get isPlcConnected;
 
   /// When the most recent PLC status notification arrived, or null if none
-  /// has since the connection was established. The heartbeat is derived from
-  /// this — the app never pings the PLC to produce one.
+  /// has since the connection was established.
   DateTime? get lastPlcStatusAt;
+
+  /// When the app's own periodic heartbeat write to the PLC last completed
+  /// without error, or null if none has succeeded since the connection was
+  /// established. That write exists independently of feedback (it keeps the
+  /// PLC's crypto session alive — see BleService._startHeartbeat); this is a
+  /// read of its outcome, never a command feedback issues itself, so the
+  /// "feedback never writes to the PLC" invariant still holds.
+  DateTime? get lastHeartbeatSuccessAt;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -488,15 +495,28 @@ class FeedbackManager extends ChangeNotifier {
     return readings;
   }
 
+  /// Live only while BOTH directions of the link are demonstrably working:
+  /// the PLC's status notifications (PLC→app) and the app's own heartbeat
+  /// write (app→PLC). A one-way failure — e.g. the heartbeat write starts
+  /// erroring out while old status notifications keep trickling in — is
+  /// exactly the kind of degraded link an operator needs surfaced, not
+  /// masked by the direction that still happens to be working.
   CommsHealth _resolveComms() {
     if (!_source.isPlcConnected) return CommsHealth.offline;
     if (!_config.system.heartbeatEnabled) return CommsHealth.live;
-    final last = _source.lastPlcStatusAt;
-    // Connected but nothing heard yet is not yet a fault — the PLC only
-    // notifies on change, so a quiet, healthy machine is normal.
-    if (last == null) return CommsHealth.live;
-    final silence = _now().difference(last);
-    return silence > _config.system.heartbeatTimeout
+
+    final now = _now();
+    final timeout = _config.system.heartbeatTimeout;
+    // Connected but nothing heard/sent yet on a given channel is not itself
+    // a fault — the PLC only notifies on change, and the heartbeat write may
+    // not have completed its first tick yet, so a quiet, healthy machine is
+    // normal until the timeout says otherwise.
+    bool isStale(DateTime? last) =>
+        last != null && now.difference(last) > timeout;
+
+    final statusStale = isStale(_source.lastPlcStatusAt);
+    final heartbeatStale = isStale(_source.lastHeartbeatSuccessAt);
+    return (statusStale || heartbeatStale)
         ? CommsHealth.stale
         : CommsHealth.live;
   }

@@ -90,6 +90,14 @@ class BleService {
   bool _heartbeatWritePending = false;
   bool _cryptoSafeStateActive = false;
 
+  /// When the most recent heartbeat write to the PLC last completed without
+  /// error. Null until the first attempt. Mirrors [BleService]'s own status-
+  /// notification recency tracking (see CraneController._lastPlcStatusAt) so
+  /// FeedbackManager can treat a stalled heartbeat write the same way it
+  /// treats a silent status characteristic — see FeedbackManager._resolveComms.
+  DateTime? _lastHeartbeatSuccessAt;
+  DateTime? get lastHeartbeatSuccessAt => _lastHeartbeatSuccessAt;
+
   bool _connectCancelled = false;
   Future<void>? _activeConnectFuture;
   Future<BleAuthOutcome>? _activeAuthFuture;
@@ -1313,6 +1321,7 @@ class BleService {
     _heartbeatWritePending = false;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _lastHeartbeatSuccessAt = null;
   }
 
   void _sendHeartbeatTick(bool useWithoutResponse) {
@@ -1325,6 +1334,11 @@ class BleService {
     // AES-128-GCM encrypted heartbeat — fire-and-forget.
     unawaited(
       _encryptAndSendHeartbeat(char, useWithoutResponse)
+          .then((_) {
+            if (generation == _cryptoSessionGeneration) {
+              _lastHeartbeatSuccessAt = DateTime.now();
+            }
+          })
           .catchError((Object e) {
             _logger.w('Heartbeat write failed: $e');
           })

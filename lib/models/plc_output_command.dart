@@ -37,10 +37,9 @@ class PlcOutputCommand {
   /// 5-field (PLC14), and 10-field (PLC38) formats based on the number of
   /// values present — see [PlcType.digitalFieldCount].
   ///
-  /// Status feedback contains the physical output levels. DF1/E-STOP is
-  /// wired active-low, so its status bit has the opposite polarity from the
-  /// logical command bit: `0` means E-STOP active and `1` means safe/inactive.
-  /// DF2 onward remain active-high (`1` means active).
+  /// Status feedback contains the physical output levels. DF1/E-STOP's
+  /// status bit is active-high, same as every other field: `1` means E-STOP
+  /// active and `0` means safe/inactive.
   factory PlcOutputCommand.fromStatusNotification(List<int> bytes) =>
       tryParseStatusNotification(bytes) ?? PlcOutputCommand.idle();
 
@@ -64,7 +63,7 @@ class PlcOutputCommand {
         parts.add(value == '1' ? 1 : 0);
       }
 
-      if (parts[0] == 0) return PlcOutputCommand.emergencyStop();
+      if (parts[0] == 1) return PlcOutputCommand.emergencyStop();
 
       final fields = <PlcOutputVariant>{};
       for (

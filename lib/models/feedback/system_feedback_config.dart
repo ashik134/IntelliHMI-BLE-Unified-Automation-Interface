@@ -2,14 +2,19 @@
 // SystemFeedbackConfig
 //
 // PLC STATUS + COMMUNICATION/HEARTBEAT indication — the feedback that is about
-// the link itself rather than about any one field. The heartbeat is derived,
-// not transmitted: the PLC does not send a dedicated keep-alive, so "alive"
-// means "a status notification arrived within [heartbeatTimeoutSeconds]" (see
-// FeedbackManager, which times it against CraneController.lastPlcStatusAt).
+// the link itself rather than about any one field. "Alive" means both
+// directions of the link have been heard from within
+// [heartbeatTimeoutSeconds]: a status notification (PLC→app) and the app's
+// own heartbeat write to the PLC (app→PLC) — see
+// FeedbackManager._resolveComms, which times each against
+// CraneController.lastPlcStatusAt / lastHeartbeatSuccessAt.
 //
-// Nothing here polls or pings the PLC — a heartbeat implemented by writing to
-// the device would be a control command, which feedback is never allowed to
-// issue. Silence is simply observed.
+// Feedback itself never writes to the PLC — that would make it a control
+// command, which feedback is never allowed to issue. The heartbeat write it
+// observes already exists independently, to keep the PLC's crypto session
+// alive (see BleService._startHeartbeat); FeedbackManager only reads whether
+// that write is still succeeding, the same read-only relationship it has
+// with the status characteristic.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Resolved health of the PLC link, most-healthy first.

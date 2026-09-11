@@ -266,6 +266,9 @@ class CraneController extends ChangeNotifier
   DateTime? get lastPlcStatusAt => _lastPlcStatusAt;
 
   @override
+  DateTime? get lastHeartbeatSuccessAt => _bleService.lastHeartbeatSuccessAt;
+
+  @override
   bool isCommandedFieldActive(PlcOutputVariant variant) =>
       _commandedCommand.fieldValue(variant);
 

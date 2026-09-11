@@ -118,14 +118,19 @@ class FeedbackStatusChipSection extends StatelessWidget {
     if (!visible) return const SizedBox.shrink();
 
     final controller = context.watch<CraneController>();
+    // reportedStatusCommand only ever changes from the PLC's own status
+    // characteristic echo (see CraneController._handlePlcStatus) — unlike
+    // activeCommand/estopLatched, it never reflects a button tap ahead of
+    // the PLC's actual confirmation.
+    final reported = controller.reportedStatusCommand;
     return RepaintBoundary(
       child: StatusBarChip(
-        color: controller.estopLatched
+        color: reported.estop
             ? AppColors.eStopColor
-            : controller.activeCommand.isIdle
+            : reported.isIdle
             ? AppColors.idleColor
             : AppColors.accent,
-        label: controller.statusLabel,
+        label: reported.statusLabel,
       ),
     );
   }
