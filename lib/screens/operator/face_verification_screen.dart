@@ -12,7 +12,6 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/crane_controllers.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/detected_face.dart';
-import 'package:rev_crane_control_ops/models/face_match_result.dart';
 import 'package:rev_crane_control_ops/models/face_quality_result.dart';
 import 'package:rev_crane_control_ops/models/face_template.dart';
 import 'package:rev_crane_control_ops/models/liveness_challenge.dart';
@@ -31,12 +30,6 @@ import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/widgets/operator/face_capture_overlay.dart';
 import 'package:rev_crane_control_ops/widgets/shared/brand_widgets.dart';
 
-/// Screen-level phase — each one owns a full-screen UI and, for
-/// [verified]/[blocked]/[notRecognized], a stopped camera. [scanning]
-/// covers the entire live-camera experience; what it shows moment to
-/// moment is driven by the finer-grained [_ScanState] below, not by a
-/// new top-level phase, so a flickering per-frame signal never has the
-/// power to swap the whole screen out from under itself.
 enum _Phase {
   initializing,
   permissionDenied,
@@ -48,34 +41,13 @@ enum _Phase {
   notRecognized,
 }
 
-/// Sub-state of [_Phase.scanning] — the state machine this screen was
-/// flickering without: `waitingForFace → stabilizing → livenessCheck →
-/// verifying`, ending in either a match (→ [_Phase.verified]/[_Phase.
-/// blocked]) or a *final* [_Phase.notRecognized], never a per-frame flip
-/// back and forth between "Hold still" and "Face not recognized".
 enum _ScanState { waitingForFace, stabilizing, livenessCheck, verifying }
 
-/// Identity gate shown after a BLE connection is established and before the
-/// PLC credential (Authentication) screen — see [CraneController.
-/// currentScreen] and [CraneController.completeFaceVerification]. Matches
-/// live camera frames against enrolled operator face templates using the
-/// same detection/embedding/matching pipeline as enrollment and the debug
-/// `FaceVerifyScreen`; never modifies that pipeline — this screen only
-/// decides *when* to call it and how to combine repeated results.
-///
-/// Never logs or displays face images, embeddings, or raw similarity
-/// scores — only the resolved operator identity is ever surfaced, via
-/// [CraneController.completeFaceVerification]/[CraneController.
-/// recordFaceVerificationDenied]/[CraneController.
-/// recordFaceVerificationFailed]. A failed attempt (no consensus match, or
-/// a failed/timed-out [LivenessSession] challenge) is logged with only a
-/// categorical reason — never a similarity score.
 class FaceVerificationScreen extends StatefulWidget {
   const FaceVerificationScreen({super.key});
 
   @override
-  State<FaceVerificationScreen> createState() =>
-      _FaceVerificationScreenState();
+  State<FaceVerificationScreen> createState() => _FaceVerificationScreenState();
 }
 
 class _FaceVerificationScreenState extends State<FaceVerificationScreen>
@@ -94,57 +66,19 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   OperatorProfile? _matchedOperator;
   bool _busyFrame = false;
 
-  /// Consecutive good frames required before a verification attempt
-  /// starts — the "stabilizing" dwell (roughly the ~500-800ms hysteresis
-  /// window this state machine is built around; actual wall-clock time
-  /// depends on device frame-processing speed).
   static const int _requiredStableFrames = 10;
 
-  /// Verification samples collected (once stabilized) before combining
-  /// them into one final decision — a single frame's match/no-match never
-  /// decides the outcome on its own.
   static const int _requiredVerificationSamples = 5;
 
-  /// At least this many of [_requiredVerificationSamples] must agree on
-  /// the same operator for that operator to be accepted as the result —
-  /// a simple majority. Everything else (no agreement, or agreement below
-  /// this bar) finalizes as "not recognized".
-  static const int _consensusSamplesRequired = 3;
-
-  /// How many *consecutive* bad frames (no face / poor quality / partially
-  /// out of frame) are tolerated before the state machine actually resets
-  /// progress. Without this, a single blink, a hand passing through frame,
-  /// or one bad ML Kit read would instantly throw away a stabilizing or
-  /// in-progress verification attempt — which is exactly what produced the
-  /// "Hold still" / "Face not recognized" flicker this replaces.
   static const int _maxBadFrameStreak = 6;
 
   int _stableGoodFrames = 0;
   int _badFrameStreak = 0;
 
-  /// Throttles the pixel-buffer decode+quality check below (brightness/
-  /// sharpness) during [_ScanState.stabilizing] — `CameraFrameConverter
-  /// .toRgbImage` is a real, non-trivial plain-Dart decode of the whole
-  /// camera frame (see its own doc comment), and without this it ran
-  /// unthrottled on effectively every accepted camera frame, which was
-  /// enough to visibly stall the preview on the UI isolate. Never applied
-  /// during [_ScanState.verifying]: each verification sample there needs
-  /// its own freshly-decoded frame, not a throttled/cached one — see
-  /// [_processFrame]. A stale [_cachedPixelIssue] is reused, never
-  /// optimistically assumed to be a pass, so a real lighting/blur problem
-  /// still surfaces within [_pixelCheckInterval].
   static const Duration _pixelCheckInterval = Duration(milliseconds: 200);
   DateTime? _lastPixelCheckAt;
   FaceQualityIssue? _cachedPixelIssue;
 
-  /// The active anti-spoof challenge during [_ScanState.livenessCheck], or
-  /// null outside that sub-state. `turnLeft`/`turnRight` are deliberately
-  /// excluded from [_livenessChallengePool] for now: ML Kit's yaw sign
-  /// convention is unverified on-device (see `DetectedFace`'s doc comment
-  /// vs. `LivenessSession`'s), and separately `FaceDetectionService
-  /// .evaluateQuality`'s 20° pose gate leaves only a narrow 15-20° window
-  /// where a turn both clears that gate and registers as valid — revisit
-  /// once confirmed on real hardware.
   LivenessSession? _livenessSession;
   double _livenessProgress = 0.0;
   static const List<LivenessChallengeType> _livenessChallengePool = [
@@ -152,19 +86,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     LivenessChallengeType.lookStraight,
   ];
 
-  /// Matched operator id per verification sample collected during
-  /// [_ScanState.verifying]; null entries are samples that ran but found
-  /// no confident match. Combined into one decision once it reaches
-  /// [_requiredVerificationSamples] — see [_finalizeVerification].
-  final List<String?> _verificationSamples = [];
+  final List<List<double>> _verificationEmbeddings = [];
 
-  /// Minimum fraction of the (upright) frame's shorter side a face's
-  /// bounding box must stay clear of every edge by. Verification-only
-  /// guard, not part of the shared `FaceDetectionService.evaluateQuality`
-  /// gate: a face cropped by the frame edge (half a face held too close,
-  /// or off to one side) can still be large/centered/eyes-open enough to
-  /// pass every check in that shared gate, since none of them look at
-  /// whether the box touches the frame boundary.
   static const double _edgeMarginFraction = 0.02;
 
   @override
@@ -275,7 +198,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     _cachedPixelIssue = null;
     _livenessSession = null;
     _livenessProgress = 0.0;
-    _verificationSamples.clear();
+    _verificationEmbeddings.clear();
     _matchedOperator = null;
     _statusMessage = 'Position your face inside the guide';
   }
@@ -312,12 +235,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       rotationDegrees: rotation,
     );
 
-    // During an active liveness challenge, a face count other than exactly
-    // one *is* the anti-spoof signal `LivenessSession` exists to catch
-    // (e.g. a second photo held up beside the operator's real face) — it
-    // must hard-fail the challenge immediately, not get absorbed into the
-    // tolerant `_handleBadFrame` streak the way every other bad frame is
-    // below.
     if (_scanState == _ScanState.livenessCheck && faces.length != 1) {
       await _handleLivenessFrame(faceCount: faces.length, face: null);
       return;
@@ -357,17 +274,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         framingIssueMessage = 'Keep your whole face inside the frame';
       }
 
-      // Pixel-level quality gate — enrollment already checks brightness/
-      // sharpness on the decoded RGB frame; verification didn't. Decoded
-      // once here and threaded through to whichever sub-state needs it
-      // below, rather than decoded again inside `_collectVerificationSample`.
-      //
-      // Throttled during `stabilizing` (see `_pixelCheckInterval`'s doc
-      // comment) — but never during `verifying`, where every sample needs
-      // its own fresh decode to actually embed, not a cached verdict.
       if (isGoodFrame) {
         final now = DateTime.now();
-        final dueForCheck = _scanState == _ScanState.verifying ||
+        final dueForCheck =
+            _scanState == _ScanState.verifying ||
             _lastPixelCheckAt == null ||
             now.difference(_lastPixelCheckAt!) >= _pixelCheckInterval;
 
@@ -416,18 +326,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
   }
 
-  /// A single bad frame (no face, poor quality, or partially cropped)
-  /// never immediately resets progress — only [_maxBadFrameStreak]
-  /// *consecutive* bad frames do. This is what stops brief detector
-  /// hiccups from bouncing the UI back to "Position your face" mid
-  /// stabilization or mid verification.
   Future<void> _handleBadFrame(String message) async {
     _badFrameStreak++;
     if (_badFrameStreak < _maxBadFrameStreak) {
-      // Tolerated — keep whatever progress has been made so far and just
-      // surface the guidance message if we're still in the early state;
-      // once stabilizing/verifying has started, stay on its own caption
-      // rather than flashing positioning guidance for one bad frame.
       if (_scanState == _ScanState.waitingForFace) {
         if (!mounted) return;
         setState(() => _statusMessage = message);
@@ -435,13 +336,11 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       return;
     }
 
-    // Streak exceeded tolerance — the operator has actually moved away or
-    // lost framing. Reset back to the start of the state machine.
     _badFrameStreak = 0;
     _stableGoodFrames = 0;
     _livenessSession = null;
     _livenessProgress = 0.0;
-    _verificationSamples.clear();
+    _verificationEmbeddings.clear();
     if (!mounted) return;
     setState(() {
       _scanState = _ScanState.waitingForFace;
@@ -465,7 +364,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     // cleared framing can't proceed any further.
     final challenge =
         _livenessChallengePool[Random().nextInt(_livenessChallengePool.length)];
-    _livenessSession = LivenessSession(challenge, timeout: const Duration(seconds: 10));
+    _livenessSession = LivenessSession(
+      challenge,
+      timeout: const Duration(seconds: 10),
+    );
     _livenessProgress = 0.0;
     if (!mounted) return;
     setState(() {
@@ -474,12 +376,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     });
   }
 
-  /// Feeds one frame to the active [_livenessSession] and reacts to its
-  /// result. [faceCount]/[face] mirror [LivenessSession.processFrame]'s own
-  /// params directly — called both for a good single-face frame (from the
-  /// main switch below) and, deliberately bypassing that tolerant path,
-  /// for a zero/multiple-face frame seen during [_ScanState.livenessCheck]
-  /// (see the anti-spoof comment in [_processFrame]).
   Future<void> _handleLivenessFrame({
     required int faceCount,
     DetectedFace? face,
@@ -497,7 +393,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     if (state.completed) {
       _livenessSession = null;
       _livenessProgress = 0.0;
-      _verificationSamples.clear();
+      _verificationEmbeddings.clear();
       setState(() {
         _scanState = _ScanState.verifying;
         _statusMessage = 'Verifying your identity…';
@@ -514,12 +410,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             : 'face_liveness_failed',
         failureReason: state.failureReason,
         onFailed: () {
-          // A missed challenge isn't a hard failure — silently retry
-          // in-session, same as this screen's existing bad-frame-streak
-          // reset, rather than a terminal error screen for one missed
-          // blink. The camera keeps streaming.
           _stableGoodFrames = 0;
-          _verificationSamples.clear();
+          _verificationEmbeddings.clear();
           if (!mounted) return;
           setState(() {
             _scanState = _ScanState.waitingForFace;
@@ -536,11 +428,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     });
   }
 
-  /// Audit-logs one failed verification attempt via
-  /// [CraneController.recordFaceVerificationFailed] — always a categorical
-  /// [detailCode], never a raw match score (see this class's doc comment) —
-  /// then calls [onFailed], which owns whatever should happen next (a
-  /// terminal "not recognized" screen, or a silent in-session retry).
   Future<void> _handleFailedAttempt({
     required String detailCode,
     String? failureReason,
@@ -559,97 +446,57 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     DetectedFace face,
     FaceVerificationService verificationService,
   ) async {
-    final result = await verificationService.verify(
-      frame: frame,
-      face: face,
-      candidates: _templates,
-    );
+    final embedding = await verificationService.embed(frame: frame, face: face);
     if (!mounted) return;
 
-    _logVerificationSample(result);
+    _verificationEmbeddings.add(embedding);
 
-    _verificationSamples.add(result.matchedOperatorId);
-
-    if (_verificationSamples.length < _requiredVerificationSamples) {
-      // Still accumulating — caption stays exactly as-is (no flicker):
-      // never react to a single sample's outcome here.
+    if (_verificationEmbeddings.length < _requiredVerificationSamples) {
       return;
     }
 
-    await _finalizeVerification();
+    await _finalizeVerification(verificationService);
   }
 
-  /// Debug-console-only visibility into what each sample actually scored
-  /// against the enrolled population — never surfaced in the UI and never
-  /// written to the audit log (see this class's doc comment on that
-  /// invariant): `debugPrint` output is stripped from release builds and
-  /// isn't the persistent record `CraneController.
-  /// recordFaceVerificationFailed`/`completeFaceVerification` write, so
-  /// this doesn't weaken it. Deliberately reports the best score as a raw
-  /// cosine similarity, never as a formatted "accuracy" percentage — see
-  /// this method's guard below.
-  void _logVerificationSample(FaceMatchResult result) {
-    if (!kDebugMode) return;
-    final bestName = result.bestCandidateOperatorId != null
-        ? (_operatorsById[result.bestCandidateOperatorId]?.name ??
-              result.bestCandidateOperatorId)
-        : 'none';
-    final outcome = result.isMatch
-        ? 'MATCH'
-        : result.ambiguous
-        ? 'REJECT (ambiguous)'
-        : 'REJECT (below threshold)';
-    debugPrint(
-      '[FaceVerify] sample ${_verificationSamples.length + 1}/'
-      '$_requiredVerificationSamples — best=$bestName '
-      'score=${result.bestScore.toStringAsFixed(4)} '
-      'threshold=${FaceMatchingService.defaultThreshold.toStringAsFixed(4)} '
-      'result=$outcome',
+  Future<void> _finalizeVerification(
+    FaceVerificationService verificationService,
+  ) async {
+    final pooled = FaceEmbeddingService.averageEmbeddings(
+      _verificationEmbeddings,
     );
-  }
-
-  /// Combines every collected sample into one final decision — the actual
-  /// anti-flicker payoff. A single frame's mismatch (or a single frame's
-  /// stray match) can never flip the result on its own; only a majority
-  /// across [_requiredVerificationSamples] samples can.
-  Future<void> _finalizeVerification() async {
-    final counts = <String, int>{};
-    for (final id in _verificationSamples) {
-      if (id == null) continue;
-      counts[id] = (counts[id] ?? 0) + 1;
-    }
-
-    String? winnerId;
-    var winnerCount = 0;
-    counts.forEach((id, count) {
-      if (count > winnerCount) {
-        winnerId = id;
-        winnerCount = count;
-      }
-    });
+    final result = verificationService.match(
+      embedding: pooled,
+      candidates: _templates,
+    );
+    _verificationEmbeddings.clear();
 
     if (kDebugMode) {
-      final winnerName = winnerId != null
-          ? (_operatorsById[winnerId]?.name ?? winnerId)
+      final bestName = result.bestCandidateOperatorId != null
+          ? (_operatorsById[result.bestCandidateOperatorId]?.name ??
+                result.bestCandidateOperatorId)
           : 'none';
-      final consensusMet =
-          winnerId != null && winnerCount >= _consensusSamplesRequired;
+      final outcome = result.isMatch
+          ? 'MATCH'
+          : result.ambiguous
+          ? 'REJECT (ambiguous)'
+          : 'REJECT (below threshold)';
       debugPrint(
-        '[FaceVerify] consensus — best=$winnerName '
-        'agreement=$winnerCount/$_requiredVerificationSamples '
-        'required=$_consensusSamplesRequired '
-        'result=${consensusMet ? 'VERIFIED' : 'REJECTED'}',
+        '[FaceVerify] pooled $_requiredVerificationSamples frames — '
+        'best=$bestName score=${result.bestScore.toStringAsFixed(4)} '
+        'threshold=${FaceMatchingService.defaultThreshold.toStringAsFixed(4)} '
+        'result=$outcome',
       );
     }
 
-    _verificationSamples.clear();
-
-    if (winnerId == null || winnerCount < _consensusSamplesRequired) {
+    final winnerId = result.matchedOperatorId;
+    if (winnerId == null) {
       _stableGoodFrames = 0;
       unawaited(_disposeCamera());
       await _handleFailedAttempt(
         detailCode: 'face_no_match',
-        failureReason: 'No confident consensus match among verification samples.',
+        failureReason: result.ambiguous
+            ? 'Pooled verification match was ambiguous between candidates.'
+            : 'Pooled verification score did not clear the match threshold.',
         onFailed: () {
           if (!mounted) return;
           setState(() => _phase = _Phase.notRecognized);
@@ -660,14 +507,12 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     final operator = _operatorsById[winnerId];
     if (operator == null) {
-      // Matched a template with no corresponding operator profile (e.g.
-      // deleted after enrollment) — final result is still "not
-      // recognized", not a retry loop.
       _stableGoodFrames = 0;
       unawaited(_disposeCamera());
       await _handleFailedAttempt(
         detailCode: 'face_no_match',
-        failureReason: 'Matched template has no corresponding operator profile.',
+        failureReason:
+            'Matched template has no corresponding operator profile.',
         onFailed: () {
           if (!mounted) return;
           setState(() => _phase = _Phase.notRecognized);
@@ -675,11 +520,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       );
       return;
     }
-    // Full dispose rather than just `stopImageStream()` — matches this
-    // screen's own pause/resume convention in
-    // `didChangeAppLifecycleState`/`_retryScanning`, which always reopens
-    // a fresh `CameraController` rather than restarting the stream on a
-    // held one.
+
     unawaited(_disposeCamera());
 
     if (!operator.enabled) {
@@ -702,10 +543,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     });
   }
 
-  /// Resumes scanning after a terminal outcome (blocked or not-recognized)
-  /// — the detection/embedding/verification services and loaded templates
-  /// are already in memory, only the camera (fully disposed on reaching
-  /// that outcome) needs reopening.
   Future<void> _retryScanning() async {
     setState(() {
       _phase = _Phase.initializing;
@@ -714,9 +551,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     await _initializeCamera();
   }
 
-  /// Full re-init for the permission-denied/camera-error/no-operators
-  /// states, where the services/templates/camera may never have been set
-  /// up successfully in the first place.
   Future<void> _retryFromScratch() async {
     setState(() {
       _phase = _Phase.initializing;
@@ -729,11 +563,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     context.read<CraneController>().disconnect();
   }
 
-  /// Bails out to the PLC credential screen without disconnecting — either
-  /// cancelling the opt-in identity-verification fallback
-  /// ([CraneController.isFaceVerificationOptional]), or, on an
-  /// already-configured device, jumping straight to the biometric/manual-
-  /// credential alternatives after Face Verification has failed.
   void _useAnotherMethod() {
     unawaited(_disposeCamera());
     context.read<CraneController>().skipFaceVerification();
@@ -830,11 +659,12 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
               guideColor: guideColor,
               guideDiameter: guideDiameter,
               scanProgress: isVerifying
-                  ? (_verificationSamples.length / _requiredVerificationSamples)
+                  ? (_verificationEmbeddings.length /
+                            _requiredVerificationSamples)
                         .clamp(0.0, 1.0)
                   : isLivenessCheck
-                      ? _livenessProgress.clamp(0.0, 1.0)
-                      : null,
+                  ? _livenessProgress.clamp(0.0, 1.0)
+                  : null,
             ),
             const Positioned(
               top: 16,
@@ -855,12 +685,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                 onTap: _backToScan,
               ),
             ),
-            // Only offered when this is the opt-in identity-verification
-            // fallback (see CraneController.isFaceVerificationOptional) —
-            // on an already-configured device Face Verification is the
-            // mandatory primary gate, so bailing out mid-scan is only
-            // offered from the failure phases (see _MessageState's
-            // onAlternateMethod), not while a scan is still in progress.
+
             if (context.read<CraneController>().isFaceVerificationOptional)
               Positioned(
                 bottom: 24,
@@ -889,13 +714,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   Widget _buildVerified(BuildContext context) {
     final operator = _matchedOperator;
-    // A configured device silently replays the credential cached at Setup
-    // Mode and goes straight to the control screen from here — no
-    // credential screen shown at all (see CraneController.
-    // completeFaceVerification). An unconfigured device's opt-in fallback
-    // still needs PLC credentials typed manually next, so its caption says
-    // so instead of promising a session that isn't opening yet.
-    final isDirectToControl = context.read<CraneController>().isDeviceConfigured;
+
+    final isDirectToControl = context
+        .read<CraneController>()
+        .isDeviceConfigured;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -1019,7 +841,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       ),
     );
   }
-
 }
 
 class _HeaderBanner extends StatelessWidget {
@@ -1055,9 +876,6 @@ class _HeaderBanner extends StatelessWidget {
   }
 }
 
-/// See `FaceVerifyScreen`/`FaceEnrollmentScreen`'s identical
-/// `_CoverCameraPreview`: covers the parent's bounds without stretching or
-/// mirroring the preview.
 class _CoverCameraPreview extends StatelessWidget {
   const _CoverCameraPreview({required this.controller});
 

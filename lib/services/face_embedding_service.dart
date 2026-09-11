@@ -103,4 +103,26 @@ class FaceEmbeddingService {
     if (norm == 0) return vector;
     return vector.map((v) => v / norm).toList();
   }
+
+  /// Averages several embeddings of (nominally) the same face into one
+  /// representative, L2-normalized embedding — the same pooling technique
+  /// `FaceEnrollmentService` already uses to build a template from several
+  /// enrollment samples (see its own `_mean`/outlier-trim step). Per-frame
+  /// pose/expression/lighting noise is roughly independent across frames,
+  /// so averaging several live frames before matching pulls the aggregate
+  /// closer to the subject's true identity direction than any single noisy
+  /// frame would be — this is what makes multi-frame verification
+  /// meaningfully more reliable than asking each frame to independently
+  /// clear the match threshold (see `FaceVerificationScreen`, which uses
+  /// this instead of a per-frame majority vote).
+  static List<double> averageEmbeddings(List<List<double>> embeddings) {
+    final length = embeddings.first.length;
+    final sums = List<double>.filled(length, 0);
+    for (final embedding in embeddings) {
+      for (var i = 0; i < length; i++) {
+        sums[i] += embedding[i];
+      }
+    }
+    return l2Normalize([for (final s in sums) s / embeddings.length]);
+  }
 }

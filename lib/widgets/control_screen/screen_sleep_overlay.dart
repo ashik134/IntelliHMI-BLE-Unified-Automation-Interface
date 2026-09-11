@@ -110,13 +110,18 @@ class _SleepMessage extends StatelessWidget {
             fontSize: 16,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.2,
+            decoration: TextDecoration.none,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           'Touch anywhere to wake IntelliHMI',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white.withAlpha(130), fontSize: 12.5),
+          style: TextStyle(
+            color: Colors.white.withAlpha(130),
+            fontSize: 12.5,
+            decoration: TextDecoration.none,
+          ),
         ),
       ],
     );

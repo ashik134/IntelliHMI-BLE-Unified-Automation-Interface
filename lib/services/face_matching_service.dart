@@ -12,7 +12,27 @@ import 'package:rev_crane_control_ops/models/face_template.dart';
 class FaceMatchingService {
   FaceMatchingService._();
 
-  static const double defaultThreshold = 0.87;
+  /// Deliberately lower than an untuned guess would suggest, and grounded
+  /// in evidence already established elsewhere in this codebase rather
+  /// than a fresh guess: `FaceEnrollmentService.outlierSimilarityFloor`
+  /// (0.75) is the bar *same-session, same-person* frames — the easiest
+  /// case, same lighting/pose/camera warm-up, seconds apart — must clear
+  /// to even be considered consistent with each other. A live verification
+  /// attempt is strictly harder than that (different day, different
+  /// lighting, different pose), so holding it to a *higher* bar than
+  /// same-session consistency was the root cause of frequent false
+  /// rejections for a genuinely enrolled operator. This value keeps a
+  /// meaningful safety margin above that same-session floor rather than
+  /// matching it exactly, since `FaceVerificationScreen` now matches on an
+  /// average of several verification-phase embeddings (see
+  /// `FaceEmbeddingService.averageEmbeddings`) rather than a single noisy
+  /// frame, which pulls genuine scores up without needing the threshold
+  /// itself to absorb single-frame noise. Still a starting point, not a
+  /// final calibration — the debug `FaceVerifyScreen` prints the raw
+  /// cosine score on every attempt specifically so this can be validated
+  /// (and retuned, in one place) against real on-device genuine/impostor
+  /// scores.
+  static const double defaultThreshold = 0.80;
   static const double defaultAmbiguityMargin = 0.03;
 
   /// [currentModelVersion] is passed in (rather than this service

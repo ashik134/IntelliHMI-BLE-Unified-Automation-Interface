@@ -12,26 +12,46 @@ import 'package:rev_crane_control_ops/services/face_matching_service.dart';
 /// `FaceEnrollmentService`. No sample accumulation, no persistence, no
 /// duplicate-registration semantics: every call is independent.
 ///
-/// Currently only consumed by the debug-only `FaceVerifyScreen`, but
-/// deliberately shaped as a real, swappable-model-safe service (same
+/// Deliberately shaped as a real, swappable-model-safe service (same
 /// align → embed → match pipeline as enrollment) rather than screen-local
-/// code, since a future face-login flow would need exactly this.
+/// code. [embed] and [match] are split apart (rather than only exposing
+/// the combined [verify]) so a caller collecting several live frames — see
+/// `FaceVerificationScreen` — can pool their embeddings with
+/// `FaceEmbeddingService.averageEmbeddings` and match once against the
+/// averaged result, instead of matching each noisy frame independently.
 class FaceVerificationService {
   FaceVerificationService({required this.embeddingService});
 
   final FaceEmbeddingService embeddingService;
 
-  Future<FaceMatchResult> verify({
+  Future<List<double>> embed({
     required img.Image frame,
     required DetectedFace face,
-    required List<FaceTemplate> candidates,
   }) async {
     final aligned = FaceAlignmentService.align(sourceImage: frame, face: face);
-    final embedding = await embeddingService.embed(aligned);
+    return embeddingService.embed(aligned);
+  }
+
+  FaceMatchResult match({
+    required List<double> embedding,
+    required List<FaceTemplate> candidates,
+  }) {
     return FaceMatchingService.match(
       liveEmbedding: embedding,
       candidates: candidates,
       currentModelVersion: FaceEmbeddingService.modelVersion,
     );
+  }
+
+  /// Convenience wrapper over [embed] + [match] for a single frame — used
+  /// by the debug-only `FaceVerifyScreen`, which shows a per-attempt result
+  /// rather than pooling frames.
+  Future<FaceMatchResult> verify({
+    required img.Image frame,
+    required DetectedFace face,
+    required List<FaceTemplate> candidates,
+  }) async {
+    final embedding = await embed(frame: frame, face: face);
+    return match(embedding: embedding, candidates: candidates);
   }
 }
