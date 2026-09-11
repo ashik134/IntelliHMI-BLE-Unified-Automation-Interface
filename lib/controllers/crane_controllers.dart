@@ -65,6 +65,16 @@ class CraneController extends ChangeNotifier
 
   DateTime? _lastPlcStatusAt;
 
+  // ── Diagnostics-only session state ────────────────────────────────────────
+  // Derived purely by observing the existing connection/BLE streams already
+  // wired up below — no new PLC protocol, just bookkeeping for the
+  // Diagnostics screen. Reset on disconnect (see the connectionStream
+  // listener in _attachStreamsIfNeeded) except [_reconnectCount], which
+  // intentionally tracks link stability across the whole app session.
+  DateTime? _connectedSince;
+  int _reconnectCount = 0;
+  bool _everAuthenticatedThisSession = false;
+
   // ── BLE write serializer ──────────────────────────────────────────────────
 
   bool _commandInFlight = false;
@@ -282,6 +292,29 @@ class CraneController extends ChangeNotifier
   // ── Connected device name ─────────────────────────────────────────────────
   String? get connectedDeviceName => _transportConnState.connectedDevice?.name;
   int? get connectedDeviceRssi => _transportConnState.connectedDevice?.rssi;
+  String? get connectedDeviceSignalLabel =>
+      _transportConnState.connectedDevice?.signalLabel;
+
+  // ── Diagnostics-only accessors ────────────────────────────────────────────
+  /// When the current session last reached `authenticated`, or null while
+  /// disconnected. Powers the Diagnostics screen's connection-uptime readout.
+  DateTime? get connectedSince => _connectedSince;
+
+  /// Count of reconnect attempts (a fresh `connecting` after at least one
+  /// prior authenticated session) observed since the app launched.
+  int get reconnectCount => _reconnectCount;
+
+  /// Messages written to the PLC (heartbeat + digital + analog-out) since
+  /// the current connection attempt began.
+  int get txPacketCount => _bleService.txPacketCount;
+
+  /// Raw notifications received from the PLC since the current connection
+  /// attempt began, regardless of whether they decoded successfully.
+  int get rxPacketCount => _bleService.rxPacketCount;
+
+  /// Heartbeat write failures and crypto-safe-state entries observed since
+  /// the current connection attempt began.
+  int get commErrorCount => _bleService.commErrorCount;
 
   String get connectedDeviceTitle {
     final name = connectedDeviceName ?? BLEConstants.deviceName;
@@ -504,11 +537,18 @@ class CraneController extends ChangeNotifier
         unawaited(_loadDeviceSetupState(newDevice.id));
       }
 
+      if (snapshot.status == BleConnectionStatus.connecting &&
+          previousStatus != BleConnectionStatus.connecting &&
+          _everAuthenticatedThisSession) {
+        _reconnectCount++;
+      }
+
       if (snapshot.status == BleConnectionStatus.disconnected) {
         _activeCommand = PlcOutputCommand.idle();
         _commandedCommand = PlcOutputCommand.idle();
         _reportedStatusCommand = PlcOutputCommand.idle();
         _lastPlcStatusAt = null;
+        _connectedSince = null;
         _estopLatched = false;
         _sessionEmail = null;
         _startupEmergencyArmedForConnection = false;
@@ -538,6 +578,8 @@ class CraneController extends ChangeNotifier
         _sentAnalogRangeTokens.clear();
       } else if (snapshot.status == BleConnectionStatus.authenticated &&
           previousStatus != BleConnectionStatus.authenticated) {
+        _connectedSince = DateTime.now();
+        _everAuthenticatedThisSession = true;
         unawaited(ensureControlEntryEmergencyLock());
         // Never interrupt a silent, face-triggered reauth with the
         // biometric-enrollment offer — that path is meant to go straight

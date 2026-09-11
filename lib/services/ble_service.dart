@@ -98,6 +98,20 @@ class BleService {
   DateTime? _lastHeartbeatSuccessAt;
   DateTime? get lastHeartbeatSuccessAt => _lastHeartbeatSuccessAt;
 
+  // ── Diagnostic counters ────────────────────────────────────────────────
+  // Plain counts of real traffic already flowing over the existing wire
+  // protocol (heartbeat/digital/analog-out writes, and every raw
+  // notification received) — surfaced read-only for the Diagnostics screen.
+  // Reset per connection attempt in [_connect] so they describe the current
+  // session rather than accumulating across a whole app lifetime.
+  int _txPacketCount = 0;
+  int _rxPacketCount = 0;
+  int _commErrorCount = 0;
+
+  int get txPacketCount => _txPacketCount;
+  int get rxPacketCount => _rxPacketCount;
+  int get commErrorCount => _commErrorCount;
+
   bool _connectCancelled = false;
   Future<void>? _activeConnectFuture;
   Future<BleAuthOutcome>? _activeAuthFuture;
@@ -421,6 +435,9 @@ class BleService {
     if (_connectCancelled) return;
 
     _cryptoSafeStateActive = false;
+    _txPacketCount = 0;
+    _rxPacketCount = 0;
+    _commErrorCount = 0;
     _connectedDevice = scanDevice;
     final device = scanDevice.device;
     _device = device;
@@ -867,6 +884,7 @@ class BleService {
   // ── Decrypts hoist sensor packets and publishes H1/H2 snapshots ────
 
   void _handleAnalogNotification(List<int> bytes) {
+    _rxPacketCount++;
     unawaited(_handleAnalogNotificationAsync(bytes));
   }
 
@@ -931,6 +949,7 @@ class BleService {
   // ── Processes raw status bytes and sends them to the statusStream ──────────
 
   void _handleStatusNotification(List<int> bytes) {
+    _rxPacketCount++;
     unawaited(_handleStatusNotificationAsync(bytes));
   }
 
@@ -979,6 +998,7 @@ class BleService {
   // ── Processes the crane controller's login response ────────────────────────
 
   void _handleAuthNotification(List<int> bytes) {
+    _rxPacketCount++;
     unawaited(_handleAuthNotificationAsync(bytes));
   }
 
@@ -1131,6 +1151,7 @@ class BleService {
   Future<void> _cryptoSafeState(String reason) async {
     if (_isDisposing || _cryptoSafeStateActive) return;
     _cryptoSafeStateActive = true;
+    _commErrorCount++;
 
     _logger.e('CRYPTO SAFE STATE ENTERED: $reason');
     debugPrint('[SECURITY] Entering crypto safe state — reason: $reason');
@@ -1341,6 +1362,7 @@ class BleService {
           })
           .catchError((Object e) {
             _logger.w('Heartbeat write failed: $e');
+            _commErrorCount++;
           })
           .whenComplete(() {
             if (generation == _cryptoSessionGeneration) {
@@ -1488,6 +1510,7 @@ class BleService {
       }
 
       await characteristic.write(wireBytes, withoutResponse: withoutResponse);
+      _txPacketCount++;
     });
 
     _encryptedWriteLane = writeFuture.then<void>(
@@ -1527,6 +1550,7 @@ class BleService {
       bytes,
       withoutResponse: _digitalCharWriteNoResponse,
     );
+    _txPacketCount++;
   }
 
   /// Writes an encrypted RANGE:A{n}-{min},{max} or DATA:A{n}-{value}[,...]

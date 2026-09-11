@@ -9,6 +9,7 @@ import 'package:rev_crane_control_ops/utils/app_theme.dart';
 import 'package:rev_crane_control_ops/utils/device_type.dart';
 import 'package:rev_crane_control_ops/models/app_enums.dart';
 
+import 'package:rev_crane_control_ops/screens/diagnostics_screen.dart';
 import 'package:rev_crane_control_ops/screens/event_log_screen.dart';
 import 'package:rev_crane_control_ops/screens/home_screen.dart';
 import 'package:rev_crane_control_ops/screens/login_screen.dart';
@@ -108,11 +109,7 @@ class MainShell extends StatelessWidget {
         children: const [
           HomeScreen(),
           _ControlTab(),
-          _PlaceholderTab(
-            icon: Icons.monitor_heart_outlined,
-            title: 'Diagnostics',
-            subtitle: 'System health monitoring — coming soon',
-          ),
+          DiagnosticsScreen(),
           EventLogScreen(),
         ],
       ),
@@ -383,57 +380,3 @@ class _NavTabItem extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// _PlaceholderTab — coming-soon placeholder for unbuilt tabs
-// ═══════════════════════════════════════════════════════════════
-
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.homeBg,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: AppColors.lightTextMuted.withAlpha(20),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: AppColors.lightTextMuted, size: 44),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              style: const TextStyle(
-                color: AppColors.lightText,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: AppColors.lightTextMuted,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

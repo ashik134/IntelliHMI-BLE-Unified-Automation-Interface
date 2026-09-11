@@ -27,6 +27,7 @@ import 'package:rev_crane_control_ops/controllers/inactivity_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/controllers/layout_settings_controller.dart';
 
+import 'package:rev_crane_control_ops/screens/diagnostics_screen.dart';
 import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
@@ -87,6 +88,10 @@ class _ControlScreenState extends State<ControlScreen>
   late final InactivityController _inactivityController;
   bool _screenAsleep = false;
   double? _originalBrightness;
+
+  /// Dim level while asleep — low enough to read as "sleeping," high enough
+  /// that ScreenSleepOverlay's message stays legible instead of going dark.
+  static const double _sleepBrightness = 0.12;
 
   // ── Widget-placement drop geometry ───────────────────────────────────────
   //
@@ -233,7 +238,10 @@ class _ControlScreenState extends State<ControlScreen>
     setState(() => _screenAsleep = true);
     try {
       _originalBrightness ??= await ScreenBrightness().application;
-      await ScreenBrightness().setApplicationScreenBrightness(0.0);
+      // Dimmed, not blacked out to 0 — ScreenSleepOverlay's "Sleeping due to
+      // inactivity" message needs to stay legible, not simulate the display
+      // being physically off.
+      await ScreenBrightness().setApplicationScreenBrightness(_sleepBrightness);
     } catch (_) {}
     try {
       await WakelockPlus.disable();
@@ -532,7 +540,11 @@ class _ControlScreenState extends State<ControlScreen>
             child: Scaffold(
               backgroundColor: AppColors.darkBg,
               resizeToAvoidBottomInset: false,
-              appBar: _ControlAppBar(labels: labels, isEditing: isEditing),
+              appBar: _ControlAppBar(
+                labels: labels,
+                isEditing: isEditing,
+                onDiagnosticsActivity: _inactivityController.registerActivity,
+              ),
               body: SafeArea(
                 maintainBottomViewPadding: true,
                 child: Stack(
@@ -727,10 +739,16 @@ class _LayoutShape {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _ControlAppBar({required this.labels, required this.isEditing});
+  const _ControlAppBar({required this.labels, required this.isEditing, required this.onDiagnosticsActivity});
 
   final ControlLabelConfig labels;
   final bool isEditing;
+
+  /// Forwarded into `DiagnosticsScreen.onActivity` so touches there keep
+  /// resetting this screen's own `InactivityController` — Diagnostics is a
+  /// separate pushed route, so without this its inactivity timer would never
+  /// know the operator is still present. See DiagnosticsScreen.onActivity.
+  final VoidCallback onDiagnosticsActivity;
 
   @override
   Size get preferredSize => Size.fromHeight(
@@ -751,7 +769,20 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
           ? const EditModeAppBarTitle()
           : _DeviceTitle(labels: labels),
       actions: [
-        if (!isEditing)
+        if (!isEditing) ...[
+          IconButton(
+            icon: const Icon(
+              Icons.monitor_heart_outlined,
+              size: 20,
+              color: AppColors.darkTextMuted,
+            ),
+            tooltip: 'Diagnostics',
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => DiagnosticsScreen(onActivity: onDiagnosticsActivity),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(
               Icons.dashboard_customize_rounded,
@@ -761,6 +792,7 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
             tooltip: 'Customize Layout',
             onPressed: () => context.read<LayoutEditController>().enter(),
           ),
+        ],
         if (isEditing) const EditModeUndoRedoActions(),
         const _DisconnectButton(),
       ],
