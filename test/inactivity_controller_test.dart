@@ -11,13 +11,11 @@ void _withController(
   void Function(FakeAsync async, InactivityController c, List<InactivityPhase> seen)
   body, {
   Duration sleepAfter = const Duration(minutes: 3),
-  Duration disconnectAfterSleep = const Duration(minutes: 2),
 }) {
   fakeAsync((async) {
     final start = DateTime(2026, 1, 1);
     final controller = InactivityController(
       sleepAfter: sleepAfter,
-      disconnectAfterSleep: disconnectAfterSleep,
       clock: () => start.add(async.elapsed),
     );
     final seen = <InactivityPhase>[];
@@ -48,16 +46,15 @@ void main() {
       });
     });
 
-    test('expires two minutes after sleeping, and only once', () {
+    test('stays asleep indefinitely until activity resumes', () {
       _withController((async, c, seen) {
         c.start();
-        async.elapse(const Duration(minutes: 5));
-        expect(c.phase, InactivityPhase.expired);
-        expect(seen, [InactivityPhase.sleeping, InactivityPhase.expired]);
+        async.elapse(const Duration(minutes: 3));
+        expect(c.phase, InactivityPhase.sleeping);
 
-        // Terminal: no further transitions once expired.
-        async.elapse(const Duration(minutes: 30));
-        expect(seen, [InactivityPhase.sleeping, InactivityPhase.expired]);
+        async.elapse(const Duration(hours: 5));
+        expect(c.phase, InactivityPhase.sleeping);
+        expect(seen, [InactivityPhase.sleeping]);
       });
     });
 
@@ -78,7 +75,7 @@ void main() {
       });
     });
 
-    test('waking from sleep cancels the pending expiry', () {
+    test('waking from sleep restarts the three-minute deadline', () {
       _withController((async, c, seen) {
         c.start();
         async.elapse(const Duration(minutes: 3));
@@ -87,7 +84,7 @@ void main() {
         c.registerActivity();
         expect(c.phase, InactivityPhase.active);
 
-        // Would have expired here had the wake not reset the machine.
+        // Would have stayed asleep here had the wake not reset the machine.
         async.elapse(const Duration(minutes: 2, seconds: 30));
         expect(c.phase, InactivityPhase.active);
         expect(seen, [InactivityPhase.sleeping, InactivityPhase.active]);
@@ -121,15 +118,15 @@ void main() {
       });
     });
 
-    test('resuming past the whole window goes straight to expired', () {
+    test('resuming well past the deadline still lands on sleeping', () {
       _withController((async, c, seen) {
         c.start();
         c.pauseTimerForBackground();
         async.elapse(const Duration(minutes: 20));
 
         c.reconcileAfterResume();
-        expect(c.phase, InactivityPhase.expired);
-        expect(seen, [InactivityPhase.expired]);
+        expect(c.phase, InactivityPhase.sleeping);
+        expect(seen, [InactivityPhase.sleeping]);
       });
     });
 

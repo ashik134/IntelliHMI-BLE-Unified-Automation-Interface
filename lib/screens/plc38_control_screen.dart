@@ -101,8 +101,9 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
   // screen owns the instance (created/disposed with it, matching how
   // _craneController/_editCtrl are already held as plain fields rather than
   // via Provider) and is the only place that reacts to phase changes:
-  // dimming/restoring brightness, releasing/reacquiring the wakelock, and
-  // running the safe-disconnect flow.
+  // dimming/restoring brightness while asleep. No auto-E-Stop or
+  // auto-disconnect runs off this timer — the operator always disconnects
+  // manually.
   late final InactivityController _inactivityController;
   bool _screenAsleep = false;
   double? _originalBrightness;
@@ -216,42 +217,7 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     if (phase == InactivityPhase.active) {
       unawaited(_wakeScreen());
     } else if (phase == InactivityPhase.sleeping) {
-      unawaited(_onInactivityTimeout());
-    } else if (phase == InactivityPhase.expired) {
-      unawaited(_autoDisconnect());
-    }
-  }
-
-  /// The inactivity deadline: latch Emergency Stop, then blank the display.
-  ///
-  /// Ordered, not concurrent, and deliberately so — the operator has walked
-  /// away from a machine that may still be under load, so the PLC must be
-  /// commanded into its safe state before the screen goes dark. Blanking
-  /// first would leave a window, however brief, in which the crane is live
-  /// but nothing on the device can show it. Awaiting the E-Stop write costs
-  /// only the BLE round trip and makes the safe state the precondition for
-  /// sleeping rather than a race against it.
-  Future<void> _onInactivityTimeout() async {
-    await _activateInactivityEStop();
-    await _sleepScreen();
-  }
-
-  /// Latches E-Stop on the operator's behalf after the inactivity timeout.
-  ///
-  /// Left latched when the screen wakes: an E-Stop is cleared by a deliberate
-  /// operator reset (the panel's RESET affordance), never by the act of
-  /// touching the device, so returning to the screen shows the latched state
-  /// rather than silently re-arming the crane.
-  Future<void> _activateInactivityEStop() async {
-    final controller = _craneController;
-    if (controller == null) return;
-    // Already latched, or nothing to command — either way, nothing to send.
-    if (controller.estopLatched || !controller.isConnected) return;
-    try {
-      await controller.triggerEStop();
-    } catch (_) {
-      // A failed write must not stop the display from blanking; the expiry
-      // stage still runs the safe-disconnect flow after this.
+      unawaited(_sleepScreen());
     }
   }
 
@@ -289,21 +255,6 @@ class _Plc38ControlScreenState extends State<Plc38ControlScreen>
     try {
       await WakelockPlus.enable();
     } catch (_) {}
-  }
-
-  /// Runs the same safe-disconnect sequence as the confirmed back-navigation
-  /// exit (stopAllMotion then disconnect — see _onBackAttempted/
-  /// confirmAndDisconnect) but with no confirmation dialog, since by
-  /// definition nobody has interacted with the screen in
-  /// sleepAfter+disconnectAfterSleep. A no-op if something else (BLE drop,
-  /// manual disconnect) already disconnected first — see _onControllerChange.
-  Future<void> _autoDisconnect() async {
-    await _wakeScreen();
-    final controller = _craneController;
-    if (controller == null || !controller.isConnected) return;
-    await controller.stopAllMotion();
-    if (!mounted) return;
-    await controller.disconnect();
   }
 
   void _cancelActivePlacement() {

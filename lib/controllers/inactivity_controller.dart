@@ -3,19 +3,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 /// Phases of the Control Screen inactivity-timeout state machine (see
-/// [InactivityController]). [expired] is a terminal, one-shot signal meaning
-/// "time to run the safe-disconnect flow" — the controller has no knowledge
-/// of PLC/BLE and never performs the disconnect itself; it only reports the
-/// phase transition via [ChangeNotifier.notifyListeners] for the owning
-/// Control Screen to act on.
-enum InactivityPhase { active, sleeping, expired }
+/// [InactivityController]). The controller has no knowledge of PLC/BLE and
+/// never performs any safety action itself; it only reports the phase
+/// transition via [ChangeNotifier.notifyListeners] for the owning Control
+/// Screen to act on (dimming/restoring the display).
+enum InactivityPhase { active, sleeping }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // InactivityController
 //
 // Centralized inactivity-timeout state machine for the Control Screen:
 //   active --(sleepAfter of no activity)--> sleeping
-//   sleeping --(disconnectAfterSleep more of no activity)--> expired
+// Sleeping is terminal until the next registerActivity() call — there is no
+// further auto-disconnect stage.
 //
 // A single Timer always represents "time until the next phase transition,"
 // recomputed from a wall-clock DateTime rather than trusted purely on Timer
@@ -26,20 +26,18 @@ enum InactivityPhase { active, sleeping, expired }
 //
 // Deliberately has no knowledge of BLE/PLC/brightness/wakelock — it only
 // tracks phase and notifies listeners; the owning screen decides what
-// "sleeping" (dim + simulate sleep) and "expired" (run the safe-disconnect
-// flow) actually do. This keeps the manager centralized and reusable rather
-// than duplicating timers into individual controls.
+// "sleeping" (dim + simulate sleep) actually does. This keeps the manager
+// centralized and reusable rather than duplicating timers into individual
+// controls.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class InactivityController extends ChangeNotifier {
   InactivityController({
     this.sleepAfter = const Duration(minutes: 3),
-    this.disconnectAfterSleep = const Duration(minutes: 2),
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final Duration sleepAfter;
-  final Duration disconnectAfterSleep;
   final DateTime Function() _clock;
 
   InactivityPhase _phase = InactivityPhase.active;
@@ -61,9 +59,8 @@ class InactivityController extends ChangeNotifier {
     _reschedule();
   }
 
-  /// Halts monitoring without disposing — used once the phase reaches
-  /// [InactivityPhase.expired], or when the PLC disconnects for some other
-  /// reason before the timeout fires (nothing left to time out toward).
+  /// Halts monitoring without disposing — used when the PLC disconnects for
+  /// some reason before the timeout fires (nothing left to time out toward).
   void stop() {
     _running = false;
     _timer?.cancel();
@@ -71,8 +68,8 @@ class InactivityController extends ChangeNotifier {
   }
 
   /// Records a genuine user interaction. Always resets the clock back to
-  /// "active, sleepAfter remaining" — waking the screen (and cancelling any
-  /// pending auto-disconnect) if it had already gone to sleep.
+  /// "active, sleepAfter remaining" — waking the screen if it had already
+  /// gone to sleep.
   void registerActivity() {
     if (_disposed || !_running) return;
     final wasSleeping = _phase == InactivityPhase.sleeping;
@@ -84,10 +81,8 @@ class InactivityController extends ChangeNotifier {
 
   void _reschedule() {
     _timer?.cancel();
-    final threshold = _phase == InactivityPhase.sleeping
-        ? sleepAfter + disconnectAfterSleep
-        : sleepAfter;
-    final remaining = threshold - _clock().difference(_lastActivityAt!);
+    if (_phase == InactivityPhase.sleeping) return;
+    final remaining = sleepAfter - _clock().difference(_lastActivityAt!);
     if (remaining <= Duration.zero) {
       _advance();
       return;
@@ -99,11 +94,6 @@ class InactivityController extends ChangeNotifier {
     if (_disposed || !_running) return;
     if (_phase == InactivityPhase.active) {
       _phase = InactivityPhase.sleeping;
-      notifyListeners();
-      _reschedule();
-    } else if (_phase == InactivityPhase.sleeping) {
-      _phase = InactivityPhase.expired;
-      _running = false;
       _timer = null;
       notifyListeners();
     }
@@ -116,16 +106,11 @@ class InactivityController extends ChangeNotifier {
   void reconcileAfterResume() {
     if (_disposed || !_running || _lastActivityAt == null) return;
     final elapsed = _clock().difference(_lastActivityAt!);
-    if (elapsed >= sleepAfter + disconnectAfterSleep) {
-      _phase = InactivityPhase.expired;
-      _running = false;
-      _timer?.cancel();
-      _timer = null;
-      notifyListeners();
-    } else if (elapsed >= sleepAfter) {
+    if (elapsed >= sleepAfter) {
       final wasActive = _phase == InactivityPhase.active;
       _phase = InactivityPhase.sleeping;
-      _reschedule();
+      _timer?.cancel();
+      _timer = null;
       if (wasActive) notifyListeners();
     } else {
       _reschedule();
