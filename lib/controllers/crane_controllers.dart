@@ -416,8 +416,12 @@ class CraneController extends ChangeNotifier
     }
     if (_controlScreenProfile == null) return AppScreen.profileSelection;
     if (_controlScreenProfile == ControlScreenProfile.safetyOnly) {
+      // Unlike the Standard control screens below, the Safety Control
+      // screen's own circular E-Stop control is the only thing that may
+      // latch E-Stop here — entering it must never auto-arm one.
       return AppScreen.safetyControl;
     }
+    unawaited(ensureControlEntryEmergencyLock());
     return _getControlScreenForPlcType();
   }
 
@@ -682,7 +686,17 @@ class CraneController extends ChangeNotifier
           previousStatus != BleConnectionStatus.authenticated) {
         _connectedSince = DateTime.now();
         _everAuthenticatedThisSession = true;
-        unawaited(ensureControlEntryEmergencyLock());
+        // Clear any status this app cached from a prior session before this
+        // one's own first Status Characteristic notification lands. Usually
+        // a no-op — the `disconnected` branch above already reset these —
+        // but a connection that reached `error` and retried straight back to
+        // `connecting`/`authenticated` never passes through `disconnected`,
+        // so without this, screens reading reportedStatusCommand (e.g. the
+        // Safety Control E-Stop button) could briefly show a stale value
+        // left over from before this authentication instead of the PLC's
+        // actual current output state.
+        _reportedStatusCommand = PlcOutputCommand.idle();
+        _lastPlcStatusAt = null;
         // Never interrupt a silent, face-triggered reauth with the
         // biometric-enrollment offer — that path is meant to go straight
         // to the control screen with no screen in between (see
@@ -784,6 +798,11 @@ class CraneController extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Arms E-Stop, once per connection, on entry into a Standard control
+  /// screen — see the non-safetyOnly branch of [_resolveControlAccessScreen].
+  /// Deliberately not called for [ControlScreenProfile.safetyOnly]: the
+  /// Safety Control screen's own circular E-Stop control is the only thing
+  /// allowed to latch E-Stop there.
   Future<void> ensureControlEntryEmergencyLock() async {
     if (!isConnected || _startupEmergencyArmedForConnection) return;
     _startupEmergencyArmedForConnection = true;
@@ -899,7 +918,12 @@ class CraneController extends ChangeNotifier
   Future<void> disconnect() async {
     _errorMessage = null;
 
-    if (isConnected && !_estopLatched) {
+    // The Safety Control screen disconnects as-is — no idle write — since
+    // its whole purpose is the operator's own explicit E-Stop control; the
+    // PLC should never see a command it wasn't actually given.
+    if (isConnected &&
+        !_estopLatched &&
+        currentScreen != AppScreen.safetyControl) {
       try {
         await _sendCommand(PlcOutputCommand.idle());
       } catch (_) {}

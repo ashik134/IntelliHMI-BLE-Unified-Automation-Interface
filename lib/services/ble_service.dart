@@ -1180,6 +1180,22 @@ class BleService {
       );
     }
 
+    // Flip the authenticated flag and notify listeners now, before any
+    // further awaits — not after the connection-priority bump below. The
+    // PLC pushes its current status (E-STOP output included) immediately
+    // after AUTH_OK, sometimes in the same tick; if that notification's
+    // _handleStatusNotificationAsync guard sees _sessionAuthenticated still
+    // false (because this function was suspended awaiting a platform call),
+    // it silently drops the packet as "outside an authenticated session."
+    // Connection priority is a best-effort Android link-speed optimization,
+    // not a precondition for being authenticated, so it must not gate this.
+    _sessionAuthenticated = true;
+    _emit(BleConnectionStatus.authenticated);
+    pendingAuth.complete(BleAuthOutcome.success);
+    _pendingAuthCompleter = null;
+    _startRssiPolling();
+    _startHeartbeat();
+
     if (!kIsWeb && Platform.isAndroid) {
       try {
         await device.requestConnectionPriority(
@@ -1190,22 +1206,6 @@ class BleService {
         _logger.w('Could not set connection priority: $e');
       }
     }
-
-    if (!identical(_device, device) ||
-        !device.isConnected ||
-        !identical(_pendingAuthCompleter, pendingAuth) ||
-        !BleCrypto.sessionActive) {
-      throw const _StaleBleSessionException(
-        'Authentication session changed while finalizing.',
-      );
-    }
-
-    _sessionAuthenticated = true;
-    _emit(BleConnectionStatus.authenticated);
-    pendingAuth.complete(BleAuthOutcome.success);
-    _pendingAuthCompleter = null;
-    _startRssiPolling();
-    _startHeartbeat();
   }
 
   // ── Autheticate the device ─────────────────────────────────────────────────

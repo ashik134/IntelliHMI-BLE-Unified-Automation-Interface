@@ -20,8 +20,19 @@ import 'package:rev_crane_control_ops/widgets/safety/circular_estop_control.dart
 // nothing else — no dynamic control grid, no layout editing. Reuses the same
 // CraneController.triggerEStop()/resetEStop() the Standard control screens
 // call (see plc14_control_screen.dart's _onEStopTap/_onResetEStopTap) so the
-// actual PLC E-Stop behavior is identical; only the on-screen control and
+// actual PLC E-Stop write is identical; only the on-screen control and
 // interaction (tap-to-trip, clockwise-swipe-to-reset) differ.
+//
+// The button's *displayed* state is a separate concern from that write path:
+// it's driven by controller.reportedStatusCommand.estop — the PLC's own
+// Status Characteristic echo of its actual E-STOP relay output — not by
+// controller.estopLatched (what this app last commanded). The PLC pushes a
+// status notification immediately after authentication, and
+// CraneController resets reportedStatusCommand right as that authenticated
+// transition fires (see the `authenticated` branch in
+// _attachStreamsIfNeeded's stream listener), so this screen never shows a
+// value left over from a previous session/PLC — only this connection's own
+// PLC-reported truth, live.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SafetyControlScreen extends StatelessWidget {
@@ -60,6 +71,8 @@ class SafetyControlScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CraneController>();
+    // Source of truth for the displayed button — see the header comment.
+    final estopActive = controller.reportedStatusCommand.estop;
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -99,7 +112,7 @@ class SafetyControlScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     CircularEStopControl(
-                      estopLatched: controller.estopLatched,
+                      estopLatched: estopActive,
                       diameter: diameter,
                       resetEnabled: controller.isConnected,
                       onEStopTap: () => _onEStopTap(context),
@@ -107,7 +120,7 @@ class SafetyControlScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 28),
                     Text(
-                      controller.estopLatched
+                      estopActive
                           ? 'Complete the clockwise swipe all the way around '
                                 'to clear the lockout.'
                           : 'Tap the button to trip the emergency stop.',
