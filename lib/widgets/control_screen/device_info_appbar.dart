@@ -485,7 +485,6 @@ class _DeviceInfoDialog extends StatelessWidget {
       BleConnectionStatus.discoveringServices => 'Discovering services',
       BleConnectionStatus.configuringNotifications =>
         'Configuring notifications',
-      BleConnectionStatus.initializingSafeState => 'Initializing safe state',
       BleConnectionStatus.connected => 'Connected',
       BleConnectionStatus.awaitingAuthentication => 'Awaiting authentication',
       BleConnectionStatus.authenticating => 'Authenticating',

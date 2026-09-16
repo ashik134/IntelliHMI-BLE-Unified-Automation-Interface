@@ -726,9 +726,11 @@ class BleService {
     await statusChar.setNotifyValue(true);
     _ensureConnectionSetupActive(device);
 
-    _emit(BleConnectionStatus.initializingSafeState);
-    await _sendSafeStatePreAuthBestEffort();
-    _ensureConnectionSetupActive(device);
+    // No Digital Characteristic write happens here or anywhere else in the
+    // connection sequence — the app never commands PLC outputs before an
+    // operator authenticates and a control screen is actually reached. The
+    // PLC's real output state (E-STOP included) reaches the app only via the
+    // Status Characteristic notification it pushes right after AUTH_OK.
     _emit(BleConnectionStatus.awaitingAuthentication);
   }
 
@@ -747,7 +749,6 @@ class BleService {
       BleConnectionStatus.connecting,
       BleConnectionStatus.discoveringServices,
       BleConnectionStatus.configuringNotifications,
-      BleConnectionStatus.initializingSafeState,
     };
     if (!cancellableStatuses.contains(_snapshot.status)) return;
 
@@ -1041,28 +1042,6 @@ class BleService {
       _logger.e('Encrypted auth notification error: $e');
       await _cryptoSafeState('Auth response error: $e');
     }
-  }
-
-  Future<void> _sendSafeStatePreAuthBestEffort() async {
-    if (_digitalChar == null) return;
-    try {
-      await _sendSafeStateCommand().timeout(const Duration(milliseconds: 900));
-      _logger.i('Pre-auth safe-state packet sent (best effort).');
-    } catch (error) {
-      _logger.w('Pre-auth safe-state write failed: ${error.toString()}');
-    }
-  }
-
-  Future<void> _sendSafeStateCommand() async {
-    final digitalChar = _digitalChar;
-    if (digitalChar == null) {
-      throw StateError('Digital characteristic is not ready.');
-    }
-    final plainBytes = PlcOutputCommand.emergencyStop().wireBytes.toList();
-    await digitalChar.write(
-      plainBytes,
-      withoutResponse: _digitalCharWriteNoResponse,
-    );
   }
 
   // ── Reads and acts on specific login result messages ──────────────────────

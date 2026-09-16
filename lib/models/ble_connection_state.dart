@@ -7,7 +7,6 @@ enum BleConnectionStatus {
 
   discoveringServices,
   configuringNotifications,
-  initializingSafeState,
 
   connected,
   awaitingAuthentication,

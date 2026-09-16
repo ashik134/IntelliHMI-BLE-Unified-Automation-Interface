@@ -104,7 +104,6 @@ class CraneController extends ChangeNotifier
   bool _permissionBannerDismissed = false;
   bool _rememberOperatorEmail = false;
   bool _estopLatched = false;
-  bool _startupEmergencyArmedForConnection = false;
   bool _biometricAvailable = false;
   bool _biometricEnrolled = false;
 
@@ -269,8 +268,6 @@ class CraneController extends ChangeNotifier
   bool get isConfiguringNotifications =>
       _transportConnState.status ==
       BleConnectionStatus.configuringNotifications;
-  bool get isInitializingSafeState =>
-      _transportConnState.status == BleConnectionStatus.initializingSafeState;
   bool get isAuthenticating =>
       _transportConnState.status == BleConnectionStatus.authenticating;
   bool get isAuthenticated =>
@@ -287,7 +284,6 @@ class CraneController extends ChangeNotifier
       _transportConnState.status == BleConnectionStatus.discoveringServices ||
       _transportConnState.status ==
           BleConnectionStatus.configuringNotifications ||
-      _transportConnState.status == BleConnectionStatus.initializingSafeState ||
       _transportConnState.status ==
           BleConnectionStatus.awaitingAuthentication ||
       _transportConnState.status == BleConnectionStatus.authenticating;
@@ -416,12 +412,8 @@ class CraneController extends ChangeNotifier
     }
     if (_controlScreenProfile == null) return AppScreen.profileSelection;
     if (_controlScreenProfile == ControlScreenProfile.safetyOnly) {
-      // Unlike the Standard control screens below, the Safety Control
-      // screen's own circular E-Stop control is the only thing that may
-      // latch E-Stop here — entering it must never auto-arm one.
       return AppScreen.safetyControl;
     }
-    unawaited(ensureControlEntryEmergencyLock());
     return _getControlScreenForPlcType();
   }
 
@@ -654,7 +646,6 @@ class CraneController extends ChangeNotifier
         _connectedSince = null;
         _estopLatched = false;
         _sessionEmail = null;
-        _startupEmergencyArmedForConnection = false;
         _pendingEnrollmentOffer = false;
         _pendingFaceVerification = false;
         _faceVerifiedOperator = null;
@@ -796,18 +787,6 @@ class CraneController extends ChangeNotifier
           'Bluetooth must be enabled before scanning for PLC devices. Please enable Bluetooth and try again.';
     }
     notifyListeners();
-  }
-
-  /// Arms E-Stop, once per connection, on entry into a Standard control
-  /// screen — see the non-safetyOnly branch of [_resolveControlAccessScreen].
-  /// Deliberately not called for [ControlScreenProfile.safetyOnly]: the
-  /// Safety Control screen's own circular E-Stop control is the only thing
-  /// allowed to latch E-Stop there.
-  Future<void> ensureControlEntryEmergencyLock() async {
-    if (!isConnected || _startupEmergencyArmedForConnection) return;
-    _startupEmergencyArmedForConnection = true;
-    if (_activeCommand.estop || _estopLatched) return;
-    await triggerEStop();
   }
 
   Future<void> pauseScan() async {

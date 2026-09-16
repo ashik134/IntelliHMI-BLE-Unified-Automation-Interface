@@ -126,16 +126,6 @@ class HeroStatusCard extends StatelessWidget {
       );
     }
 
-    if (controller.isInitializingSafeState) {
-      return const _StatusCardModel(
-        tone: BrandTone.violet,
-        icon: Icons.shield_rounded,
-        title: 'Initializing Safety State',
-        subtitle: 'Applying safe PLC state...',
-        loading: true,
-      );
-    }
-
     if (controller.isAwaitingAuthentication || controller.isAuthenticating) {
       return _StatusCardModel(
         tone: BrandTone.violet,

@@ -967,7 +967,6 @@ String _connectionStatusLabel(BleConnectionStatus s) => switch (s) {
   BleConnectionStatus.connecting => 'Connecting',
   BleConnectionStatus.discoveringServices => 'Discovering Services',
   BleConnectionStatus.configuringNotifications => 'Configuring Notifications',
-  BleConnectionStatus.initializingSafeState => 'Initializing Safe State',
   BleConnectionStatus.connected => 'Connected (Pre-Auth)',
   BleConnectionStatus.awaitingAuthentication => 'Awaiting Authentication',
   BleConnectionStatus.authenticating => 'Authenticating',
