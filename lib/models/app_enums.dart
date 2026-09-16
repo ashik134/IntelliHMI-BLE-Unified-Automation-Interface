@@ -3,8 +3,36 @@ enum AppScreen {
   faceVerification,
   authentication,
   setupMode,
+  profileSelection,
   control,
   plc38Control,
+  safetyControl,
+}
+
+/// Which control-screen experience an operator sees once authenticated on a
+/// given PLC: [standard] is the existing dynamic control grid (unchanged),
+/// [safetyOnly] is a dedicated circular E-Stop-only screen with no control
+/// grid at all. Chosen once per (operator, PLC) pair — see
+/// [CraneController.setControlScreenProfile] and
+/// `ControlScreenProfileRegistry`, which persists the choice keyed by both
+/// the operator's identity and the PLC's BLE MAC id.
+enum ControlScreenProfile {
+  standard('Standard Control'),
+  safetyOnly('Safety Control');
+
+  const ControlScreenProfile(this.displayName);
+
+  final String displayName;
+
+  /// Nullable by design (unlike [PlcType.fromString]'s default-to-[unknown]
+  /// fallback): an unset or corrupted saved value must fall through to
+  /// re-showing the profile-selection screen rather than silently defaulting
+  /// to one profile.
+  static ControlScreenProfile? fromString(String? value) => switch (value) {
+    'standard' => ControlScreenProfile.standard,
+    'safetyOnly' => ControlScreenProfile.safetyOnly,
+    _ => null,
+  };
 }
 
 enum DeviceStaleStatus { active, stale, expired }

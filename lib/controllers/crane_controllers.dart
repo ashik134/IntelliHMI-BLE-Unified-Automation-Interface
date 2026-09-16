@@ -17,6 +17,7 @@ import 'package:rev_crane_control_ops/services/auth_audit_log_service.dart';
 import 'package:rev_crane_control_ops/services/authorization_service.dart';
 import 'package:rev_crane_control_ops/services/biometric_service.dart';
 import 'package:rev_crane_control_ops/services/ble_crypto.dart';
+import 'package:rev_crane_control_ops/services/control_screen_profile_registry.dart';
 import 'package:rev_crane_control_ops/services/device_identity_service.dart';
 import 'package:rev_crane_control_ops/services/device_setup_registry.dart';
 import 'package:rev_crane_control_ops/models/ble_connection_state.dart';
@@ -139,6 +140,25 @@ class CraneController extends ChangeNotifier
   bool _accessDenied = false;
   OperatorRepository? _operatorRepository;
 
+  /// The operator resolved by [_checkControlAccess] for the current
+  /// authenticated session — cached there (the one place operator + the
+  /// connected PLC's MAC are both known together) so later steps, like the
+  /// Control Screen Profile lookup, don't need to re-resolve it. `null` when
+  /// PLC authentication succeeded but no local operator record matched the
+  /// login (still permitted — see [_checkControlAccess]'s doc comment).
+  OperatorProfile? _resolvedOperator;
+
+  /// Whether [_loadControlScreenProfile] has run (successfully or not) for
+  /// the current authenticated session — same one-shot-per-session idiom as
+  /// [_controlAccessChecked].
+  bool _profileChecked = false;
+
+  /// The Control Screen Profile (Standard vs Safety) chosen for the current
+  /// operator + connected PLC, or `null` before it's been resolved / when no
+  /// profile has ever been saved for this pair — see
+  /// [_resolveControlAccessScreen] and [setControlScreenProfile].
+  ControlScreenProfile? _controlScreenProfile;
+
   // One-shot signal consumed by the connectionStream listener: set right
   // before the silent, face-triggered reauth call so that specific
   // authenticated transition never pops the biometric-enrollment offer in
@@ -203,6 +223,24 @@ class CraneController extends ChangeNotifier
   /// [currentScreen] on AppScreen.authentication instead of the control
   /// screen — see [_checkControlAccess].
   bool get isAccessDenied => _accessDenied;
+
+  /// The operator resolved for the current authenticated session, or `null`
+  /// if PLC authentication succeeded with no matching local operator record.
+  OperatorProfile? get resolvedOperator => _resolvedOperator;
+
+  /// Identity to key a per-operator persisted choice (e.g. Control Screen
+  /// Profile) on: the resolved operator's [OperatorProfile.operatorId] when
+  /// available, otherwise the session's login email — always set on a
+  /// successful [authenticate] call, so this is non-null whenever a Control
+  /// Screen Profile lookup can actually run.
+  String? get currentOperatorIdentity =>
+      _resolvedOperator?.operatorId ?? _sessionEmail;
+
+  /// The Control Screen Profile chosen for the current operator + connected
+  /// PLC — `null` until resolved, or when none has been saved yet (in which
+  /// case [currentScreen] shows [AppScreen.profileSelection]).
+  ControlScreenProfile? get controlScreenProfile => _controlScreenProfile;
+
   PlcOutputCommand get activeCommand => _activeCommand;
 
   PlcOutputCommand get commandedCommand => _commandedCommand;
@@ -372,6 +410,14 @@ class CraneController extends ChangeNotifier
       unawaited(_checkControlAccess());
       return AppScreen.authentication;
     }
+    if (!_profileChecked) {
+      unawaited(_loadControlScreenProfile());
+      return AppScreen.authentication;
+    }
+    if (_controlScreenProfile == null) return AppScreen.profileSelection;
+    if (_controlScreenProfile == ControlScreenProfile.safetyOnly) {
+      return AppScreen.safetyControl;
+    }
     return _getControlScreenForPlcType();
   }
 
@@ -404,6 +450,8 @@ class CraneController extends ChangeNotifier
         _transportConnState.status != BleConnectionStatus.authenticated) {
       return;
     }
+
+    _resolvedOperator = operator;
 
     final authorized =
         operator == null ||
@@ -438,6 +486,57 @@ class CraneController extends ChangeNotifier
   Future<OperatorProfile?> _resolveOperatorByEmail(String email) async {
     final repo = _operatorRepository ??= await OperatorRepository.open();
     return repo.getByEmail(email);
+  }
+
+  /// Loads the saved Control Screen Profile for the current operator +
+  /// connected PLC, exactly once per authenticated session — same idiom as
+  /// [_checkControlAccess]: set the one-shot flag synchronously, resolve
+  /// asynchronously, guard against a stale result, then notify. Leaves
+  /// [_controlScreenProfile] `null` (routing to [AppScreen.profileSelection])
+  /// when no macId/operator identity is available yet or nothing was ever
+  /// saved for this pair.
+  Future<void> _loadControlScreenProfile() async {
+    if (_profileChecked) return;
+    _profileChecked = true;
+
+    final macId = _transportConnState.connectedDevice?.id;
+    final identity = currentOperatorIdentity;
+    if (macId == null || identity == null) {
+      notifyListeners();
+      return;
+    }
+
+    final profile = await ControlScreenProfileRegistry.get(identity, macId);
+
+    // A disconnect/reconnect, or a fresh authenticate() call resetting this
+    // check, may have happened while the lookup was in flight — a stale
+    // result must never flip the profile for a different attempt.
+    if (_transportConnState.connectedDevice?.id != macId ||
+        _transportConnState.status != BleConnectionStatus.authenticated) {
+      return;
+    }
+
+    _controlScreenProfile = profile;
+    notifyListeners();
+  }
+
+  /// Sets the Control Screen Profile for the current operator + connected
+  /// PLC and persists it, keyed by [currentOperatorIdentity] + the connected
+  /// device's MAC id. Used both by the first-time [AppScreen.profileSelection]
+  /// screen and by the later "Configure Screen" action — no manual
+  /// navigation is needed either way, since [notifyListeners] alone is
+  /// enough for [currentScreen] to react and the app's single
+  /// controller-driven switch (see `_ControlSubShell` in main.dart) to swap
+  /// screens.
+  Future<void> setControlScreenProfile(ControlScreenProfile profile) async {
+    final macId = _transportConnState.connectedDevice?.id;
+    final identity = currentOperatorIdentity;
+    _controlScreenProfile = profile;
+    _profileChecked = true;
+    notifyListeners();
+    if (macId != null && identity != null) {
+      await ControlScreenProfileRegistry.save(identity, macId, profile);
+    }
   }
 
   PlcType? _lastLoggedPlcType;
@@ -563,6 +662,9 @@ class CraneController extends ChangeNotifier
         _pendingSetupCredentials = null;
         _controlAccessChecked = false;
         _accessDenied = false;
+        _resolvedOperator = null;
+        _profileChecked = false;
+        _controlScreenProfile = null;
         _suppressEnrollmentOfferOnce = false;
         _biometricEnrolled = false;
         _buttonFields.clear();
@@ -1056,6 +1158,9 @@ class CraneController extends ChangeNotifier
     // session (e.g. retrying with a different email after a denial).
     _controlAccessChecked = false;
     _accessDenied = false;
+    _resolvedOperator = null;
+    _profileChecked = false;
+    _controlScreenProfile = null;
     final macId = _transportConnState.connectedDevice?.id;
 
     if (_deviceId.isEmpty) {

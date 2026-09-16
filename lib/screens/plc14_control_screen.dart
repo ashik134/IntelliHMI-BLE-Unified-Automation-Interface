@@ -32,6 +32,7 @@ import 'package:rev_crane_control_ops/utils/control_exit_utils.dart';
 import 'package:rev_crane_control_ops/widgets/buttons/button/multi_zone_slider_button.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/catalogue_overlay_host.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/control_canvas.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/control_screen_profile_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/customization_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/device_info_appbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/edit_mode_backdrop.dart';
@@ -791,6 +792,15 @@ class _ControlAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
             tooltip: 'Customize Layout',
             onPressed: () => context.read<LayoutEditController>().enter(),
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.tune_rounded,
+              size: 20,
+              color: AppColors.darkTextMuted,
+            ),
+            tooltip: 'Configure Screen',
+            onPressed: () => showControlScreenProfileSheet(context),
           ),
         ],
         if (isEditing) const EditModeUndoRedoActions(),

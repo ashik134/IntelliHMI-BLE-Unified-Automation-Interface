@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:rev_crane_control_ops/controllers/layout_edit_controller.dart';
 import 'package:rev_crane_control_ops/core/theme/app_colors.dart';
 import 'package:rev_crane_control_ops/models/grid_layout_option.dart';
+import 'package:rev_crane_control_ops/widgets/control_screen/control_screen_profile_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/feedback_settings/feedback_settings_sheet.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/grid_layout_toolbar.dart';
 import 'package:rev_crane_control_ops/widgets/control_screen/layout_settings_sheet.dart';
@@ -180,6 +181,7 @@ class _CustomizationToolbarState extends State<CustomizationToolbar> {
         onSaveAsTemplate: () => showSaveAsTemplateDialog(context),
         onOpenLayoutSettings: () => showLayoutSettingsSheet(context),
         onOpenFeedbackSettings: () => showFeedbackSettingsSheet(context),
+        onOpenScreenProfile: () => showControlScreenProfileSheet(context),
       ),
     );
   }
@@ -581,12 +583,14 @@ class _MoreActionsSheet extends StatelessWidget {
     required this.onSaveAsTemplate,
     required this.onOpenLayoutSettings,
     required this.onOpenFeedbackSettings,
+    required this.onOpenScreenProfile,
   });
 
   final VoidCallback onSaveLayout;
   final VoidCallback onSaveAsTemplate;
   final VoidCallback onOpenLayoutSettings;
   final VoidCallback onOpenFeedbackSettings;
+  final VoidCallback onOpenScreenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -668,6 +672,17 @@ class _MoreActionsSheet extends StatelessWidget {
                   onTap: () {
                     Navigator.of(context).pop();
                     onOpenFeedbackSettings();
+                  },
+                ),
+                const _MoreSectionLabel('SCREEN PROFILE'),
+                _MoreActionTile(
+                  icon: Icons.dashboard_customize_rounded,
+                  title: 'Configure Screen',
+                  subtitle:
+                      'Switch between Standard Control and Safety Control.',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onOpenScreenProfile();
                   },
                 ),
               ],
