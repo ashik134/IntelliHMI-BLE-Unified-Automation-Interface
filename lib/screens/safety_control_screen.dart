@@ -43,6 +43,10 @@ class SafetyControlScreen extends StatelessWidget {
     await controller.triggerEStop();
     Vibration.vibrate(duration: 600, amplitude: 255);
     if (context.mounted) {
+      // clearSnackBars (not showSnackBar alone) so a still-visible or queued
+      // SnackBar from a previous E-Stop never leaks into this one — each
+      // E-Stop press is guaranteed a fresh notification.
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Row(
@@ -66,6 +70,10 @@ class SafetyControlScreen extends StatelessWidget {
     }
     await controller.resetEStop();
     Vibration.vibrate(duration: 100);
+    // Dismiss the "Emergency Stop activated" SnackBar immediately on reset
+    // rather than leaving it to time out on its own — otherwise it (or a
+    // queued duplicate) can still be showing at the next E-Stop.
+    if (context.mounted) ScaffoldMessenger.of(context).clearSnackBars();
   }
 
   @override
