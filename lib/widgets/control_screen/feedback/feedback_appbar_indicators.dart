@@ -55,17 +55,16 @@ class FeedbackAppBarIndicators extends StatelessWidget {
                 : null,
           ),
         ],
-        if (showComms) ...[
-          const SizedBox(width: 8),
-          _CommsBadge(health: snapshot.comms),
-        ],
+        // if (showComms) ...[
+        //   const SizedBox(width: 8),
+        //   _CommsBadge(health: snapshot.comms),
+        // ],
         if (showBuzzer) ...[
           const SizedBox(width: 8),
           CompactPlcStatusBuzzer(
             config: config.buzzer.horn,
             isActive: snapshot.buzzerActive,
-            onSilence:
-                config.buzzer.acknowledgeEnabled && snapshot.buzzerActive
+            onSilence: config.buzzer.acknowledgeEnabled && snapshot.buzzerActive
                 ? manager.acknowledge
                 : null,
           ),
@@ -126,36 +125,37 @@ class _AlarmBadge extends StatelessWidget {
   }
 }
 
-class _CommsBadge extends StatelessWidget {
-  const _CommsBadge({required this.health});
+// class _CommsBadge extends StatelessWidget {
+//   const _CommsBadge({required this.health});
 
-  final CommsHealth health;
+//   final CommsHealth health;
 
-  @override
-  Widget build(BuildContext context) {
-    final color = FeedbackPalette.comms(health);
-    return Tooltip(
-      message: '${FeedbackPalette.commsLabel(health)} — derived from PLC '
-          'status notifications, not a poll',
-      child: Container(
-        width: 30,
-        height: 30,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.idleColor.withAlpha(120),
-          shape: BoxShape.circle,
-          border: Border.all(color: color.withAlpha(150)),
-        ),
-        child: Icon(
-          switch (health) {
-            CommsHealth.live => Icons.wifi_tethering_rounded,
-            CommsHealth.stale => Icons.wifi_tethering_error_rounded_outlined,
-            CommsHealth.offline => Icons.wifi_tethering_off_rounded,
-          },
-          size: 16,
-          color: color,
-        ),
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     final color = FeedbackPalette.comms(health);
+//     return Tooltip(
+//       message:
+//           '${FeedbackPalette.commsLabel(health)} — derived from PLC '
+//           'status notifications, not a poll',
+//       child: Container(
+//         width: 30,
+//         height: 30,
+//         alignment: Alignment.center,
+//         decoration: BoxDecoration(
+//           color: AppColors.idleColor.withAlpha(120),
+//           shape: BoxShape.circle,
+//           border: Border.all(color: color.withAlpha(150)),
+//         ),
+//         // child: Icon(
+//         //   switch (health) {
+//         //     CommsHealth.live => Icons.wifi_tethering_rounded,
+//         //     CommsHealth.stale => Icons.wifi_tethering_error_rounded_outlined,
+//         //     CommsHealth.offline => Icons.wifi_tethering_off_rounded,
+//         //   },
+//         //   size: 16,
+//         //   color: color,
+//         // ),
+//       ),
+//     );
+//   }
+// }
